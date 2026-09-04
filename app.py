@@ -49,6 +49,8 @@ def init():
         cur.execute("CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT UNIQUE,location TEXT,sub_id INT)")
         try:cur.execute("ALTER TABLE dish_ips ADD COLUMN IF NOT EXISTS site TEXT")
         except:pass
+        try:cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT")
+        except:pass
         cur.execute("SELECT * FROM users WHERE phone='0900000000'")
         if not cur.fetchone():cur.execute("INSERT INTO users(phone,password,role,active) VALUES('0900000000','admin123','super',1)")
         con.commit();cur.close();return
@@ -59,6 +61,8 @@ def init():
     con.execute("CREATE TABLE IF NOT EXISTS servers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,host TEXT,username TEXT,password TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT UNIQUE,location TEXT,sub_id INT)")
     try:con.execute("ALTER TABLE dish_ips ADD COLUMN site TEXT")
+    except:pass
+    try:con.execute("ALTER TABLE users ADD COLUMN username TEXT")
     except:pass
     if not con.execute("SELECT * FROM users WHERE phone='0900000000'").fetchone():
         con.execute("INSERT INTO users VALUES('0900000000','admin123','super',1)")
@@ -83,15 +87,21 @@ def mk_online(s):
         api=pool.get_api();r=api.get_resource('/ppp/active').get();pool.disconnect();return r
     except:return []
 
-# LAYOUT يستخدم رموز من ملف colors.py فقط
+# LAYOUT يستخدم رموز من ملف colors.py فقط - الالوان ما تغيرت
 LAYOUT="""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>OMAIA</title>
 <style>
-body{font-family:Arial;margin:0;display:flex;min-height:100vh;background:__BG__;color:__TEXT__}
-.sidebar{width:230px;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto;background:__SIDEBAR__}
+body{font-family:Arial;margin:0;min-height:100vh;background:__BG__;color:__TEXT__}
+.topbar{position:fixed;top:0;right:0;left:0;height:56px;background:__SIDEBAR__;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1002;border-bottom:1px solid #334155}
+.topbar b{color:__MAIN__}
+.menu-btn{background:__MAIN__;border:none;border-radius:8px;padding:8px 12px;font-size:18px;cursor:pointer;color:#000;width:auto}
+.sidebar{width:250px;padding:15px;position:fixed;top:56px;bottom:0;right:0;overflow-y:auto;background:__SIDEBAR__;transform:translateX(105%);transition:0.3s;z-index:1003}
+.sidebar.open{transform:translateX(0)}
 .sidebar h2{color:__MAIN__;text-align:center}
-.sidebar a{display:block;color:#fff;padding:10px;margin:5px 0;background:__CARD__;text-decoration:none;border-radius:8px}
-.main{margin-left:230px;flex:1;padding:20px;width:100%}
+.sidebar a{display:block;color:#fff;padding:10px;margin:6px 0;background:__CARD__;text-decoration:none;border-radius:8px}
+.overlay{display:none;position:fixed;top:56px;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:1001}
+.overlay.show{display:block}
+.main{padding:76px 16px 20px 16px;max-width:1100px;margin:auto}
 table{width:100%;border-collapse:collapse;font-size:14px;background:__CARD__;border-radius:10px;overflow:hidden}
 th,td{padding:8px;border-bottom:1px solid #334155;text-align:center}
 th{color:__MAIN__}
@@ -99,9 +109,20 @@ input,select{width:100%;padding:9px;margin:5px 0;border-radius:8px;box-sizing:bo
 button{padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer;background:__MAIN__;color:#000}
 .card{padding:12px;border-radius:10px;margin:10px 0;border:1px solid #334155;background:__CARD__}
 .form2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.wa-float{position:fixed;bottom:18px;left:18px;width:56px;height:56px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;text-decoration:none;z-index:1004;box-shadow:0 4px 14px rgba(0,0,0,0.4)}
+.footer{text-align:center;padding:18px;color:#94a3b8;font-size:13px;margin-top:20px}
+.footer a{color:__MAIN__;text-decoration:none}
 </style></head><body>
-<div class="sidebar"><h2>OMAIA</h2>{% if sess %}<a href="/dash?view=subs">المشتركين</a><br><a href="/search">بحث</a><br><a href="/dash?view=add">إضافة</a><br><a href="/dash?view=ledger">دفتر الحسابات</a><br><a href="/dash?view=dishes">صحون</a><br><a href="/dash?view=servers">سيرفرات</a><br>{% if role=='super' %}<a href="/dash?view=settings">إعدادات</a><br>{% endif %}<a href="/logout">خروج</a>{% endif %}</div>
-<div class="main">{{content|safe}}</div></body></html>"""
+<div class="topbar"><button class="menu-btn" onclick="toggleSide()">☰</button><b>OMAIA</b><span>🔔</span></div>
+<div class="overlay" id="ovl" onclick="toggleSide()"></div>
+<div class="sidebar" id="sdb"><h2>OMAIA</h2>{% if sess %}<a href="/dash?view=subs">المشتركين</a><a href="/search">بحث</a><a href="/dash?view=add">إضافة</a><a href="/dash?view=ledger">دفتر الحسابات</a><a href="/dash?view=dishes">صحون</a><a href="/dash?view=servers">سيرفرات</a>{% if role=='super' %}<a href="/dash?view=settings">إعدادات</a>{% endif %}<a href="/logout">خروج</a>{% endif %}</div>
+<div class="main" id="mainc">{{content|safe}}<div class="footer">تصميم م عبدو عباس<br><a href="https://wa.me/963900000000" target="_blank">تواصل دعم فني واتساب</a></div></div>
+<a class="wa-float" href="https://wa.me/963900000000" target="_blank">💬</a>
+<script>
+function toggleSide(){var s=document.getElementById('sdb');var o=document.getElementById('ovl');s.classList.toggle('open');o.classList.toggle('show');}
+document.getElementById('mainc').addEventListener('click',function(){var s=document.getElementById('sdb');if(s.classList.contains('open')){s.classList.remove('open');document.getElementById('ovl').classList.remove('show');}});
+</script>
+</body></html>"""
 
 def render(c):
     col=get_colors()
@@ -132,10 +153,17 @@ def dash():
     if not session.get('phone'):return redirect('/login')
     v=request.args.get('view','subs');con=db()
     if v=='settings' and session.get('role')=='super':
+        try:ex(con,"ALTER TABLE users ADD COLUMN username TEXT")
+        except:pass
         users=ex(con,"SELECT * FROM users ORDER BY phone").fetchall()
-        utr="".join([f"<tr><td>{u['phone']}</td><td>{u['role']}</td><td><a href='/toggle_user?ph={u['phone']}'>تعطيل/تشغيل</a> | <a href='/del_user?ph={u['phone']}'>حذف</a></td></tr>" for u in users])
-        c=f"<div class='card'><h4>اليوزرات</h4><form method='post' action='/add_user'><div class='form2'><input name='phone' required placeholder='هاتف'><input name='username' placeholder='يوزر'><input name='password' required placeholder='باسورد'><select name='role'><option value='tech'>فني</option><option value='super'>super</option></select></div><button>إضافة</button></form><table>{utr}</table></div>"
+        def gd(u,k):
+            try: return u[k] if isinstance(u,dict) else ""
+            except: return ""
+        # الاعدادات مجمعة بزاوية الصفحة
+        utr="".join([f"<tr><td>{u['phone']}<br><small>{gd(u,'username')}</small></td><td>{gd(u,'password') or u['password'] if isinstance(u,dict) else u[2]}</td><td>{u['role']}</td><td>{'مفعل' if u['active'] else 'معطل'}</td><td><a href='/toggle_user?ph={u['phone']}'>تعطيل/تفعيل</a><br><a href='/del_user?ph={u['phone']}' style='color:#f87171'>حذف</a></td></tr>" for u in users])
+        c=f"<div class='card' style='max-width:520px;margin-right:0;border:2px solid __MAIN__'><h4>الاعدادات - اليوزرات</h4><form method='post' action='/add_user'><div class='form2'><input name='phone' required placeholder='هاتف'><input name='username' placeholder='يوزر'><input name='password' required placeholder='باسورد'><select name='role'><option value='tech'>فني</option><option value='super'>super</option></select></div><button>إضافة</button></form><div style='overflow-x:auto'><table><tr><th>اليوزر / هاتف</th><th>الباسورد</th><th>الدور</th><th>الحالة</th><th>تحكم</th></tr>{utr}</table></div></div>"
         c+="<div class='card'><h4>اللغة</h4><a href='/lang/ar'>العربية</a> | <a href='/lang/en'>English</a></div>"
+        c+="<div class='card'><h4>تواصل دعم فني</h4><a href='https://wa.me/963900000000' target='_blank'><button>واتساب الدعم الفني</button></a></div>"
         close_con(con);return render(c)
     if v=='subs':
         rows=ex(con,"SELECT s.*,a.usd FROM subs s LEFT JOIN accounts a ON a.sub_id=s.id").fetchall();close_con(con)
@@ -143,8 +171,8 @@ def dash():
         return render(f"<table><tr><th>الاسم</th><th>هاتف</th><th>حالة</th><th>تحكم</th></tr>{tr}</table>")
     if v=='dishes':
         rows=ex(con,"SELECT * FROM dish_ips").fetchall();close_con(con)
-        tr="".join([f"<tr><td>{dict(r).get('location')}</td><td>{dict(r).get('site','-')}</td><td>{dict(r).get('ip')}</td><td><a href='/del_dish/{dict(r).get('id')}'>حذف</a></td></tr>" for r in rows])
-        return render(f"<div class='card'><form method='post' action='/add_dish'><div class='form2'><input name='location' required placeholder='اسم الشبكة'><input name='site' placeholder='موقع البرج'><input name='ip' required placeholder='IP'></div><button>إضافة</button></form></div><table><tr><th>شبكة</th><th>برج</th><th>IP</th><th></th></tr>{tr}</table>")
+        tr="".join([f"<tr><td>{dict(r).get('location')}</td><td>{dict(r).get('site','-')}</td><td dir='ltr'>{dict(r).get('ip')}</td><td><a href='/edit_dish/{dict(r).get('id')}'>تعديل ip</a> | <a href='/del_dish/{dict(r).get('id')}' style='color:#f87171'>حذف</a></td></tr>" for r in rows])
+        return render(f"<div class='card'><form method='post' action='/add_dish'><div class='form2'><input name='location' required placeholder='اسم الشبكة'><input name='site' placeholder='موقع البرج'><input name='ip' required placeholder='IP' dir='ltr'></div><button>إضافة</button></form></div><table><tr><th>شبكة</th><th>برج</th><th>IP</th><th>تحكم</th></tr>{tr}</table>")
     if v=='servers':
         rows=ex(con,"SELECT * FROM servers").fetchall();close_con(con)
         tr="".join([f"<tr><td>{r['name']}</td><td>{r['host']}</td><td><a href='/del_srv/{r['id']}'>حذف</a></td></tr>" for r in rows])
@@ -194,6 +222,17 @@ def add_dish():
         try:ex(con,"UPDATE dish_ips SET location=?,site=? WHERE ip=?",(request.form.get('location','').strip(),request.form.get('site','').strip(),request.form.get('ip','').strip()))
         except:pass
     con.commit();close_con(con);return redirect('/dash?view=dishes')
+
+@app.route('/edit_dish/<int:i>',methods=['GET','POST'])
+def edit_dish(i):
+    if not session.get('phone'):return redirect('/login')
+    con=db()
+    if request.method=='POST':
+        ex(con,"UPDATE dish_ips SET ip=?,location=?,site=? WHERE id=?",(request.form.get('ip','').strip(),request.form.get('location','').strip(),request.form.get('site','').strip(),i))
+        con.commit();close_con(con);return redirect('/dash?view=dishes')
+    r=ex(con,"SELECT * FROM dish_ips WHERE id=?",(i,)).fetchone();close_con(con)
+    d=dict(r) if r else {}
+    return render(f"<div class='card'><h4>تعديل IP</h4><form method='post'><input name='location' value='{d.get('location','')}' placeholder='اسم الشبكة'><input name='site' value='{d.get('site','')}' placeholder='موقع البرج'><input name='ip' value='{d.get('ip','')}' dir='ltr' placeholder='IP'><button>حفظ التعديل</button></form></div>")
 
 @app.route('/del_dish/<int:i>')
 def del_dish(i):con=db();ex(con,"DELETE FROM dish_ips WHERE id=?",(i,));con.commit();close_con(con);return redirect('/dash?view=dishes')
