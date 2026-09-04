@@ -9,7 +9,7 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) 
-DB = "omaia_pro_secure.db" # قاعدة بيانات جديدة ونظيفة
+DB = "omaia_isp_final_stable.db"
 
 def init_db():
     con = sqlite3.connect(DB)
@@ -179,26 +179,37 @@ def dashboard():
             phone = str(s[2])
             speed = str(s[3]) if s[3] else '-'
             status = str(s[4])
-            usd_val = f"{s[5]:.2f}" if s[5] is not None else "0.00"
-            syr_val = str(s[6]) if s[6] is not None else "0"
-            ip_val = str(s[7]) if s[7] else 'غير معين'
             
-            status_badge = '<span class="badge badge-active">نشط</span>' if status == "نشط" else '<span class="badge badge-suspended">موقوف</span>'
+            usd_val = "0.00"
+            if s[5] is not None:
+                usd_val = "{:.2f}".format(s[5])
+                
+            syr_val = "0"
+            if s[6] is not None:
+                syr_val = str(s[6])
+                
+            ip_val = 'غير معين'
+            if s[7]:
+                ip_val = str(s[7])
             
-            rows += f"""
-            <tr>
-                <td>{name}</td><td>{phone}</td><td>{speed}</td><td>{ip_val}</td>
-                <td style="color: #34d399;">${usd_val}</td><td style="color: #fbbf24;">{syr_val} ل.س</td>
-                <td>{status_badge}</td>
-                <td>
-                    <a href="/toggle_status/{sub_id}" style="color:var(--gold); text-decoration:none; margin-right:10px;">تغيير الحالة</a> | 
-                    <a href="/del_sub/{sub_id}" style="color:#f87171; text-decoration:none;" onclick="return confirm('هل أنت متأكد؟')">حذف</a>
-                </td>
-            </tr>
-            """
-        content = f"""<h3>قائمة المشتركين</h3><table>
-            <tr><th>الاسم</th><th>الهاتف</th><th>السرعة</th><th>الـ IP</th><th>رصيد ($)</th><th>رصيد (سوري)</th><th>الحالة</th><th>التحكم</th></tr>
-            {rows}</table>"""
+            if status == "نشط":
+                status_badge = '<span class="badge badge-active">نشط</span>'
+            else:
+                status_badge = '<span class="badge badge-suspended">موقوف</span>'
+            
+            rows += "<tr>"
+            rows += "<td>" + name + "</td>"
+            rows += "<td>" + phone + "</td>"
+            rows += "<td>" + speed + "</td>"
+            rows += "<td>" + ip_val + "</td>"
+            rows += "<td style='color: #34d399;'>$" + usd_val + "</td>"
+            rows += "<td style='color: #fbbf24;'>" + syr_val + " ل.س</td>"
+            rows += "<td>" + status_badge + "</td>"
+            rows += "<td><a href='/toggle_status/" + sub_id + "' style='color:var(--gold); text-decoration:none; margin-right:10px;'>تغيير الحالة</a> | "
+            rows += "<a href='/del_sub/" + sub_id + "' style='color:#f87171; text-decoration:none;' onclick='return confirm(\"هل أنت متأكد؟\")'>حذف</a></td>"
+            rows += "</tr>"
+            
+        content = "<h3>قائمة المشتركين</h3><table><tr><th>الاسم</th><th>الهاتف</th><th>السرعة</th><th>الـ IP</th><th>رصيد ($)</th><th>رصيد (سوري)</th><th>الحالة</th><th>التحكم</th></tr>" + rows + "</table>"
         
     elif view == 'add_sub':
         con.close()
@@ -212,10 +223,3 @@ def dashboard():
             <div style="display:flex; gap:10px;">
                 <input type="number" step="0.01" name="usd" placeholder="رصيد بالدولار ($)">
                 <input type="number" name="syr" placeholder="رصيد بالليرة السورية">
-            </div>
-            <select name="status"><option>نشط</option><option>موقوف</option></select>
-            <button type="submit">حفظ وإضافة</button>
-        </form>
-        """
-        
-    elif view == 'accounts':
