@@ -48,7 +48,7 @@ def init():
     if not con.execute("SELECT * FROM users WHERE phone='0900000000'").fetchone():
         con.execute("INSERT INTO users VALUES('0900000000','admin123','super',1)")
     con.commit();con.close()
-
+init()
 def mk_action(host,user,pwd,action,ip):
     if not routeros_api: return
     try:
