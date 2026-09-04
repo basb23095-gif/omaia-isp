@@ -282,6 +282,27 @@ def search():
         dishes=ex(con,"SELECT * FROM dish_ips").fetchall()
     close_con(con)
 
+    tr1=""
+    for r in subs:
+        d=dict(r) if not isinstance(r,dict) else r
+        ip=d.get('dish_ip','') or '-'
+        ip_html=f"<a href='http://{ip}' target='_blank' style='color:#60a5fa;text-decoration:underline' onclick='event.stopPropagation()'>{ip}</a>" if ip!='-' and ip else '-'
+        tr1+=f"<tr><td>{d.get('name','')}</td><td>{d.get('phone','')}</td><td style='direction:ltr'>{ip_html}</td><td>{d.get('status','')}</td></tr>"
+
+    tr2=""
+    for r in dishes:
+        d=dict(r) if not isinstance(r,dict) else r
+        ip=d.get('ip','')
+        ip_html=f"<a href='http://{ip}' target='_blank' style='color:#60a5fa;text-decoration:underline'>{ip}</a>"
+        tr2+=f"<tr><td>{d.get('location','')}</td><td>{d.get('site','') or '-'}</td><td style='direction:ltr'>{ip_html}</td></tr>"
+
+    c="<form method='get' action='/search' style='display:flex;gap:8px;margin-bottom:15px'>"
+    c+=f"<input name='q' value='{q}' placeholder='ابحث اسم، هاتف، IP...' style='flex:1;direction:ltr;text-align:left'>"
+    c+="<button style='width:100px'>بحث</button></form>"
+
+    c+=f"<h3>المشتركين ({len(subs)})</h3><table><tr><th>الاسم</th><th>الهاتف</th><th>IP</th><th>الحالة</th></tr>{tr1}</table>"
+    c+=f"<h3 style='margin-top:20px'>الصحون ({len(dishes)})</h3><table><tr><th>اسم الشبكة</th><th>موقع البرج</th><th>IP</th></tr>{tr2}</table>"
+    return render(c)
     # جدول المشتركين
     tr1=""
     for r in subs:
