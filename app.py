@@ -1,14 +1,29 @@
 from flask import Flask, request, redirect, render_template_string, session, Response
-import sqlite3, os, datetime, io, csv
+import os, datetime, io, csv
 try: import routeros_api
 except: routeros_api=None
+try: import psycopg2, psycopg2.extras
+except: psycopg2=None
+import sqlite3
 
 app=Flask(__name__)
-app.secret_key=os.urandom(24)
-DB="omaia_company.db"
+app.secret_key=os.environ.get("SECRET_KEY","omaia-secret")
+DATABASE_URL=os.environ.get("DATABASE_URL","")
+USE_PG=bool(DATABASE_URL and psycopg2)
 
 def db():
-    con=sqlite3.connect(DB); con.row_factory=sqlite3.Row; return con
+    if USE_PG:
+        return psycopg2.connect(DATABASE_URL, sslmode='require')
+    con=sqlite3.connect("omaia_company.db")
+    con.row_factory=sqlite3.Row
+    return con
+
+def ex(con,q,args=()):
+    if USE_PG:
+        cur=con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(q.replace("?","%s"), args)
+        return cur
+    return con.execute(q,args)
 
 def init():
     con=db()
