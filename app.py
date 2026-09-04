@@ -267,6 +267,7 @@ def search():
         dishes_rows = ex(con,"SELECT * FROM dish_ips").fetchall()
         subs_rows = ex(con,"SELECT * FROM subs").fetchall()
     close_con(con)
+    open_link = f"<center><a href='http://{q.strip()}' target='_blank'>فتح {q.strip()} ↗</a></center>" if q.strip().replace('.','').isdigit() else ""
     dh = ""
     for r in dishes_rows:
         d = dict(r)
