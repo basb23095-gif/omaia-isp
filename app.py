@@ -280,7 +280,7 @@ def search():
         name = d.get('name','')
         phone = d.get('phone','')
         sh += "<tr><td>" + str(name) + "</td><td style=\"direction:ltr\">" + str(phone) + "</td></tr>"
-    c = "<form method=\"get\" action=\"/search\" style=\"display:flex;gap:8px;margin-bottom:15px\">"
+        c = open_link + "<form method=\"get\" action=\"/search\" style=\"display:flex;gap:8px;margin-bottom:15px\">"
     c += "<input name=\"q\" value=\"" + q + "\" placeholder=\"ابحث IP او اسم...\" style=\"flex:1\">"
     c += "<button style=\"width:100px\">بحث</button></form>"
     c += "<h3>الصحون (" + str(len(dishes_rows)) + ")</h3><table><tr><th>الاسم</th><th>IP</th></tr>" + dh + "</table>"
