@@ -56,6 +56,9 @@ def init():
         cur.execute("CREATE TABLE IF NOT EXISTS ledger(id SERIAL PRIMARY KEY,sub_id INT,date TEXT,usd FLOAT,syr FLOAT,note TEXT,by_user TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS servers(id SERIAL PRIMARY KEY,name TEXT,host TEXT,username TEXT,password TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT UNIQUE,location TEXT,sub_id INT)")
+        # عمود موقع البرج - ما يضيع القديم
+        try: cur.execute("ALTER TABLE dish_ips ADD COLUMN IF NOT EXISTS site TEXT")
+        except: pass
         cur.execute("CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)")
         cur.execute("SELECT * FROM users WHERE phone='0900000000'")
         if not cur.fetchone():
@@ -67,6 +70,8 @@ def init():
     con.execute("CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,sub_id INT,date TEXT,usd REAL,syr REAL,note TEXT,by_user TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS servers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,host TEXT,username TEXT,password TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT UNIQUE,location TEXT,sub_id INT)")
+    try: con.execute("ALTER TABLE dish_ips ADD COLUMN site TEXT")
+    except: pass
     con.execute("CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)")
     if not con.execute("SELECT * FROM users WHERE phone='0900000000'").fetchone():
         con.execute("INSERT INTO users VALUES('0900000000','admin123','super',1)")
@@ -123,11 +128,20 @@ button{background:__MAIN__;padding:10px;width:100%;border:none;border-radius:8px
 {% if role=='super' %}<a href="/dash?view=settings">⚙️ إعدادات</a>{% endif %}
 <a href="/logout" style="background:#7f1d1d;color:#fff">خروج</a>
 {% endif %}</div>
-<div class="main" id="mn"><div class="topbar"><button class="menu-btn" onclick="toggleSb()">☰</button><span>نظام الشركة الخاص - OMAIA</span><span></span></div>{{content|safe}}</div>
+<div class="main" id="mn"><div class="topbar"><button class="menu-btn" onclick="toggleSb(event)">☰</button><span>نظام الشركة الخاص - OMAIA</span><span></span></div>{{content|safe}}</div>
 <script>
-function toggleSb(){document.getElementById('sb').classList.toggle('closed');document.getElementById('mn').classList.toggle('full')}
+function toggleSb(e){ if(e) e.stopPropagation(); document.getElementById('sb').classList.toggle('closed'); document.getElementById('mn').classList.toggle('full'); }
 function closeSb(){document.getElementById('sb').classList.add('closed');document.getElementById('mn').classList.add('full')}
-document.querySelectorAll('.sidebar a').forEach(a=>{a.addEventListener('click',()=>{if(window.innerWidth<900) closeSb()}); if(a.getAttribute('href')===location.pathname+location.search) a.classList.add('active')});
+// تسكير القائمة بس تكبس بأي مكان بالشاشة
+document.addEventListener('click', function(e){
+  var sb=document.getElementById('sb');
+  var btn=document.querySelector('.menu-btn');
+  if(sb.classList.contains('closed')) return;
+  if(sb.contains(e.target)) return;
+  if(btn && btn.contains(e.target)) return;
+  closeSb();
+});
+document.querySelectorAll('.sidebar a').forEach(a=>{ if(a.getAttribute('href')===location.pathname+location.search) a.classList.add('active')});
 if(window.innerWidth<900){closeSb()}
 </script>
 </body></html>"""
@@ -176,7 +190,7 @@ def dash():
         for r2 in rows:
             dip=r2['dish_ip']; dname="-"
             if dip:
-                dd=ex(con,"SELECT location FROM dish_ips WHERE ip=?",(dip,)).fetchone()
+                dd=ex(con,"SELECT location,site FROM dish_ips WHERE ip=?",(dip,)).fetchone()
                 if dd:
                     loc=dd['location'] if isinstance(dd,dict) else dd[0]
                     dname=loc if loc else dip
@@ -187,7 +201,12 @@ def dash():
         srvs=ex(con,"SELECT * FROM servers").fetchall()
         opts="".join([f"<option value='{s['id']}'>{s['name']}</option>" for s in srvs])
         dishes=ex(con,"SELECT * FROM dish_ips").fetchall()
-        dopts="".join([f"<option value='{d['ip']}'>{d['location'] or d['ip']} ({d['ip']})</option>" for d in dishes])
+        dopts=""
+        for d in dishes:
+            dd=dict(d) if not isinstance(d,dict) else d
+            l=dd.get('location') or dd.get('ip')
+            s=dd.get('site') or ''
+            dopts+=f"<option value='{dd.get('ip')}'>{l} - {s} ({dd.get('ip')})</option>"
         c=f"<h3>إضافة مشترك</h3><form method='post' action='/add_sub'><div class='form2'><input name='name' required placeholder='الاسم'><input name='phone' required placeholder='الهاتف'><input name='speed' placeholder='السرعة'><select name='dish_ip'><option value=''>اختر الصحن</option>{dopts}</select><select name='server_id'><option value=''>بدون سيرفر</option>{opts}</select><select name='status'><option>نشط</option><option>موقوف</option></select></div><button>حفظ</button></form>"
     elif v=='ledger':
         rows=ex(con,"SELECT l.*,s.name FROM ledger l LEFT JOIN subs s ON s.id=l.sub_id ORDER BY l.id DESC LIMIT 100").fetchall()
@@ -197,8 +216,11 @@ def dash():
         c=f"<div class='card'><form method='post' action='/charge'><div class='form2'><select name='sub_id'>{opts}</select><input name='amount' placeholder='المبلغ'><select name='currency'><option value='usd'>دولار</option><option value='syr'>سوري</option></select><input name='note' placeholder='ملاحظة'></div><button>حفظ</button></form></div><table><tr><th>التاريخ</th><th>المشترك</th><th>$</th><th>ل.س</th><th>ملاحظة</th><th>بواسطة</th></tr>{tr}</table>"
     elif v=='dishes':
         rows=ex(con,"SELECT * FROM dish_ips").fetchall()
-        tr="".join([f"<tr><td>{r['location'] or '-'}</td><td>{r['ip']}</td><td><a href='/del_dish/{r['id']}' style='color:#f87171'>حذف</a></td></tr>" for r in rows])
-        c=f"<div class='card'><form method='post' action='/add_dish'><div class='form2'><input name='location' required placeholder='اسم الصحن'><input name='ip' required placeholder='IP الصحن'></div><button>إضافة</button></form></div><table><tr><th>اسم الصحن</th><th>IP</th><th></th></tr>{tr}</table>"
+        tr=""
+        for r in rows:
+            d=dict(r) if not isinstance(r,dict) else r
+            tr+=f"<tr><td>{d.get('location') or '-'}</td><td>{d.get('site') or '-'}</td><td style='direction:ltr'>{d.get('ip')}</td><td><a href='/del_dish/{d.get('id')}' style='color:#f87171'>حذف</a></td></tr>"
+        c=f"<div class='card'><form method='post' action='/add_dish'><div class='form2'><input name='location' required placeholder='اسم الشبكة'><input name='site' placeholder='موقع البرج'><input name='ip' required placeholder='IP الصحن' style='direction:ltr'></div><button>إضافة</button></form></div><table><tr><th>اسم الشبكة</th><th>موقع البرج</th><th>IP</th><th></th></tr>{tr}</table>"
     elif v=='servers':
         srvs=ex(con,"SELECT * FROM servers").fetchall()
         tr="".join([f"<tr><td>{s['name']}</td><td>{s['host']}</td><td>-</td><td><a href='/dash?view=srv_detail&id={s['id']}' style='color:#d4af37'>مراقبة</a> | <a href='/del_srv/{s['id']}' style='color:#f87171'>حذف</a></td></tr>" for s in srvs])
@@ -249,18 +271,19 @@ def search():
     q=request.args.get('q','').strip()
     con=db(); like="%"+q+"%"
     if q:
-        dishes_rows=ex(con,"SELECT * FROM dish_ips WHERE ip LIKE? OR location LIKE?",(like,like,)).fetchall()
+        # البحث فقط بالمشتركين - الايبيات ما تطلع
+        rows=ex(con,"SELECT * FROM subs WHERE name LIKE? OR phone LIKE?",(like,like)).fetchall()
     else:
-        dishes_rows=ex(con,"SELECT * FROM dish_ips").fetchall()
+        rows=ex(con,"SELECT * FROM subs LIMIT 50").fetchall()
     close_con(con)
-    dh=""
-    for r in dishes_rows:
-        d=dict(r)
-        dh+="<tr><td>"+str(d.get('location',''))+"</td><td style='direction:ltr'>"+str(d.get('ip',''))+"</td></tr>"
+    tr=""
+    for r in rows:
+        d=dict(r) if not isinstance(r,dict) else r
+        tr+="<tr><td>"+str(d.get('name',''))+"</td><td>"+str(d.get('phone',''))+"</td><td>"+str(d.get('status',''))+"</td></tr>"
     c="<form method='get' action='/search' style='display:flex;gap:8px;margin-bottom:15px'>"
-    c+="<input name='q' value='"+q+"' placeholder='ابحث IP او اسم صحن...' style='flex:1'>"
+    c+="<input name='q' value='"+q+"' placeholder='ابحث اسم مشترك او هاتف...' style='flex:1'>"
     c+="<button style='width:100px'>بحث</button></form>"
-    c+="<h3>الصحون ("+str(len(dishes_rows))+")</h3><table><tr><th>الاسم</th><th>IP</th></tr>"+dh+"</table>"
+    c+="<h3>المشتركين ("+str(len(rows))+")</h3><table><tr><th>الاسم</th><th>الهاتف</th><th>الحالة</th></tr>"+tr+"</table>"
     return render(c)
 
 @app.route('/export')
@@ -331,8 +354,18 @@ def charge():
 @app.route('/add_dish',methods=['POST'])
 def add_dish():
     con=db()
-    try: ex(con,"INSERT INTO dish_ips(ip,location) VALUES(?,?)",(request.form['ip'],request.form.get('location','')))
-    except: pass
+    ip=request.form.get('ip','').strip()
+    loc=request.form.get('location','').strip()
+    site=request.form.get('site','').strip()
+    try:
+        # حاول ادخال مع site، واذا العمود مو موجود ادخل بدون
+        try: ex(con,"INSERT INTO dish_ips(ip,location,site) VALUES(?,?,?)",(ip,loc,site))
+        except: ex(con,"INSERT INTO dish_ips(ip,location) VALUES(?,?)",(ip,loc))
+    except:
+        try:
+            try: ex(con,"UPDATE dish_ips SET location=?, site=? WHERE ip=?",(loc,site,ip))
+            except: ex(con,"UPDATE dish_ips SET location=? WHERE ip=?",(loc,ip))
+        except: pass
     con.commit();close_con(con); return redirect('/dash?view=dishes')
 
 @app.route('/del_dish/<int:i>')
