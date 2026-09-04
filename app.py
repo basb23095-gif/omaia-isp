@@ -1,217 +1,3 @@
-from flask import Flask, request, redirect, render_template_string, session, url_for, flash
-import sqlite3
-import os
-
-try:
-    import routeros_api
-except ImportError:
-    routeros_api = None
-
-app = Flask(__name__)
-app.secret_key = os.urandom(24) 
-DB = "omaia_isp_v4_stable.db"
-
-def init_db():
-    con = sqlite3.connect(DB)
-    con.execute("""CREATE TABLE IF NOT EXISTS subs
-    (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, address TEXT, speed TEXT, status TEXT)""")
-    
-    con.execute("""CREATE TABLE IF NOT EXISTS accounts
-    (id INTEGER PRIMARY KEY AUTOINCREMENT, sub_id INTEGER, balance_usd REAL DEFAULT 0.0, balance_syr REAL DEFAULT 0.0,
-    FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE CASCADE)""")
-    
-    con.execute("""CREATE TABLE IF NOT EXISTS ips
-    (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE, sub_id INTEGER, notes TEXT,
-    FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE SET NULL)""")
-    
-    con.execute("""CREATE TABLE IF NOT EXISTS admins
-    (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE, password TEXT, role TEXT)""")
-    
-    cursor = con.cursor()
-    cursor.execute("SELECT * FROM admins WHERE phone='0900000000'")
-    if not cursor.fetchone():
-        cursor.execute("INSERT INTO admins (phone, password, role) VALUES ('0900000000', 'admin123', 'admin')")
-        
-    con.commit()
-    con.close()
-
-init_db()
-
-def mikrotik_action(action, ip_address, comment=""):
-    if not routeros_api:
-        return False
-    try:
-        connection = routeros_api.RouterOsApiPool('192.168.88.1', username='admin', password='your_password')
-        api = connection.get_api()
-        firewall = api.get_resource('/ip/firewall/address-list')
-        if action == "block":
-            firewall.add(list='Blocked_Subs', address=ip_address, comment=comment)
-        elif action == "unblock":
-            existing = firewall.get(address=ip_address)
-            for item in existing:
-                firewall.remove(id=item['id'])
-        connection.disconnect()
-        return True
-    except Exception as e:
-        print("Mikrotik Error:", e)
-        return False
-
-HTML_LAYOUT = """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OMAIA ISP PRO</title>
-    <style>
-        :root { --main-bg: #0b0f19; --card-bg: #111827; --gold: #d4af37; --gold-hover: #f3e5ab; --text: #f9fafb; }
-        body { font-family: Arial, sans-serif; background: var(--main-bg); color: var(--text); margin: 0; padding-bottom: 50px; }
-        nav { background: linear-gradient(135deg, #1e1b4b, #111827); border-bottom: 2px solid var(--gold); padding: 20px; text-align: center; font-size: 24px; font-weight: bold; color: var(--gold); }
-        .container { max-width: 1000px; margin: 30px auto; background: var(--card-bg); padding: 30px; border-radius: 16px; border: 1px solid #1f2937; }
-        .menu { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 25px; border-bottom: 1px solid #374151; padding-bottom: 15px; }
-        .menu a { flex: 1; min-width: 120px; text-align: center; background: #1f2937; padding: 12px; border-radius: 8px; text-decoration: none; color: var(--text); font-weight: bold; border: 1px solid transparent; transition: 0.3s; }
-        .menu a:hover { background: #2d3748; border-color: var(--gold); color: var(--gold); }
-        .btn-logout { background: #991b1b !important; color: white !important; }
-        input, select, textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #374151; border-radius: 8px; background: #1f2937; color: #fff; box-sizing: border-box; }
-        button { background: linear-gradient(135deg, var(--gold), #aa8010); color: #000; padding: 14px; border: none; border-radius: 8px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; }
-        button:hover { background: var(--gold-hover); }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #151f32; border-radius: 8px; overflow: hidden; }
-        th, td { padding: 14px; text-align: center; border-bottom: 1px solid #23324c; }
-        th { background: #1e293b; color: var(--gold); }
-        .badge { padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; }
-        .badge-active { background: #065f46; color: #34d399; }
-        .badge-suspended { background: #991b1b; color: #f87171; }
-        .alert { background: #7f1d1d; color: #fca5a5; padding: 12px; border-radius: 8px; margin-bottom: 15px; text-align: center; }
-    </style>
-</head>
-<body>
-    <nav>✨ OMAIA ISP - لوحة التحكم الاحترافية ✨</nav>
-    <div class="container">
-        {% if is_logged %}
-        <div class="menu">
-            <a href="/dashboard?view=subs">المشتركون</a>
-            <a href="/dashboard?view=add_sub">إضافة مشترك</a>
-            <a href="/dashboard?view=accounts">دفتر الحسابات</a>
-            <a href="/dashboard?view=ips">إدارة الـ IPs</a>
-            <a href="/logout" class="btn-logout">تسجيل الخروج</a>
-        </div>
-        {% endif %}
-        
-        {{ content|safe }}
-    </div>
-</body>
-</html>
-"""
-
-@app.route('/')
-def index():
-    if session.get('logged_in'):
-        return redirect('/dashboard')
-    return redirect('/login')
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        phone = request.form['phone']
-        password = request.form['password']
-        
-        con = sqlite3.connect(DB)
-        admin = con.execute("SELECT * FROM admins WHERE phone=? AND password=?", (phone, password)).fetchone()
-        con.close()
-        
-        if admin:
-            session['logged_in'] = True
-            session['admin_phone'] = phone
-            return redirect('/dashboard')
-            
-        return render_template_string(HTML_LAYOUT, is_logged=False, content="""
-        <div style="max-width: 400px; margin: 40px auto;">
-            <div class="alert">رقم الهاتف أو كلمة السر غير صحيحة!</div>
-            <h3 style="text-align: center; color: var(--gold);">تسجيل الدخول للنظام</h3>
-            <form method="post">
-                <input type="text" name="phone" placeholder="رقم الهاتف" required>
-                <input type="password" name="password" placeholder="كلمة السر" required>
-                <button type="submit">دخول</button>
-            </form>
-        </div>
-        """)
-        
-    login_form = """
-    <div style="max-width: 400px; margin: 40px auto;">
-        <h3 style="text-align: center; color: var(--gold);">تسجيل الدخول للنظام</h3>
-        <form method="post">
-            <input type="text" name="phone" placeholder="رقم الهاتف" required>
-            <input type="password" name="password" placeholder="كلمة السر" required>
-            <button type="submit">دخول</button>
-        </form>
-    </div>
-    """
-    return render_template_string(HTML_LAYOUT, is_logged=False, content=login_form)
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect('/login')
-
-@app.route('/dashboard')
-def dashboard():
-    if not session.get('logged_in'):
-        return redirect('/login')
-        
-    view = request.args.get('view', 'subs')
-    con = sqlite3.connect(DB)
-    content = ""
-    
-    if view == 'subs':
-        query = """
-            SELECT s.id, s.name, s.phone, s.speed, s.status, a.balance_usd, a.balance_syr, i.ip_address 
-            FROM subs s
-            LEFT JOIN accounts a ON s.id = a.sub_id
-            LEFT JOIN ips i ON s.id = i.sub_id
-        """
-        subs = con.execute(query).fetchall()
-        con.close()
-        
-        rows = ""
-        # تفكيك العناصر مباشرة لتلافي مشاكل الأقواس المربعة نهائياً
-        for s_id, s_name, s_phone, s_speed, s_status, a_usd, a_syr, i_ip in subs:
-            sub_id_str = str(s_id)
-            name_str = str(s_name)
-            phone_str = str(s_phone)
-            speed_str = str(s_speed) if s_speed else '-'
-            status_str = str(s_status)
-            
-            usd_val = "0.00"
-            if a_usd is not None:
-                usd_val = "{:.2f}".format(a_usd)
-                
-            syr_val = "0"
-            if a_syr is not None:
-                syr_val = str(int(a_syr))
-                
-            ip_val = 'غير معين'
-            if i_ip:
-                ip_val = str(i_ip)
-            
-            if status_str == "نشط":
-                status_badge = '<span class="badge badge-active">نشط</span>'
-            else:
-                status_badge = '<span class="badge badge-suspended">موقوف</span>'
-            
-            rows += "<tr>"
-            rows += "<td>" + name_str + "</td>"
-            rows += "<td>" + phone_str + "</td>"
-            rows += "<td>" + speed_str + "</td>"
-            rows += "<td>" + ip_val + "</td>"
-            rows += "<td style='color: #34d399;'>$" + usd_val + "</td>"
-            rows += "<td style='color: #fbbf24;'>" + syr_val + " ل.س</td>"
-            rows += "<td>" + status_badge + "</td>"
-            rows += "<td><a href='/toggle_status/" + sub_id_str + "' style='color:var(--gold); text-decoration:none; margin-right:10px;'>تغيير الحالة</a> | "
-            rows += "<a href='/del_sub/" + sub_id_str + "' style='color:#f87171; text-decoration:none;' onclick='return confirm(\"هل أنت متأكد؟\")'>حذف</a></td>"
-            rows += "</tr>"
-            
-        content = "<h3>قائمة المشتركين</h3><table><tr><th>الاسم</th><th>الهاتف</th><th>السرعة</th><th>الـ IP</th><th>رصيد ($)</th><th>رصيد (سوري)</th><th>الحالة</th><th>التحكم</th></tr>" + rows + "</table>"
-        
     elif view == 'add_sub':
         con.close()
         content = """
@@ -221,3 +7,61 @@ def dashboard():
             <input name="phone" placeholder="رقم الهاتف" required>
             <input name="address" placeholder="العنوان">
             <input name="speed" placeholder="السرعة (مثال: 10 Mbps)">
+            <select name="status"><option>نشط</option><option>موقوف</option></select>
+            <button type="submit">حفظ المشترك</button>
+        </form>
+        """
+    elif view == 'accounts':
+        subs = con.execute("SELECT s.id, s.name, a.balance_usd, a.balance_syr FROM subs s LEFT JOIN accounts a ON s.id=a.sub_id").fetchall()
+        con.close()
+        rows=""
+        for sid, name, usd, syr in subs:
+            rows += f"<tr><td>{name}</td><td>${usd or 0}</td><td>{syr or 0} ل.س</td><td><a href='/dashboard?view=accounts' style='color:var(--gold)'>تفاصيل</a></td></tr>"
+        content = f"<h3>دفتر الحسابات</h3><table><tr><th>المشترك</th><th>دولار</th><th>سوري</th><th>تحكم</th></tr>{rows}</table>"
+    elif view == 'ips':
+        ips = con.execute("SELECT ip_address, sub_id, notes FROM ips").fetchall()
+        con.close()
+        rows="".join([f"<tr><td>{ip[0]}</td><td>{ip[1] or '-'}</td><td>{ip[2] or ''}</td></tr>" for ip in ips])
+        content = f"<h3>إدارة IPs</h3><table><tr><th>IP</th><th>مشترك</th><th>ملاحظات</th></tr>{rows}</table>"
+    else:
+        con.close()
+        content = "<h3>مرحبا بك</h3>"
+
+    return render_template_string(HTML_LAYOUT, is_logged=True, content=content)
+
+@app.route('/add_sub', methods=['POST'])
+def add_sub():
+    if not session.get('logged_in'): return redirect('/login')
+    con = sqlite3.connect(DB)
+    cur = con.cursor()
+    cur.execute("INSERT INTO subs (name, phone, address, speed, status) VALUES (?,?,?,?,?)",
+                (request.form['name'], request.form['phone'], request.form.get('address',''), request.form.get('speed',''), request.form.get('status','نشط')))
+    sid = cur.lastrowid
+    cur.execute("INSERT INTO accounts (sub_id) VALUES (?)", (sid,))
+    con.commit(); con.close()
+    return redirect('/dashboard?view=subs')
+
+@app.route('/toggle_status/<int:sid>')
+def toggle_status(sid):
+    if not session.get('logged_in'): return redirect('/login')
+    con = sqlite3.connect(DB)
+    cur = con.execute("SELECT status FROM subs WHERE id=?", (sid,)).fetchone()
+    if cur:
+        new = 'موقوف' if cur[0]=='نشط' else 'نشط'
+        con.execute("UPDATE subs SET status=? WHERE id=?", (new, sid))
+        con.commit()
+    con.close()
+    return redirect('/dashboard?view=subs')
+
+@app.route('/del_sub/<int:sid>')
+def del_sub(sid):
+    if not session.get('logged_in'): return redirect('/login')
+    con = sqlite3.connect(DB)
+    con.execute("DELETE FROM subs WHERE id=?", (sid,))
+    con.execute("DELETE FROM accounts WHERE sub_id=?", (sid,))
+    con.commit(); con.close()
+    return redirect('/dashboard?view=subs')
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
