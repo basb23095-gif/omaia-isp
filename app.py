@@ -129,7 +129,7 @@ def login():
             session['role']=u['role'] if isinstance(u,dict) else u[2]
             return redirect('/dash?view=home')
         return render("<div class='login-wrap'><div class='login-box'><h2>OMAIA</h2><p>دخول مرفوض</p><form method='post'><input name='phone' placeholder='الهاتف'><input type='password' name='password' placeholder='كلمة السر'><button>دخول</button></form></div></div>")
-    # 1 تعديل صفحة دخول صغيرة بنص الشاشة مع اسم شركة
+return render("<div class='login-wrap'><div class='login-box'><h2>OMAIA</h2><p>OMAIA ISP</p>...
     return render("<div class='login-wrap'><div class='login-box'><h2>OMAIA</h2><p>السورية راديوس - دخول الشركة</p><form method='post'><input name='phone' required placeholder='الهاتف'><input type='password' name='password' required placeholder='كلمة السر'><button>دخول</button></form></div></div>")
 
 @app.route('/logout')
