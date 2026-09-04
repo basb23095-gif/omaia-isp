@@ -9,25 +9,21 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) 
-DB = "omaia_pro_final.db" # نسخة نظيفة تماماً
+DB = "omaia_pro_secure.db" # قاعدة بيانات جديدة ونظيفة
 
 def init_db():
     con = sqlite3.connect(DB)
-    # 1. جدول المشتركين
     con.execute("""CREATE TABLE IF NOT EXISTS subs
     (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, address TEXT, speed TEXT, status TEXT)""")
     
-    # 2. جدول الحسابات المالية
     con.execute("""CREATE TABLE IF NOT EXISTS accounts
     (id INTEGER PRIMARY KEY AUTOINCREMENT, sub_id INTEGER, balance_usd REAL DEFAULT 0.0, balance_syr REAL DEFAULT 0.0,
     FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE CASCADE)""")
     
-    # 3. جدول الـ IPs
     con.execute("""CREATE TABLE IF NOT EXISTS ips
     (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE, sub_id INTEGER, notes TEXT,
     FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE SET NULL)""")
     
-    # 4. جدول المدراء
     con.execute("""CREATE TABLE IF NOT EXISTS admins
     (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE, password TEXT, role TEXT)""")
     
@@ -48,18 +44,16 @@ def mikrotik_action(action, ip_address, comment=""):
         connection = routeros_api.RouterOsApiPool('192.168.88.1', username='admin', password='your_password')
         api = connection.get_api()
         firewall = api.get_resource('/ip/firewall/address-list')
-        
         if action == "block":
             firewall.add(list='Blocked_Subs', address=ip_address, comment=comment)
         elif action == "unblock":
             existing = firewall.get(address=ip_address)
             for item in existing:
                 firewall.remove(id=item['id'])
-                
         connection.disconnect()
         return True
     except Exception as e:
-        print(f"Mikrotik Error: {e}")
+        print("Mikrotik Error:", e)
         return False
 
 HTML_LAYOUT = """
@@ -93,13 +87,7 @@ HTML_LAYOUT = """
 <body>
     <nav>✨ OMAIA ISP - لوحة التحكم الاحترافية ✨</nav>
     <div class="container">
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}
-            {% for msg in messages %}<div class="alert">{{ msg }}</div>{% endfor %}
-          {% endif %}
-        {% endwith %}
-        
-        {% if session.get('logged_in') %}
+        {% if is_logged %}
         <div class="menu">
             <a href="/dashboard?view=subs">المشتركون</a>
             <a href="/dashboard?view=add_sub">إضافة مشترك</a>
@@ -136,8 +124,17 @@ def login():
             session['admin_phone'] = phone
             return redirect('/dashboard')
             
-        flash("رقم الهاتف أو كلمة السر غير صحيحة!")
-        return redirect('/login')
+        return render_template_string(HTML_LAYOUT, is_logged=False, content="""
+        <div style="max-width: 400px; margin: 40px auto;">
+            <div class="alert">رقم الهاتف أو كلمة السر غير صحيحة!</div>
+            <h3 style="text-align: center; color: var(--gold);">تسجيل الدخول للنظام</h3>
+            <form method="post">
+                <input type="text" name="phone" placeholder="رقم الهاتف" required>
+                <input type="password" name="password" placeholder="كلمة السر" required>
+                <button type="submit">دخول</button>
+            </form>
+        </div>
+        """)
         
     login_form = """
     <div style="max-width: 400px; margin: 40px auto;">
@@ -149,7 +146,7 @@ def login():
         </form>
     </div>
     """
-    return render_template_string(HTML_LAYOUT, content=login_form)
+    return render_template_string(HTML_LAYOUT, is_logged=False, content=login_form)
 
 @app.route('/logout')
 def logout():
@@ -177,22 +174,21 @@ def dashboard():
         
         rows = ""
         for s in subs:
-            sub_id = s[0]
-            name = s[1]
-            phone = s[2]
-            speed = s[3]
-            status = s[4]
-            usd_val = s[5] if s[5] is not None else 0.0
-            syr_val = s[6] if s[6] is not None else 0.0
-            ip_val = s[7] if s[7] else 'غير معين'
+            sub_id = str(s[0])
+            name = str(s[1])
+            phone = str(s[2])
+            speed = str(s[3]) if s[3] else '-'
+            status = str(s[4])
+            usd_val = f"{s[5]:.2f}" if s[5] is not None else "0.00"
+            syr_val = str(s[6]) if s[6] is not None else "0"
+            ip_val = str(s[7]) if s[7] else 'غير معين'
             
-            status_badge = f'<span class="badge badge-active">نشط</span>' if status == "نشط" else f'<span class="badge badge-suspended">موقوف</span>'
+            status_badge = '<span class="badge badge-active">نشط</span>' if status == "نشط" else '<span class="badge badge-suspended">موقوف</span>'
             
             rows += f"""
             <tr>
-                <td>{name}</td><td>{phone}</td><td>{speed}</td>
-                <td>{ip_val}</td>
-                <td style="color: #34d399;">${usd_val:.2f}</td><td style="color: #fbbf24;">{syr_val} ل.س</td>
+                <td>{name}</td><td>{phone}</td><td>{speed}</td><td>{ip_val}</td>
+                <td style="color: #34d399;">${usd_val}</td><td style="color: #fbbf24;">{syr_val} ل.س</td>
                 <td>{status_badge}</td>
                 <td>
                     <a href="/toggle_status/{sub_id}" style="color:var(--gold); text-decoration:none; margin-right:10px;">تغيير الحالة</a> | 
@@ -223,11 +219,3 @@ def dashboard():
         """
         
     elif view == 'accounts':
-        query = "SELECT s.id, s.name, a.balance_usd, a.balance_syr FROM subs s JOIN accounts a ON s.id = a.sub_id"
-        accounts = con.execute(query).fetchall()
-        con.close()
-        
-        rows = ""
-        for acc in accounts:
-            sub_id = acc[0]
-            name = acc[1]
