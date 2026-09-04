@@ -259,14 +259,14 @@ def search():
     q=request.args.get('q','').strip(); con=db()
     if q:
         like=f"%{q}%"
-        rows=ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s WHERE s.name LIKE? OR s.phone LIKE? OR s.dish_ip LIKE? OR s.id IN (SELECT ip FROM dish_ips WHERE location LIKE?)",(like,like,like,like)).fetchall()
+        rows=ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s WHERE s.name LIKE ? OR s.phone LIKE ? OR s.dish_ip LIKE ? OR s.dish_ip IN (SELECT ip FROM dish_ips WHERE location LIKE ?)",(like,like,like,like)).fetchall()
     else:
         rows=ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s").fetchall()
     close_con(con)
     tr=""
     for r in rows:
-        dn=r['dname'] if isinstance(r,dict) and r.get('dname') else r['dish_ip']
-        if not dn: dn='-'
+        try: dn=r['dname'] or r['dish_ip'] or '-'
+        except: dn='-'
         tr+=f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{dn}</td><td>{r['status']}</td><td><a href='/toggle/{r['id']}' style='color:#d4af37'>فصل/وصل</a></td></tr>"
     c=f"<form method='get' action='/search' style='display:flex;gap:8px'><input name='q' value='{q}' placeholder='بحث بالاسم / هاتف / اسم صحن / IP'><button style='width:120px'>بحث</button></form><a href='/export' style='color:#d4af37'>📥 تصدير Excel</a><table><tr><th>الاسم</th><th>هاتف</th><th>الصحن</th><th>حالة</th><th>تحكم</th></tr>{tr}</table>"
     return render(c)
