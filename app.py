@@ -140,13 +140,11 @@ def logout(): session.clear(); return redirect('/login')
 
 @app.route('/dash')
 def dash():
-    if not session.get('phone'): return redirect('/login')
+       if not session.get('phone'): return redirect('/login')
     v=request.args.get('view','subs'); con=db()
-    total=ex(con,"SELECT COUNT(*) c FROM subs").fetchone()['c']
-    active=ex(con,"SELECT COUNT(*) c FROM subs WHERE status='نشط'").fetchone()['c']
-    sum_usd=ex(con,"SELECT SUM(usd) s FROM accounts").fetchone()['s'] or 0
-    srv_cnt=ex(con,"SELECT COUNT(*) c FROM servers").fetchone()['c']
-    dish_cnt=ex(con,"SELECT COUNT(*) c FROM dish_ips").fetchone()['c']
+    r=ex(con,"SELECT (SELECT COUNT(*) FROM subs) as t,(SELECT COUNT(*) FROM subs WHERE status='نشط') as a,(SELECT COALESCE(SUM(usd),0) FROM accounts) as u,(SELECT COUNT(*) FROM servers) as s,(SELECT COUNT(*) FROM dish_ips) as d").fetchone()
+    total=r['t']; active=r['a']; sum_usd=r['u']; srv_cnt=r['s']; dish_cnt=r['d']
+    stats=f"""<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;
     stats=f"""<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:15px">
     <div style="background:linear-gradient(135deg,#d4af37,#a67c00);padding:14px;border-radius:12px;text-align:center;color:#000"><h2>{total}</h2><div>مشترك</div></div>
     <div style="background:linear-gradient(135deg,#10b981,#065f46);padding:14px;border-radius:12px;text-align:center"><h2>{active}</h2><div>نشط</div></div>
