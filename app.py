@@ -9,7 +9,7 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) 
-DB = "omaia_pro_v2.db" # تغيير اسم ملف قاعدة البيانات لتجنب أي تعارض قديم
+DB = "omaia_pro_v3.db" # تم تحديث النسخة لتجنب أي مشاكل سابقة
 
 def init_db():
     con = sqlite3.connect(DB)
@@ -177,20 +177,26 @@ def dashboard():
         
         rows = ""
         for s in subs:
-            status_badge = f'<span class="badge badge-active">نشط</span>' if s[4] == "نشط" else f'<span class="badge badge-suspended">موقوف</span>'
+            sub_id = s[0]
+            name = s[1]
+            phone = s[2]
+            speed = s[3]
+            status = s[4]
+            usd_val = s[5] if s[5] is not None else 0.0
+            syr_val = s[6] if s[6] is not None else 0.0
             ip_val = s[7] if s[7] else 'غير معين'
-            usd_val = s[5] if s[5] is not None else 0
-            syr_val = s[6] if s[6] is not None else 0
+            
+            status_badge = f'<span class="badge badge-active">نشط</span>' if status == "نشط" else f'<span class="badge badge-suspended">موقوف</span>'
             
             rows += f"""
             <tr>
-                <td>{s[1]}</td><td>{s[2]}</td><td>{s[3]}</td>
+                <td>{name}</td><td>{phone}</td><td>{speed}</td>
                 <td>{ip_val}</td>
                 <td style="color: #34d399;">${usd_val}</td><td style="color: #fbbf24;">{syr_val} ل.س</td>
                 <td>{status_badge}</td>
                 <td>
-                    <a href="/toggle_status/{s[0]}" style="color:var(--gold); text-decoration:none; margin-right:10px;">تغيير الحالة</a> | 
-                    <a href="/del_sub/{s[0]}" style="color:#f87171; text-decoration:none;" onclick="return confirm('هل أنت متأكد؟')">حذف</a>
+                    <a href="/toggle_status/{sub_id}" style="color:var(--gold); text-decoration:none; margin-right:10px;">تغيير الحالة</a> | 
+                    <a href="/del_sub/{sub_id}" style="color:#f87171; text-decoration:none;" onclick="return confirm('هل أنت متأكد؟')">حذف</a>
                 </td>
             </tr>
             """
@@ -223,5 +229,5 @@ def dashboard():
         
         rows = ""
         for acc in accounts:
-            rows += f"""
-            <tr>
+            sub_id = acc[0]
+            name = acc[1]
