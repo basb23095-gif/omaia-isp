@@ -261,16 +261,30 @@ def search():
     con = db()
     like = "%" + q + "%"
     if q:
-        dishes = ex(con,"SELECT * FROM dish_ips WHERE ip LIKE ? OR location LIKE ?", (like,like,)).fetchall()
-        subs = ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s WHERE s.name LIKE ? OR s.phone LIKE ? OR s.dish_ip LIKE ?", (like,like,like,)).fetchall()
-        inv = ex(con,"SELECT * FROM invoices WHERE CAST(id AS TEXT) LIKE ? OR notes LIKE ?", (like,like,)).fetchall()
-        tw = ex(con,"SELECT * FROM towers WHERE name LIKE ?", (like,)).fetchall()
+        dishes_rows = ex(con,"SELECT * FROM dish_ips WHERE ip LIKE ? OR location LIKE ?", (like,like,)).fetchall()
+        subs_rows = ex(con,"SELECT * FROM subs WHERE name LIKE ? OR phone LIKE ?", (like,like,)).fetchall()
     else:
-        dishes = ex(con,"SELECT * FROM dish_ips").fetchall()
-        subs = ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s").fetchall()
-        inv = []
-        tw = []
+        dishes_rows = ex(con,"SELECT * FROM dish_ips").fetchall()
+        subs_rows = ex(con,"SELECT * FROM subs").fetchall()
     close_con(con)
+    dh = ""
+    for r in dishes_rows:
+        d = dict(r)
+        loc = d.get('location','')
+        ip = d.get('ip','')
+        dh += "<tr><td>" + str(loc) + "</td><td style=\"direction:ltr\">" + str(ip) + "</td></tr>"
+    sh = ""
+    for r in subs_rows:
+        d = dict(r)
+        name = d.get('name','')
+        phone = d.get('phone','')
+        sh += "<tr><td>" + str(name) + "</td><td style=\"direction:ltr\">" + str(phone) + "</td></tr>"
+    c = "<form method=\"get\" action=\"/search\" style=\"display:flex;gap:8px;margin-bottom:15px\">"
+    c += "<input name=\"q\" value=\"" + q + "\" placeholder=\"ابحث IP او اسم...\" style=\"flex:1\">"
+    c += "<button style=\"width:100px\">بحث</button></form>"
+    c += "<h3>الصحون (" + str(len(dishes_rows)) + ")</h3><table><tr><th>الاسم</th><th>IP</th></tr>" + dh + "</table>"
+    c += "<h3>المشتركين (" + str(len(subs_rows)) + ")</h3><table><tr><th>الاسم</th><th>هاتف</th></tr>" + sh + "</table>"
+    return render(c)
     dh = ""
     for d in dishes:
         dh = dh + "<tr><td>" + d['location'] + "</td><td>" + d['ip'] + "</td></tr>"
