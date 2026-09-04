@@ -5,7 +5,7 @@ except: routeros_api=None
 try: import psycopg2, psycopg2.extras
 except: psycopg2=None
 import sqlite3
-
+from colors import get_colors, save_colors_dict, reset_colors, DEFAULT_COLORS
 app=Flask(__name__)
 app.secret_key=os.environ.get("SECRET_KEY","omaia-sec")
 DATABASE_URL=os.environ.get("DATABASE_URL","")
@@ -85,8 +85,10 @@ LAYOUT="""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><
 <div class="main">{{content|safe}}</div></body></html>"""
 
 def render(c):
-    return render_template_string(LAYOUT,content=c,sess=session.get('phone'),role=session.get('role'))
-
+    col=get_colors()
+    h=LAYOUT
+    for k,v in col.items(): h=h.replace("__"+k.upper()+"__",v)
+    return render_template_string(h,content=c,sess=session.get('phone'),role=session.get('role'))
 @app.route('/')
 def idx():return redirect('/dash') if session.get('phone') else redirect('/login')
 @app.route('/login',methods=['GET','POST'])
