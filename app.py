@@ -42,14 +42,34 @@ def mk_online(s):
     except: return []
 
 LAYOUT="""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OMAIA</title>
-<style>body{font-family:Arial;background:#0b0f19;color:#fff;margin:0}nav{background:#111827;color:#d4af37;padding:16px;text-align:center;border-bottom:2px solid #d4af37;font-size:20px}
-.container{max-width:1100px;margin:15px auto;background:#111827;padding:18px;border-radius:12px}.menu{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.menu a{background:#1f2937;color:#fff;padding:9px 12px;border-radius:8px;text-decoration:none;font-size:14px}.menu a:hover{color:#d4af37;border:1px solid #d4af37}
+<style>
+body{font-family:Arial;background:#0b0f19;color:#fff;margin:0;display:flex;min-height:100vh}
+.sidebar{width:230px;background:#111827;border-left:2px solid #d4af37;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto}
+.sidebar h2{color:#d4af37;text-align:center;font-size:18px;border-bottom:1px solid #2a344a;padding-bottom:10px}
+.sidebar a{display:block;background:#1f2937;color:#fff;padding:12px;margin:8px 0;border-radius:10px;text-decoration:none;font-size:14px;font-weight:bold}
+.sidebar a:hover,.sidebar a.active{background:#d4af37;color:#000}
+.main{margin-left:230px;flex:1;padding:20px}
+.topbar{background:#111827;color:#d4af37;padding:14px;border-radius:12px;margin-bottom:15px;text-align:center;border:1px solid #d4af37}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid #2a344a;text-align:center}th{color:#d4af37;background:#1a2336}
 input,select{width:100%;padding:9px;margin:5px 0;background:#1f2937;border:1px solid #374151;color:#fff;border-radius:8px;box-sizing:border-box}
-button{background:#d4af37;padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer}.badge{padding:3px 10px;border-radius:20px;font-size:12px}.on{background:#065f46;color:#34d399}.off{background:#7f1d1d;color:#fca5a5}
-.card{background:#1a2336;padding:12px;border-radius:10px;margin:10px 0}</style></head><body><nav>🏢 OMAIA - نظام الشركة</nav><div class="container">
-{% if sess %}<div class="menu"><a href="/dash?view=subs">المشتركين</a><a href="/search">🔍 بحث</a><a href="/dash?view=add">➕ إضافة</a><a href="/dash?view=ledger">💰 الحسابات</a><a href="/dash?view=dishes">📡 صحون</a><a href="/dash?view=servers">🖥️ سيرفرات</a>{% if role=='super' %}<a href="/dash?view=users">👥 المستخدمين</a><a href="/dash?view=settings">⚙️ إعدادات</a>{% endif %}<a href="/logout" style="background:#7f1d1d">خروج</a></div>{% endif %}{{content|safe}}</div></body></html>"""
+button{background:#d4af37;padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer}
+.card{background:#1a2336;padding:12px;border-radius:10px;margin:10px 0}
+.badge{padding:3px 10px;border-radius:20px;font-size:12px}.on{background:#065f46;color:#34d399}.off{background:#7f1d1d;color:#fca5a5}
+@media(max-width:768px){.sidebar{width:70px}.sidebar a{font-size:11px;padding:8px;text-align:center}.main{margin-left:70px}}
+</style></head><body>
+<div class="sidebar"><h2>🏢 OMAIA</h2>
+{% if sess %}
+<a href="/dash?view=subs">🏠 المشتركين</a>
+<a href="/search">🔍 بحث</a>
+<a href="/dash?view=add">➕ إضافة</a>
+<a href="/dash?view=ledger">💰 دفتر الحسابات</a>
+<a href="/dash?view=dishes">📡 صحون</a>
+<a href="/dash?view=servers">🖥️ سيرفرات</a>
+{% if role=='super' %}<a href="/dash?view=users">👥 المستخدمين</a><a href="/dash?view=settings">⚙️ إعدادات</a>{% endif %}
+<a href="/logout" style="background:#7f1d1d;color:#fff">خروج</a>
+{% endif %}</div>
+<div class="main"><div class="topbar">نظام الشركة الخاص - OMAIA</div>{{content|safe}}</div>
+</body></html>"""
 
 def render(c): return render_template_string(LAYOUT,content=c,sess=session.get('phone'),role=session.get('role'))
 
