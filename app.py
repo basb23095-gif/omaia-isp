@@ -7,7 +7,7 @@ except: psycopg2=None
 import sqlite3
 
 app=Flask(__name__)
-app.secret_key=os.environ.get("SECRET_KEY","omaia-secret")
+app.secret_key=os.environ.get("SECRET_KEY","omaia-sec")
 DATABASE_URL=os.environ.get("DATABASE_URL","")
 USE_PG=bool(DATABASE_URL and psycopg2)
 
