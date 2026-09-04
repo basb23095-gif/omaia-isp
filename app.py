@@ -9,7 +9,7 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) 
-DB = "omaia_pro_v3.db" # تم تحديث النسخة لتجنب أي مشاكل سابقة
+DB = "omaia_pro_final.db" # نسخة نظيفة تماماً
 
 def init_db():
     con = sqlite3.connect(DB)
@@ -17,7 +17,7 @@ def init_db():
     con.execute("""CREATE TABLE IF NOT EXISTS subs
     (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, address TEXT, speed TEXT, status TEXT)""")
     
-    # 2. جدول الحسابات
+    # 2. جدول الحسابات المالية
     con.execute("""CREATE TABLE IF NOT EXISTS accounts
     (id INTEGER PRIMARY KEY AUTOINCREMENT, sub_id INTEGER, balance_usd REAL DEFAULT 0.0, balance_syr REAL DEFAULT 0.0,
     FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE CASCADE)""")
@@ -27,7 +27,7 @@ def init_db():
     (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE, sub_id INTEGER, notes TEXT,
     FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE SET NULL)""")
     
-    # 4. جدول الإدارة
+    # 4. جدول المدراء
     con.execute("""CREATE TABLE IF NOT EXISTS admins
     (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE, password TEXT, role TEXT)""")
     
@@ -192,7 +192,7 @@ def dashboard():
             <tr>
                 <td>{name}</td><td>{phone}</td><td>{speed}</td>
                 <td>{ip_val}</td>
-                <td style="color: #34d399;">${usd_val}</td><td style="color: #fbbf24;">{syr_val} ل.س</td>
+                <td style="color: #34d399;">${usd_val:.2f}</td><td style="color: #fbbf24;">{syr_val} ل.س</td>
                 <td>{status_badge}</td>
                 <td>
                     <a href="/toggle_status/{sub_id}" style="color:var(--gold); text-decoration:none; margin-right:10px;">تغيير الحالة</a> | 
