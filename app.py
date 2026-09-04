@@ -129,8 +129,8 @@ def login():
             session['role']=u['role'] if isinstance(u,dict) else u[2]
             return redirect('/dash?view=home')
         return render("<div class='login-wrap'><div class='login-box'><h2>OMAIA</h2><p>دخول مرفوض</p><form method='post'><input name='phone' placeholder='الهاتف'><input type='password' name='password' placeholder='كلمة السر'><button>دخول</button></form></div></div>")
-return render("<div class='login-wrap'><div class='login-box'><h2>OMAIA</h2><p>OMAIA ISP</p>...
-    return render("<div class='login-wrap'><div class='login-box'><h2>OMAIA</h2><p>السورية راديوس - دخول الشركة</p><form method='post'><input name='phone' required placeholder='الهاتف'><input type='password' name='password' required placeholder='كلمة السر'><button>دخول</button></form></div></div>")
+    # 1 تعديل صفحة دخول صغيرة بنص الشاشة مع اسم شركة
+    return render("<div class='login-wrap'><div class='login-box'><h2>OMAIA</h2><p>OMAIA ISP</p><form method='post' id='lf'><input name='u' id='iu' placeholder='الهاتف' required><input name='p' id='ip' type='password' placeholder='كلمة السر' required><label style='display:flex;align-items:center;gap:6px;font-size:13px;color:#94a3b8;margin:6px 0'><input type='checkbox' id='rm' style='width:auto'> حفظ كلمة السر</label><button>دخول</button></form></div></div><script>if(localStorage.rm=='1'){iu.value=localStorage.u||'';ip.value=localStorage.p||'';rm.checked=true}lf.onsubmit=()=>{if(rm.checked){localStorage.u=iu.value;localStorage.p=ip.value;localStorage.rm='1'}else{localStorage.clear()}}</script>")
 
 @app.route('/logout')
 def logout():session.clear();return redirect('/login')
