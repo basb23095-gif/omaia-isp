@@ -8,31 +8,29 @@ except ImportError:
     routeros_api = None
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24) # تأمين الجلسات (Sessions)
-DB = "omaia_pro.db"
+app.secret_key = os.urandom(24) 
+DB = "omaia_pro_v2.db" # تغيير اسم ملف قاعدة البيانات لتجنب أي تعارض قديم
 
-# إعداد قاعدة البيانات وتحديث الجداول لتشمل الحسابات والـ IPs والمدراء
 def init_db():
     con = sqlite3.connect(DB)
-    # جدول المشتركين المطور
+    # 1. جدول المشتركين
     con.execute("""CREATE TABLE IF NOT EXISTS subs
     (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, phone TEXT, address TEXT, speed TEXT, status TEXT)""")
     
-    # جدول الحسابات بالعملتين (دولار وسوري)
+    # 2. جدول الحسابات
     con.execute("""CREATE TABLE IF NOT EXISTS accounts
     (id INTEGER PRIMARY KEY AUTOINCREMENT, sub_id INTEGER, balance_usd REAL DEFAULT 0.0, balance_syr REAL DEFAULT 0.0,
     FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE CASCADE)""")
     
-    # جدول إدارة الـ IPs
+    # 3. جدول الـ IPs
     con.execute("""CREATE TABLE IF NOT EXISTS ips
     (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_address TEXT UNIQUE, sub_id INTEGER, notes TEXT,
     FOREIGN KEY(sub_id) REFERENCES subs(id) ON DELETE SET NULL)""")
     
-    # جدول المدراء للوحة التحكم
+    # 4. جدول الإدارة
     con.execute("""CREATE TABLE IF NOT EXISTS admins
     (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT UNIQUE, password TEXT, role TEXT)""")
     
-    # حساب المدير الافتراضي للدخول (رقم الهاتف: 0900000000 / كلمة السر: admin123)
     cursor = con.cursor()
     cursor.execute("SELECT * FROM admins WHERE phone='0900000000'")
     if not cursor.fetchone():
@@ -43,12 +41,10 @@ def init_db():
 
 init_db()
 
-# دالة ربط الميكروتك (مبنية للتعامل مع الـ Address List لقطع وتفعيل الخدمة)
 def mikrotik_action(action, ip_address, comment=""):
     if not routeros_api:
         return False
     try:
-        # ضع بيانات الميكروتك الخاصة بك هنا (الآي بي، مستخدم، كلمة سر)
         connection = routeros_api.RouterOsApiPool('192.168.88.1', username='admin', password='your_password')
         api = connection.get_api()
         firewall = api.get_resource('/ip/firewall/address-list')
@@ -66,7 +62,6 @@ def mikrotik_action(action, ip_address, comment=""):
         print(f"Mikrotik Error: {e}")
         return False
 
-# تصميم الواجهة الاحترافية (أسود داكن مدمج بلمسات ذهبية مميزة باسم OMAIA ISP)
 HTML_LAYOUT = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -182,12 +177,16 @@ def dashboard():
         
         rows = ""
         for s in subs:
-            status_badge = f'<span class="badge badge-active">نشط</span>' if s[4] == 'نشط' else f'<span class="badge badge-suspended">موقوف</span>'
+            status_badge = f'<span class="badge badge-active">نشط</span>' if s[4] == "نشط" else f'<span class="badge badge-suspended">موقوف</span>'
+            ip_val = s[7] if s[7] else 'غير معين'
+            usd_val = s[5] if s[5] is not None else 0
+            syr_val = s[6] if s[6] is not None else 0
+            
             rows += f"""
             <tr>
                 <td>{s[1]}</td><td>{s[2]}</td><td>{s[3]}</td>
-                <td>{s[7] or 'غير معين'}</td>
-                <td style="color: #34d399;">${s[5] or 0}</td><td style="color: #fbbf24;">{s[6] or 0} ل.س</td>
+                <td>{ip_val}</td>
+                <td style="color: #34d399;">${usd_val}</td><td style="color: #fbbf24;">{syr_val} ل.س</td>
                 <td>{status_badge}</td>
                 <td>
                     <a href="/toggle_status/{s[0]}" style="color:var(--gold); text-decoration:none; margin-right:10px;">تغيير الحالة</a> | 
@@ -222,3 +221,7 @@ def dashboard():
         accounts = con.execute(query).fetchall()
         con.close()
         
+        rows = ""
+        for acc in accounts:
+            rows += f"""
+            <tr>
