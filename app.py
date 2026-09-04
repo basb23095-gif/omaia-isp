@@ -1,24 +1,43 @@
 from flask import Flask, request, redirect, render_template_string, session, Response
-import os, datetime, io, csv, json
+import os, datetime, io, csv, json, time
 try: import routeros_api
 except: routeros_api=None
 try: import psycopg2, psycopg2.extras
 except: psycopg2=None
 import sqlite3
+from colors import get_colors, save_colors_dict, reset_colors, DEFAULT_COLORS
 
 app=Flask(__name__)
 app.secret_key=os.environ.get("SECRET_KEY","omaia-sec")
 DATABASE_URL=os.environ.get("DATABASE_URL","")
 USE_PG=bool(DATABASE_URL and psycopg2)
 
-DEFAULT_COLORS={"main":"#d4af37","bg":"#0b0f19","card":"#1a2336"}
-
+_pg_conn=None
+_pg_time=0
 def db():
+    global _pg_conn,_pg_time
     if USE_PG:
-        return psycopg2.connect(DATABASE_URL, sslmode='require')
+        now=time.time()
+        if _pg_conn and now-_pg_time<300:
+            try:
+                _pg_conn.cursor().execute("SELECT 1")
+                return _pg_conn
+            except: pass
+        try:
+            if _pg_conn: _pg_conn.close()
+        except: pass
+        _pg_conn=psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
+        _pg_conn.autocommit=True
+        _pg_time=now
+        return _pg_conn
     con=sqlite3.connect("omaia_company.db")
     con.row_factory=sqlite3.Row
     return con
+
+def close_con(con):
+    if not USE_PG:
+        try: con.close()
+        except: pass
 
 def ex(con,q,args=()):
     if USE_PG:
@@ -26,19 +45,6 @@ def ex(con,q,args=()):
         cur.execute(q.replace("?","%s"), args)
         return cur
     return con.execute(q,args)
-
-def get_colors():
-    try:
-        con=db()
-        ex(con,"CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)")
-        con.commit()
-        r=ex(con,"SELECT v FROM settings WHERE k='colors'").fetchone()
-        con.close()
-        if r:
-            v=r['v'] if isinstance(r,dict) else r[0]
-            return json.loads(v)
-    except: pass
-    return DEFAULT_COLORS
 
 def init():
     con=db()
@@ -54,7 +60,7 @@ def init():
         cur.execute("SELECT * FROM users WHERE phone='0900000000'")
         if not cur.fetchone():
             cur.execute("INSERT INTO users(phone,password,role,active) VALUES('0900000000','admin123','super',1)")
-        con.commit();cur.close();con.close();return
+        con.commit();cur.close();return
     con.execute("CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,active INT DEFAULT 1)")
     con.execute("CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,speed TEXT,status TEXT,server_id INT,dish_ip TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS accounts(sub_id INTEGER PRIMARY KEY,usd REAL DEFAULT 0,syr REAL DEFAULT 0)")
@@ -64,7 +70,7 @@ def init():
     con.execute("CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)")
     if not con.execute("SELECT * FROM users WHERE phone='0900000000'").fetchone():
         con.execute("INSERT INTO users VALUES('0900000000','admin123','super',1)")
-    con.commit();con.close()
+    con.commit();close_con(con)
 init()
 
 def mk_action(host,user,pwd,action,ip):
@@ -81,19 +87,19 @@ def mk_action(host,user,pwd,action,ip):
 def mk_online(s):
     if not routeros_api: return []
     try:
-        pool=routeros_api.RouterOsApiPool(s['host'],username=s['username'],password=s['password'],plaintext_login=True)
+        pool=routeros_api.RouterOsApiPool(s['host'],username=s['username'],password=s['password'],plaintext_login=True,port=8728)
         api=pool.get_api(); r=api.get_resource('/ppp/active').get(); pool.disconnect(); return r
     except: return []
 
 LAYOUT="""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OMAIA</title>
 <style>
 body{font-family:Arial;background:__BG__;color:#fff;margin:0;display:flex;min-height:100vh}
-.sidebar{width:230px;background:#111827;border-left:2px solid __MAIN__;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto}
+.sidebar{width:230px;background:__SIDEBAR__;border-left:2px solid __MAIN__;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto}
 .sidebar h2{color:__MAIN__;text-align:center;font-size:18px;border-bottom:1px solid #2a344a;padding-bottom:10px}
 .sidebar a{display:block;background:#1f2937;color:#fff;padding:12px;margin:8px 0;border-radius:10px;text-decoration:none;font-size:14px;font-weight:bold}
-.sidebar a:hover,.sidebar a.active{background:__MAIN__;color:#000}
+.sidebar a:hover{background:__MAIN__;color:#000}
 .main{margin-left:230px;flex:1;padding:20px}
-.topbar{background:#111827;color:__MAIN__;padding:14px;border-radius:12px;margin-bottom:15px;text-align:center;border:1px solid __MAIN__}
+.topbar{background:__TOPBAR__;color:__MAIN__;padding:14px;border-radius:12px;margin-bottom:15px;text-align:center;border:1px solid __MAIN__}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid #2a344a;text-align:center}th{color:__MAIN__;background:__CARD__}
 input,select{width:100%;padding:9px;margin:5px 0;background:#1f2937;border:1px solid #374151;color:#fff;border-radius:8px;box-sizing:border-box}
 button{background:__MAIN__;padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer}
@@ -117,17 +123,18 @@ button{background:__MAIN__;padding:10px;width:100%;border:none;border-radius:8px
 
 def render(c):
     col=get_colors()
-    html=LAYOUT.replace("__MAIN__",col["main"]).replace("__BG__",col["bg"]).replace("__CARD__",col["card"])
+    html=LAYOUT.replace("__MAIN__",col["main"]).replace("__BG__",col["bg"]).replace("__CARD__",col["card"]).replace("__SIDEBAR__",col.get("sidebar","#111827")).replace("__TOPBAR__",col.get("topbar","#111827"))
     return render_template_string(html,content=c,sess=session.get('phone'),role=session.get('role'))
 
 @app.route('/')
 def idx(): return redirect('/dash') if session.get('phone') else redirect('/login')
 @app.route('/dashboard')
 def old(): return redirect('/dash')
+
 @app.route('/login',methods=['GET','POST'])
 def login():
     if request.method=='POST':
-        con=db(); u=ex(con,"SELECT * FROM users WHERE phone=? AND password=? AND active=1",(request.form['phone'],request.form['password'])).fetchone(); con.close()
+        con=db(); u=ex(con,"SELECT * FROM users WHERE phone=? AND password=? AND active=1",(request.form['phone'],request.form['password'])).fetchone(); close_con(con)
         if u:
             session['phone']=u['phone'] if isinstance(u,dict) else u[0]
             session['role']=u['role'] if isinstance(u,dict) else u[2]
@@ -172,7 +179,7 @@ def dash():
         c=f"<div class='card'><form method='post' action='/add_dish'><input name='ip' required placeholder='IP الصحن'><input name='location' placeholder='الموقع'><button>إضافة</button></form></div><table><tr><th>IP</th><th>الموقع</th><th></th></tr>{tr}</table>"
     elif v=='servers':
         srvs=ex(con,"SELECT * FROM servers").fetchall()
-        tr="".join([f"<tr><td>{s['name']}</td><td>{s['host']}</td><td>{len(mk_online(s))} متصل</td><td><a href='/dash?view=srv_detail&id={s['id']}' style='color:#d4af37'>مراقبة</a> | <a href='/del_srv/{s['id']}' style='color:#f87171'>حذف</a></td></tr>" for s in srvs])
+        tr="".join([f"<tr><td>{s['name']}</td><td>{s['host']}</td><td>-</td><td><a href='/dash?view=srv_detail&id={s['id']}' style='color:#d4af37'>مراقبة</a> | <a href='/del_srv/{s['id']}' style='color:#f87171'>حذف</a></td></tr>" for s in srvs])
         c=f"<div class='card'><form method='post' action='/add_srv'><input name='name' required placeholder='اسم السيرفر'><input name='host' required placeholder='192.168.88.1'><input name='username' required placeholder='يوزر'><input name='password' placeholder='باسورد'><button>إضافة سيرفر</button></form></div><table><tr><th>الاسم</th><th>الهوست</th><th>متصل</th><th>تحكم</th></tr>{tr}</table>"
     elif v=='srv_detail':
         s=ex(con,"SELECT * FROM servers WHERE id=?",(request.args.get('id'),)).fetchone()
@@ -185,37 +192,39 @@ def dash():
     elif v=='settings' and session.get('role')=='super':
         col=get_colors()
         c=f"""<div class='card'><h4>تغيير كلمة سرك</h4><form method='post' action='/change_pass'><input type='password' name='newpass' required placeholder='جديدة'><button>تغيير</button></form></div>
-        <div class='card'><h4>🎨 ألوان الموقع</h4><form method='post' action='/save_colors'>
+        <div class='card'><h4>🎨 نظام الألوان</h4><form method='post' action='/save_colors'>
         <label>اللون الرئيسي</label><input type='color' name='main' value='{col["main"]}'>
         <label>الخلفية</label><input type='color' name='bg' value='{col["bg"]}'>
         <label>البطاقات</label><input type='color' name='card' value='{col["card"]}'>
-        <button>حفظ الألوان</button></form></div>"""
-    con.close(); return render(c)
+        <label>القائمة الجانبية</label><input type='color' name='sidebar' value='{col.get("sidebar","#111827")}'>
+        <label>الشريط العلوي</label><input type='color' name='topbar' value='{col.get("topbar","#111827")}'>
+        <button>حفظ الألوان</button></form><a href='/reset_colors' style='color:#f87171'>↩️ استعادة الافتراضي</a></div>"""
+    close_con(con); return render(c)
 
 @app.route('/save_colors',methods=['POST'])
 def save_colors():
     if session.get('role')!='super': return "مرفوض"
-    col=json.dumps({k:request.form[k] for k in ['main','bg','card']})
-    con=db()
-    ex(con,"CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)")
-    if USE_PG:
-        cur=con.cursor(); cur.execute("INSERT INTO settings(k,v) VALUES(%s,%s) ON CONFLICT(k) DO UPDATE SET v=EXCLUDED.v",('colors',col))
-    else:
-        ex(con,"INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)",('colors',col))
-    con.commit();con.close(); return redirect('/dash?view=settings')
+    save_colors_dict({k:request.form[k] for k in DEFAULT_COLORS if k in request.form})
+    return redirect('/dash?view=settings')
+
+@app.route('/reset_colors')
+def reset_colors_route():
+    if session.get('role')!='super': return "مرفوض"
+    reset_colors()
+    return redirect('/dash?view=settings')
 
 @app.route('/search')
 def search():
     if not session.get('phone'): return redirect('/login')
     q=request.args.get('q',''); con=db()
-    rows=ex(con,"SELECT * FROM subs WHERE name LIKE? OR phone LIKE? OR dish_ip LIKE?",(f'%{q}%',f'%{q}%',f'%{q}%')).fetchall(); con.close()
+    rows=ex(con,"SELECT * FROM subs WHERE name LIKE? OR phone LIKE? OR dish_ip LIKE?",(f'%{q}%',f'%{q}%',f'%{q}%')).fetchall(); close_con(con)
     tr="".join([f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{r['dish_ip']}</td><td>{r['status']}</td><td><a href='/toggle/{r['id']}' style='color:#d4af37'>فصل/وصل</a></td></tr>" for r in rows])
     c=f"<form action='/search' style='display:flex;gap:8px'><input name='q' value='{q}' placeholder='بحث بالاسم / هاتف / IP'><button style='width:120px'>بحث</button></form><a href='/export' style='color:#d4af37'>📥 تصدير Excel</a><table><tr><th>الاسم</th><th>هاتف</th><th>IP</th><th>حالة</th><th>تحكم</th></tr>{tr}</table>"
     return render(c)
 
 @app.route('/export')
 def export():
-    con=db(); rows=ex(con,"SELECT s.name,s.phone,s.status,s.dish_ip,a.usd,a.syr FROM subs s LEFT JOIN accounts a ON a.sub_id=s.id").fetchall(); con.close()
+    con=db(); rows=ex(con,"SELECT s.name,s.phone,s.status,s.dish_ip,a.usd,a.syr FROM subs s LEFT JOIN accounts a ON a.sub_id=s.id").fetchall(); close_con(con)
     out=io.StringIO(); w=csv.writer(out); w.writerow(['الاسم','الهاتف','الحالة','IP','دولار','سوري'])
     for r in rows: w.writerow([r['name'],r['phone'],r['status'],r['dish_ip'],r['usd'] or 0,r['syr'] or 0])
     return Response(out.getvalue().encode('utf-8-sig'),mimetype='text/csv',headers={'Content-Disposition':'attachment;filename=subs.csv'})
@@ -224,14 +233,14 @@ def export():
 def add_user():
     if session.get('role')!='super': return "مرفوض"
     con=db()
-    if ex(con,"SELECT COUNT(*) c FROM users").fetchone()['c']>=4: con.close(); return "الحد 4 فقط"
+    if ex(con,"SELECT COUNT(*) c FROM users").fetchone()['c']>=4: close_con(con); return "الحد 4 فقط"
     try: ex(con,"INSERT INTO users VALUES(?,?,?,1)",(request.form['phone'],request.form['password'],request.form['role']))
     except: pass
-    con.commit();con.close(); return redirect('/dash?view=users')
+    con.commit();close_con(con); return redirect('/dash?view=users')
 
 @app.route('/toggle_user/<p>')
 def tu(p):
-    con=db();ex(con,"UPDATE users SET active=1-active WHERE phone=?",(p,));con.commit();con.close();return redirect('/dash?view=users')
+    con=db();ex(con,"UPDATE users SET active=1-active WHERE phone=?",(p,));con.commit();close_con(con);return redirect('/dash?view=users')
 
 @app.route('/add_sub',methods=['POST'])
 def add_sub():
@@ -245,31 +254,31 @@ def add_sub():
         cur.execute("INSERT INTO subs(name,phone,speed,status,server_id,dish_ip) VALUES(?,?,?,?,?,?)",(request.form['name'],request.form['phone'],request.form.get('speed',''),request.form.get('status','نشط'),request.form.get('server_id') or None,request.form.get('dish_ip','')))
         sid=cur.lastrowid
         cur.execute("INSERT OR IGNORE INTO accounts(sub_id) VALUES(?)",(sid,))
-    con.commit();con.close(); return redirect('/dash?view=subs')
+    con.commit();close_con(con); return redirect('/dash?view=subs')
 
 @app.route('/charge',methods=['POST'])
 def charge():
     sid=request.form['sub_id']; usd=float(request.form.get('usd') or 0); syr=float(request.form.get('syr') or 0)
     con=db(); ex(con,"UPDATE accounts SET usd=usd+?,syr=syr+? WHERE sub_id=?",(usd,syr,sid))
     ex(con,"INSERT INTO ledger(sub_id,date,usd,syr,note,by_user) VALUES(?,?,?,?,?,?)",(sid,datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,syr,request.form.get('note',''),session.get('phone')))
-    con.commit();con.close(); return redirect('/dash?view=ledger')
+    con.commit();close_con(con); return redirect('/dash?view=ledger')
 
 @app.route('/add_dish',methods=['POST'])
 def add_dish():
     con=db()
     try: ex(con,"INSERT INTO dish_ips(ip,location) VALUES(?,?)",(request.form['ip'],request.form.get('location','')))
     except: pass
-    con.commit();con.close(); return redirect('/dash?view=dishes')
+    con.commit();close_con(con); return redirect('/dash?view=dishes')
 
 @app.route('/del_dish/<int:i>')
-def del_dish(i): con=db();ex(con,"DELETE FROM dish_ips WHERE id=?",(i,));con.commit();con.close();return redirect('/dash?view=dishes')
+def del_dish(i): con=db();ex(con,"DELETE FROM dish_ips WHERE id=?",(i,));con.commit();close_con(con);return redirect('/dash?view=dishes')
 
 @app.route('/add_srv',methods=['POST'])
 def add_srv():
-    con=db();ex(con,"INSERT INTO servers(name,host,username,password) VALUES(?,?,?,?)",(request.form['name'],request.form['host'],request.form['username'],request.form.get('password','')));con.commit();con.close();return redirect('/dash?view=servers')
+    con=db();ex(con,"INSERT INTO servers(name,host,username,password) VALUES(?,?,?,?)",(request.form['name'],request.form['host'],request.form['username'],request.form.get('password','')));con.commit();close_con(con);return redirect('/dash?view=servers')
 
 @app.route('/del_srv/<int:i>')
-def del_srv(i): con=db();ex(con,"DELETE FROM servers WHERE id=?",(i,));con.commit();con.close();return redirect('/dash?view=servers')
+def del_srv(i): con=db();ex(con,"DELETE FROM servers WHERE id=?",(i,));con.commit();close_con(con);return redirect('/dash?view=servers')
 
 @app.route('/toggle/<int:sid>')
 def toggle(sid):
@@ -280,12 +289,12 @@ def toggle(sid):
         if s['server_id'] and s['dish_ip']:
             srv=ex(con,"SELECT * FROM servers WHERE id=?",(s['server_id'],)).fetchone()
             if srv: mk_action(srv['host'],srv['username'],srv['password'],'block' if new=='موقوف' else 'unblock',s['dish_ip'])
-    con.close(); return redirect('/dash?view=subs')
+    close_con(con); return redirect('/dash?view=subs')
 
 @app.route('/del_sub/<int:sid>')
-def del_sub(sid): con=db();ex(con,"DELETE FROM subs WHERE id=?",(sid,));con.commit();con.close();return redirect('/dash?view=subs')
+def del_sub(sid): con=db();ex(con,"DELETE FROM subs WHERE id=?",(sid,));con.commit();close_con(con);return redirect('/dash?view=subs')
 
 @app.route('/change_pass',methods=['POST'])
-def cp(): con=db();ex(con,"UPDATE users SET password=? WHERE phone=?",(request.form['newpass'],session.get('phone')));con.commit();con.close();return redirect('/dash?view=settings')
+def cp(): con=db();ex(con,"UPDATE users SET password=? WHERE phone=?",(request.form['newpass'],session.get('phone')));con.commit();close_con(con);return redirect('/dash?view=settings')
 
 if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.environ.get('PORT',10000)))
