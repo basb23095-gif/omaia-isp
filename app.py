@@ -255,20 +255,40 @@ def reset_colors_route():
 
 @app.route('/search')
 def search():
-    if not session.get('phone'): return redirect('/login')
-    q=request.args.get('q','').strip(); con=db()
+    if not session.get('phone'):
+        return redirect('/login')
+    q = request.args.get('q','').strip()
+    con = db()
+    like = "%" + q + "%"
     if q:
-        like=f"%{q}%"
-        rows=ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s WHERE s.name LIKE ? OR s.phone LIKE ? OR s.dish_ip LIKE ? OR s.dish_ip IN (SELECT ip FROM dish_ips WHERE location LIKE ?)",(like,like,like,like)).fetchall()
+        dishes = ex(con,"SELECT * FROM dish_ips WHERE ip LIKE ? OR location LIKE ?", (like,like,)).fetchall()
+        subs = ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s WHERE s.name LIKE ? OR s.phone LIKE ? OR s.dish_ip LIKE ?", (like,like,like,)).fetchall()
+        inv = ex(con,"SELECT * FROM invoices WHERE CAST(id AS TEXT) LIKE ? OR notes LIKE ?", (like,like,)).fetchall()
+        tw = ex(con,"SELECT * FROM towers WHERE name LIKE ?", (like,)).fetchall()
     else:
-        rows=ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s").fetchall()
+        dishes = ex(con,"SELECT * FROM dish_ips").fetchall()
+        subs = ex(con,"SELECT s.*, (SELECT location FROM dish_ips WHERE ip=s.dish_ip) as dname FROM subs s").fetchall()
+        inv = []
+        tw = []
     close_con(con)
-    tr=""
-    for r in rows:
-        try: dn=r['dname'] or r['dish_ip'] or '-'
-        except: dn='-'
-        tr+=f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{dn}</td><td>{r['status']}</td><td><a href='/toggle/{r['id']}' style='color:#d4af37'>فصل/وصل</a></td></tr>"
-    c=f"<form method='get' action='/search' style='display:flex;gap:8px'><input name='q' value='{q}' placeholder='بحث بالاسم / هاتف / اسم صحن / IP'><button style='width:120px'>بحث</button></form><a href='/export' style='color:#d4af37'>📥 تصدير Excel</a><table><tr><th>الاسم</th><th>هاتف</th><th>الصحن</th><th>حالة</th><th>تحكم</th></tr>{tr}</table>"
+    dh = ""
+    for d in dishes:
+        dh = dh + "<tr><td>" + d['location'] + "</td><td>" + d['ip'] + "</td></tr>"
+    sh = ""
+    for r in subs:
+        dn = r['dname'] or r['dish_ip'] or '-'
+        sh = sh + "<tr><td>" + r['name'] + "</td><td>" + r['phone'] + "</td><td>" + dn + "</td><td>" + r['status'] + "</td></tr>"
+    ih = ""
+    for x in inv:
+        ih = ih + "<tr><td>" + str(x['id']) + "</td><td>" + str(x['amount']) + "</td></tr>"
+    th = ""
+    for x in tw:
+        th = th + "<tr><td>" + x['name'] + "</td></tr>"
+    c = "<form method='get' action='/search'><input name='q' value='" + q + "'><button>Search</button></form>"
+    c = c + "<h3>Dishes</h3><table>" + dh + "</table>"
+    c = c + "<h3>Subs</h3><table>" + sh + "</table>"
+    c = c + "<h3>Invoices</h3><table>" + ih + "</table>"
+    c = c + "<h3>Towers</h3><table>" + th + "</table>"
     return render(c)
 
 @app.route('/export')
