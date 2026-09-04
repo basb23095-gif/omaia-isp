@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, render_template_string, session, Response, url_for
+from flask import Flask, request, redirect, render_template_string, session, Response
 import os, datetime, io, csv, json
 try: import routeros_api
 except: routeros_api=None
@@ -88,34 +88,31 @@ def mk_online(s):
 LAYOUT="""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OMAIA</title>
 <style>
 body{font-family:Arial;background:__BG__;color:#fff;margin:0;display:flex;min-height:100vh}
-.sidebar{width:230px;background:#111827;border-left:2px solid __MAIN__;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto;right:0}
+.sidebar{width:230px;background:#111827;border-left:2px solid __MAIN__;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto}
 .sidebar h2{color:__MAIN__;text-align:center;font-size:18px;border-bottom:1px solid #2a344a;padding-bottom:10px}
 .sidebar a{display:block;background:#1f2937;color:#fff;padding:12px;margin:8px 0;border-radius:10px;text-decoration:none;font-size:14px;font-weight:bold}
 .sidebar a:hover,.sidebar a.active{background:__MAIN__;color:#000}
-.main{margin-right:230px;flex:1;padding:20px;width:calc(100% - 230px)}
+.main{margin-left:230px;flex:1;padding:20px}
 .topbar{background:#111827;color:__MAIN__;padding:14px;border-radius:12px;margin-bottom:15px;text-align:center;border:1px solid __MAIN__}
-table{width:100%;border-collapse:collapse;font-size:14px;margin-top:10px}th,td{padding:10px;border-bottom:1px solid #2a344a;text-align:center}th{color:__MAIN__;background:__CARD__}
-input,select,textarea{width:100%;padding:9px;margin:5px 0;background:#1f2937;border:1px solid #374151;color:#fff;border-radius:8px;box-sizing:border-box}
-button{background:__MAIN__;color:#000;padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:5px}
-button:hover{opacity:0.9}
-.card{background:__CARD__;padding:15px;border-radius:10px;margin:10px 0;border:1px solid #2a344a}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid #2a344a;text-align:center}th{color:__MAIN__;background:__CARD__}
+input,select{width:100%;padding:9px;margin:5px 0;background:#1f2937;border:1px solid #374151;color:#fff;border-radius:8px;box-sizing:border-box}
+button{background:__MAIN__;padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer}
+.card{background:__CARD__;padding:12px;border-radius:10px;margin:10px 0}
 .badge{padding:3px 10px;border-radius:20px;font-size:12px}.on{background:#065f46;color:#34d399}.off{background:#7f1d1d;color:#fca5a5}
-.flex-grid{display:flex;gap:15px;flex-wrap:wrap}
-.flex-col{flex:1;min-width:250px}
-@media(max-width:768px){.sidebar{width:70px}.sidebar a{font-size:11px;padding:8px;text-align:center}.sidebar h2{font-size:12px}.main{margin-right:70px;width:calc(100% - 70px)}}
+@media(max-width:768px){.sidebar{width:70px}.sidebar a{font-size:11px;padding:8px;text-align:center}.main{margin-left:70px}}
 </style></head><body>
 <div class="sidebar"><h2>🏢 OMAIA</h2>
 {% if sess %}
 <a href="/dash?view=subs">🏠 المشتركين</a>
-<a href="/search">🔍 بحث سريع</a>
-<a href="/dash?view=add">➕ إضافة مشترك</a>
-<a href="/dash?view=ledger">💰 الحسابات والمالية</a>
-<a href="/dash?view=dishes">📡 إدارة الصحون</a>
-<a href="/dash?view=servers">🖥️ السيرفرات</a>
+<a href="/search">🔍 بحث</a>
+<a href="/dash?view=add">➕ إضافة</a>
+<a href="/dash?view=ledger">💰 دفتر الحسابات</a>
+<a href="/dash?view=dishes">📡 صحون</a>
+<a href="/dash?view=servers">🖥️ سيرفرات</a>
 {% if role=='super' %}<a href="/dash?view=users">👥 المستخدمين</a><a href="/dash?view=settings">⚙️ إعدادات</a>{% endif %}
-<a href="/logout" style="background:#7f1d1d;color:#fff;margin-top:20px">خروج</a>
+<a href="/logout" style="background:#7f1d1d;color:#fff">خروج</a>
 {% endif %}</div>
-<div class="main"><div class="topbar">نظام إدارة شركة الإنترنت والاتصالات - OMAIA</div>{{content|safe}}</div>
+<div class="main"><div class="topbar">نظام الشركة الخاص - OMAIA</div>{{content|safe}}</div>
 </body></html>"""
 
 def render(c):
@@ -127,7 +124,6 @@ def render(c):
 def idx(): return redirect('/dash') if session.get('phone') else redirect('/login')
 @app.route('/dashboard')
 def old(): return redirect('/dash')
-
 @app.route('/login',methods=['GET','POST'])
 def login():
     if request.method=='POST':
@@ -136,41 +132,161 @@ def login():
             session['phone']=u['phone'] if isinstance(u,dict) else u[0]
             session['role']=u['role'] if isinstance(u,dict) else u[2]
             return redirect('/dash')
-        return render("<div style='max-width:360px;margin:30px auto;'><p style='color:red;text-align:center'>بيانات الدخول خاطئة أو الحساب غير نشط</p><form method='post'><input name='phone' required placeholder='الهاتف'><input type='password' name='password' required placeholder='كلمة السر'><button>دخول</button></form></div>")
-    return render("<div style='max-width:360px;margin:30px auto'><h3 style='text-align:center'>تسجيل الدخول للنظام</h3><form method='post'><input name='phone' required placeholder='الهاتف'><input type='password' name='password' required placeholder='كلمة السر'><button>دخول</button></form></div>")
+        return render("<p style='color:red;text-align:center'>دخول مرفوض</p><form method='post'><input name='phone'><input type='password' name='password'><button>دخول</button></form>")
+    return render("<div style='max-width:360px;margin:30px auto'><h3 style='text-align:center'>دخول الشركة</h3><form method='post'><input name='phone' required placeholder='الهاتف'><input type='password' name='password' required placeholder='كلمة السر'><button>دخول</button></form></div>")
 
 @app.route('/logout')
 def logout(): session.clear(); return redirect('/login')
 
-@app.route('/dash', methods=['GET', 'POST'])
+@app.route('/dash')
 def dash():
+       if not session.get('phone'): return redirect('/login')
+    v=request.args.get('view','subs'); con=db()
+    r=ex(con,"SELECT (SELECT COUNT(*) FROM subs) as t,(SELECT COUNT(*) FROM subs WHERE status='نشط') as a,(SELECT COALESCE(SUM(usd),0) FROM accounts) as u,(SELECT COUNT(*) FROM servers) as s,(SELECT COUNT(*) FROM dish_ips) as d").fetchone()
+    total=r['t']; active=r['a']; sum_usd=r['u']; srv_cnt=r['s']; dish_cnt=r['d']
+    stats=f"""<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;
+    stats=f"""<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:15px">
+    <div style="background:linear-gradient(135deg,#d4af37,#a67c00);padding:14px;border-radius:12px;text-align:center;color:#000"><h2>{total}</h2><div>مشترك</div></div>
+    <div style="background:linear-gradient(135deg,#10b981,#065f46);padding:14px;border-radius:12px;text-align:center"><h2>{active}</h2><div>نشط</div></div>
+    <div style="background:linear-gradient(135deg,#ef4444,#7f1d1d);padding:14px;border-radius:12px;text-align:center"><h2>{total-active}</h2><div>موقوف</div></div>
+    <div style="background:linear-gradient(135deg,#3b82f6,#1e3a8a);padding:14px;border-radius:12px;text-align:center"><h2>${sum_usd:.0f}</h2><div>رصيد $</div></div>
+    <div style="background:linear-gradient(135deg,#8b5cf6,#4c1d95);padding:14px;border-radius:12px;text-align:center"><h2>{srv_cnt}</h2><div>سيرفر</div></div>
+    <div style="background:linear-gradient(135deg,#f59e0b,#92400e);padding:14px;border-radius:12px;text-align:center"><h2>{dish_cnt}</h2><div>صحن</div></div></div>"""
+    c=""
+    if v=='subs':
+        rows=ex(con,"SELECT s.*,a.usd,sv.name as svname FROM subs s LEFT JOIN accounts a ON a.sub_id=s.id LEFT JOIN servers sv ON sv.id=s.server_id").fetchall()
+        tr="".join([f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{r['dish_ip'] or '-'}</td><td>{r['svname'] or '-'}</td><td>${r['usd'] or 0}</td><td><span class='badge {'on' if r['status']=='نشط' else 'off'}'>{r['status']}</span></td><td><a href='/toggle/{r['id']}' style='color:#d4af37'>فصل/وصل</a> | <a href='/del_sub/{r['id']}' style='color:#f87171' onclick='return confirm(\"حذف؟\")'>حذف</a></td></tr>" for r in rows])
+        c=stats+f"<table><tr><th>الاسم</th><th>هاتف</th><th>IP</th><th>سيرفر</th><th>$</th><th>حالة</th><th>تحكم</th></tr>{tr}</table>"
+    elif v=='add':
+        srvs=ex(con,"SELECT * FROM servers").fetchall()
+        opts="".join([f"<option value='{s['id']}'>{s['name']}</option>" for s in srvs])
+        c=f"<h3>إضافة مشترك</h3><form method='post' action='/add_sub'><input name='name' required placeholder='الاسم'><input name='phone' required placeholder='الهاتف'><input name='speed' placeholder='السرعة'><input name='dish_ip' placeholder='IP الصحن'><select name='server_id'><option value=''>بدون سيرفر</option>{opts}</select><select name='status'><option>نشط</option><option>موقوف</option></select><button>حفظ</button></form>"
+    elif v=='ledger':
+        rows=ex(con,"SELECT l.*,s.name FROM ledger l LEFT JOIN subs s ON s.id=l.sub_id ORDER BY l.id DESC LIMIT 100").fetchall()
+        subs=ex(con,"SELECT id,name FROM subs").fetchall()
+        opts="".join([f"<option value='{s['id']}'>{s['name']}</option>" for s in subs])
+        tr="".join([f"<tr><td>{r['date']}</td><td>{r['name']}</td><td>{r['usd']}</td><td>{r['syr']}</td><td>{r['note']}</td><td>{r['by_user']}</td></tr>" for r in rows])
+        c=f"<div class='card'><form method='post' action='/charge'><select name='sub_id'>{opts}</select><input name='usd' placeholder='دولار'><input name='syr' placeholder='سوري'><input name='note' placeholder='ملاحظة'><button>شحن</button></form></div><table><tr><th>التاريخ</th><th>المشترك</th><th>$</th><th>ل.س</th><th>ملاحظة</th><th>بواسطة</th></tr>{tr}</table>"
+    elif v=='dishes':
+        rows=ex(con,"SELECT * FROM dish_ips").fetchall()
+        tr="".join([f"<tr><td>{r['ip']}</td><td>{r['location'] or ''}</td><td><a href='/del_dish/{r['id']}' style='color:#f87171'>حذف</a></td></tr>" for r in rows])
+        c=f"<div class='card'><form method='post' action='/add_dish'><input name='ip' required placeholder='IP الصحن'><input name='location' placeholder='الموقع'><button>إضافة</button></form></div><table><tr><th>IP</th><th>الموقع</th><th></th></tr>{tr}</table>"
+    elif v=='servers':
+        srvs=ex(con,"SELECT * FROM servers").fetchall()
+        tr="".join([f"<tr><td>{s['name']}</td><td>{s['host']}</td><td>{len(mk_online(s))} متصل</td><td><a href='/dash?view=srv_detail&id={s['id']}' style='color:#d4af37'>مراقبة</a> | <a href='/del_srv/{s['id']}' style='color:#f87171'>حذف</a></td></tr>" for s in srvs])
+        c=f"<div class='card'><form method='post' action='/add_srv'><input name='name' required placeholder='اسم السيرفر'><input name='host' required placeholder='192.168.88.1'><input name='username' required placeholder='يوزر'><input name='password' placeholder='باسورد'><button>إضافة سيرفر</button></form></div><table><tr><th>الاسم</th><th>الهوست</th><th>متصل</th><th>تحكم</th></tr>{tr}</table>"
+    elif v=='srv_detail':
+        s=ex(con,"SELECT * FROM servers WHERE id=?",(request.args.get('id'),)).fetchone()
+        on=mk_online(s); tr="".join([f"<tr><td>{u.get('name','')}</td><td>{u.get('address','')}</td><td>{u.get('uptime','')}</td></tr>" for u in on])
+        c=f"<h3>{s['name']} - {len(on)} متصل</h3><table><tr><th>المستخدم</th><th>IP</th><th>المدة</th></tr>{tr}</table>"
+    elif v=='users' and session.get('role')=='super':
+        users=ex(con,"SELECT * FROM users").fetchall()
+        tr="".join([f"<tr><td>{u['phone']}</td><td>{u['role']}</td><td>{'مفعل' if u['active'] else 'موقوف'}</td><td><a href='/toggle_user/{u['phone']}' style='color:#d4af37'>تفعيل/إيقاف</a></td></tr>" for u in users])
+        c=f"<div class='card'><form method='post' action='/add_user'><input name='phone' required placeholder='هاتف'><input name='password' required placeholder='باسورد'><select name='role'><option value='staff'>موظف</option><option value='super'>مدير</option></select><button>إضافة ({len(users)}/4)</button></form></div><table><tr><th>هاتف</th><th>دور</th><th>حالة</th><th>تحكم</th></tr>{tr}</table>"
+    elif v=='settings' and session.get('role')=='super':
+        col=get_colors()
+        c=f"""<div class='card'><h4>تغيير كلمة سرك</h4><form method='post' action='/change_pass'><input type='password' name='newpass' required placeholder='جديدة'><button>تغيير</button></form></div>
+        <div class='card'><h4>🎨 ألوان الموقع</h4><form method='post' action='/save_colors'>
+        <label>اللون الرئيسي</label><input type='color' name='main' value='{col["main"]}'>
+        <label>الخلفية</label><input type='color' name='bg' value='{col["bg"]}'>
+        <label>البطاقات</label><input type='color' name='card' value='{col["card"]}'>
+        <button>حفظ الألوان</button></form></div>"""
+    con.close(); return render(c)
+
+@app.route('/save_colors',methods=['POST'])
+def save_colors():
+    if session.get('role')!='super': return "مرفوض"
+    col=json.dumps({k:request.form[k] for k in ['main','bg','card']})
+    con=db()
+    ex(con,"CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT)")
+    if USE_PG:
+        cur=con.cursor(); cur.execute("INSERT INTO settings(k,v) VALUES(%s,%s) ON CONFLICT(k) DO UPDATE SET v=EXCLUDED.v",('colors',col))
+    else:
+        ex(con,"INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)",('colors',col))
+    con.commit();con.close(); return redirect('/dash?view=settings')
+
+@app.route('/search')
+def search():
     if not session.get('phone'): return redirect('/login')
-    v = request.args.get('view', 'subs')
-    con = db()
-    out = ""
+    q=request.args.get('q',''); con=db()
+    rows=ex(con,"SELECT * FROM subs WHERE name LIKE? OR phone LIKE? OR dish_ip LIKE?",(f'%{q}%',f'%{q}%',f'%{q}%')).fetchall(); con.close()
+    tr="".join([f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{r['dish_ip']}</td><td>{r['status']}</td><td><a href='/toggle/{r['id']}' style='color:#d4af37'>فصل/وصل</a></td></tr>" for r in rows])
+    c=f"<form action='/search' style='display:flex;gap:8px'><input name='q' value='{q}' placeholder='بحث بالاسم / هاتف / IP'><button style='width:120px'>بحث</button></form><a href='/export' style='color:#d4af37'>📥 تصدير Excel</a><table><tr><th>الاسم</th><th>هاتف</th><th>IP</th><th>حالة</th><th>تحكم</th></tr>{tr}</table>"
+    return render(c)
 
-    # 1. VIEW SUB-LIST
-    if v == 'subs':
-        out += "<h3>👥 قائمة المشتركين</h3>"
-        out += "<table style='width:100%'><tr><th>المعرف</th><th>الاسم</th><th>الهاتف</th><th>السرعة</th><th>الحالة</th><th>IP الصحن</th><th>العمليات</th></tr>"
-        rows = ex(con, "SELECT * FROM subs").fetchall()
-        for r in rows:
-            st_class = "on" if r['status'] == 'active' else "off"
-            st_text = "نشط" if r['status'] == 'active' else "محظور"
-            out += f"""<tr>
-                <td>{r['id']}</td>
-                <td><b>{r['name']}</b></td>
-                <td>{r['phone']}</td>
-                <td>{r['speed']}</td>
-                <td><span class='badge {st_class}'>{st_text}</span></td>
-                <td>{r['dish_ip'] or '-'}</td>
-                <td>
-                    <a href="/action?ac=toggle&id={r['id']}" style='color:#d4af37; text-decoration:none;'>🔄 تغيير الحالة</a> | 
-                    <a href="/dash?view=ledger&sub_id={r['id']}" style='color:#34d399; text-decoration:none;'>💰 الحساب</a>
-                </td>
-            </tr>"""
-        out += "</table>"
+@app.route('/export')
+def export():
+    con=db(); rows=ex(con,"SELECT s.name,s.phone,s.status,s.dish_ip,a.usd,a.syr FROM subs s LEFT JOIN accounts a ON a.sub_id=s.id").fetchall(); con.close()
+    out=io.StringIO(); w=csv.writer(out); w.writerow(['الاسم','الهاتف','الحالة','IP','دولار','سوري'])
+    for r in rows: w.writerow([r['name'],r['phone'],r['status'],r['dish_ip'],r['usd'] or 0,r['syr'] or 0])
+    return Response(out.getvalue().encode('utf-8-sig'),mimetype='text/csv',headers={'Content-Disposition':'attachment;filename=subs.csv'})
 
-    # 2. ADD SUBSCRIBER
-    elif v == 'add':
-        if request.method == 'POST':
+@app.route('/add_user',methods=['POST'])
+def add_user():
+    if session.get('role')!='super': return "مرفوض"
+    con=db()
+    if ex(con,"SELECT COUNT(*) c FROM users").fetchone()['c']>=4: con.close(); return "الحد 4 فقط"
+    try: ex(con,"INSERT INTO users VALUES(?,?,?,1)",(request.form['phone'],request.form['password'],request.form['role']))
+    except: pass
+    con.commit();con.close(); return redirect('/dash?view=users')
+
+@app.route('/toggle_user/<p>')
+def tu(p):
+    con=db();ex(con,"UPDATE users SET active=1-active WHERE phone=?",(p,));con.commit();con.close();return redirect('/dash?view=users')
+
+@app.route('/add_sub',methods=['POST'])
+def add_sub():
+    con=db()
+    if USE_PG:
+        cur=ex(con,"INSERT INTO subs(name,phone,speed,status,server_id,dish_ip) VALUES(?,?,?,?,?,?) RETURNING id",(request.form['name'],request.form['phone'],request.form.get('speed',''),request.form.get('status','نشط'),request.form.get('server_id') or None,request.form.get('dish_ip','')))
+        sid=cur.fetchone()['id']
+        ex(con,"INSERT INTO accounts(sub_id) VALUES(?) ON CONFLICT DO NOTHING",(sid,))
+    else:
+        cur=con.cursor()
+        cur.execute("INSERT INTO subs(name,phone,speed,status,server_id,dish_ip) VALUES(?,?,?,?,?,?)",(request.form['name'],request.form['phone'],request.form.get('speed',''),request.form.get('status','نشط'),request.form.get('server_id') or None,request.form.get('dish_ip','')))
+        sid=cur.lastrowid
+        cur.execute("INSERT OR IGNORE INTO accounts(sub_id) VALUES(?)",(sid,))
+    con.commit();con.close(); return redirect('/dash?view=subs')
+
+@app.route('/charge',methods=['POST'])
+def charge():
+    sid=request.form['sub_id']; usd=float(request.form.get('usd') or 0); syr=float(request.form.get('syr') or 0)
+    con=db(); ex(con,"UPDATE accounts SET usd=usd+?,syr=syr+? WHERE sub_id=?",(usd,syr,sid))
+    ex(con,"INSERT INTO ledger(sub_id,date,usd,syr,note,by_user) VALUES(?,?,?,?,?,?)",(sid,datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,syr,request.form.get('note',''),session.get('phone')))
+    con.commit();con.close(); return redirect('/dash?view=ledger')
+
+@app.route('/add_dish',methods=['POST'])
+def add_dish():
+    con=db()
+    try: ex(con,"INSERT INTO dish_ips(ip,location) VALUES(?,?)",(request.form['ip'],request.form.get('location','')))
+    except: pass
+    con.commit();con.close(); return redirect('/dash?view=dishes')
+
+@app.route('/del_dish/<int:i>')
+def del_dish(i): con=db();ex(con,"DELETE FROM dish_ips WHERE id=?",(i,));con.commit();con.close();return redirect('/dash?view=dishes')
+
+@app.route('/add_srv',methods=['POST'])
+def add_srv():
+    con=db();ex(con,"INSERT INTO servers(name,host,username,password) VALUES(?,?,?,?)",(request.form['name'],request.form['host'],request.form['username'],request.form.get('password','')));con.commit();con.close();return redirect('/dash?view=servers')
+
+@app.route('/del_srv/<int:i>')
+def del_srv(i): con=db();ex(con,"DELETE FROM servers WHERE id=?",(i,));con.commit();con.close();return redirect('/dash?view=servers')
+
+@app.route('/toggle/<int:sid>')
+def toggle(sid):
+    con=db(); s=ex(con,"SELECT * FROM subs WHERE id=?",(sid,)).fetchone()
+    if s:
+        new='موقوف' if s['status']=='نشط' else 'نشط'
+        ex(con,"UPDATE subs SET status=? WHERE id=?",(new,sid));con.commit()
+        if s['server_id'] and s['dish_ip']:
+            srv=ex(con,"SELECT * FROM servers WHERE id=?",(s['server_id'],)).fetchone()
+            if srv: mk_action(srv['host'],srv['username'],srv['password'],'block' if new=='موقوف' else 'unblock',s['dish_ip'])
+    con.close(); return redirect('/dash?view=subs')
+
+@app.route('/del_sub/<int:sid>')
+def del_sub(sid): con=db();ex(con,"DELETE FROM subs WHERE id=?",(sid,));con.commit();con.close();return redirect('/dash?view=subs')
+
+@app.route('/change_pass',methods=['POST'])
+def cp(): con=db();ex(con,"UPDATE users SET password=? WHERE phone=?",(request.form['newpass'],session.get('phone')));con.commit();con.close();return redirect('/dash?view=settings')
+
+if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.environ.get('PORT',10000)))
