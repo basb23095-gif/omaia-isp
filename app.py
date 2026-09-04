@@ -435,3 +435,44 @@ def del_sub(sid): con=db();ex(con,"DELETE FROM subs WHERE id=?",(sid,));con.comm
 def cp(): con=db();ex(con,"UPDATE users SET password=? WHERE phone=?",(request.form['newpass'],session.get('phone')));con.commit();close_con(con);return redirect('/dash?view=settings')
 
 if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.environ.get('PORT',10000)))
+
+@app.route('/toggle_user')
+def toggle_user():
+    if session.get('role')!='super': return redirect('/dash?view=settings')
+    ph=request.args.get('ph','')
+    if ph not in ('05344851045','5344851045'):
+        con=db(); u=ex(con,"SELECT active FROM users WHERE phone=?",(ph,)).fetchone()
+        if u:
+            ex(con,"UPDATE users SET active=? WHERE phone=?",(0 if u['active'] else 1, ph));con.commit()
+        close_con(con)
+    return redirect('/dash?view=settings')
+
+@app.route('/del_user')
+def del_user():
+    if session.get('role')!='super': return redirect('/dash?view=settings')
+    ph=request.args.get('ph','')
+    if ph not in ('05344851045','5344851045') and ph != session.get('phone'):
+        con=db();ex(con,"DELETE FROM users WHERE phone=?",(ph,));con.commit();close_con(con)
+    return redirect('/dash?view=settings')
+
+@app.route('/add_user', methods=['POST'])
+def add_user():
+    if session.get('role')!='super': return redirect('/dash?view=settings')
+    con=db()
+    try:
+        ex(con,"INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",(request.form.get('phone','').strip(),request.form.get('username','').strip(),request.form.get('password',''),request.form.get('role','tech')))
+        con.commit()
+    except: pass
+    close_con(con);return redirect('/dash?view=settings')
+
+@app.route('/edit_user/<ph>', methods=['POST'])
+def edit_user(ph):
+    if session.get('role')!='super': return redirect('/dash?view=settings')
+    con=db();un=request.form.get('username','').strip();pw=request.form.get('password','').strip()
+    if pw: ex(con,"UPDATE users SET username=?,password=? WHERE phone=?",(un,pw,ph))
+    else: ex(con,"UPDATE users SET username=? WHERE phone=?",(un,ph))
+    con.commit();close_con(con);return redirect('/dash?view=settings')
+
+@app.route('/lang/<l>')
+def set_lang(l):
+    session['lang']=l;return redirect('/dash?view=settings')
