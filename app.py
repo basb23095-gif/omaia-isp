@@ -9,7 +9,7 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24) 
-DB = "omaia_isp_final_stable.db"
+DB = "omaia_isp_v4_stable.db"
 
 def init_db():
     con = sqlite3.connect(DB)
@@ -173,40 +173,41 @@ def dashboard():
         con.close()
         
         rows = ""
-        for s in subs:
-            sub_id = str(s[0])
-            name = str(s[1])
-            phone = str(s[2])
-            speed = str(s[3]) if s[3] else '-'
-            status = str(s[4])
+        # تفكيك العناصر مباشرة لتلافي مشاكل الأقواس المربعة نهائياً
+        for s_id, s_name, s_phone, s_speed, s_status, a_usd, a_syr, i_ip in subs:
+            sub_id_str = str(s_id)
+            name_str = str(s_name)
+            phone_str = str(s_phone)
+            speed_str = str(s_speed) if s_speed else '-'
+            status_str = str(s_status)
             
             usd_val = "0.00"
-            if s[5] is not None:
-                usd_val = "{:.2f}".format(s[5])
+            if a_usd is not None:
+                usd_val = "{:.2f}".format(a_usd)
                 
             syr_val = "0"
-            if s[6] is not None:
-                syr_val = str(s[6])
+            if a_syr is not None:
+                syr_val = str(int(a_syr))
                 
             ip_val = 'غير معين'
-            if s[7]:
-                ip_val = str(s[7])
+            if i_ip:
+                ip_val = str(i_ip)
             
-            if status == "نشط":
+            if status_str == "نشط":
                 status_badge = '<span class="badge badge-active">نشط</span>'
             else:
                 status_badge = '<span class="badge badge-suspended">موقوف</span>'
             
             rows += "<tr>"
-            rows += "<td>" + name + "</td>"
-            rows += "<td>" + phone + "</td>"
-            rows += "<td>" + speed + "</td>"
+            rows += "<td>" + name_str + "</td>"
+            rows += "<td>" + phone_str + "</td>"
+            rows += "<td>" + speed_str + "</td>"
             rows += "<td>" + ip_val + "</td>"
             rows += "<td style='color: #34d399;'>$" + usd_val + "</td>"
             rows += "<td style='color: #fbbf24;'>" + syr_val + " ل.س</td>"
             rows += "<td>" + status_badge + "</td>"
-            rows += "<td><a href='/toggle_status/" + sub_id + "' style='color:var(--gold); text-decoration:none; margin-right:10px;'>تغيير الحالة</a> | "
-            rows += "<a href='/del_sub/" + sub_id + "' style='color:#f87171; text-decoration:none;' onclick='return confirm(\"هل أنت متأكد؟\")'>حذف</a></td>"
+            rows += "<td><a href='/toggle_status/" + sub_id_str + "' style='color:var(--gold); text-decoration:none; margin-right:10px;'>تغيير الحالة</a> | "
+            rows += "<a href='/del_sub/" + sub_id_str + "' style='color:#f87171; text-decoration:none;' onclick='return confirm(\"هل أنت متأكد؟\")'>حذف</a></td>"
             rows += "</tr>"
             
         content = "<h3>قائمة المشتركين</h3><table><tr><th>الاسم</th><th>الهاتف</th><th>السرعة</th><th>الـ IP</th><th>رصيد ($)</th><th>رصيد (سوري)</th><th>الحالة</th><th>التحكم</th></tr>" + rows + "</table>"
@@ -220,6 +221,3 @@ def dashboard():
             <input name="phone" placeholder="رقم الهاتف" required>
             <input name="address" placeholder="العنوان">
             <input name="speed" placeholder="السرعة (مثال: 10 Mbps)">
-            <div style="display:flex; gap:10px;">
-                <input type="number" step="0.01" name="usd" placeholder="رصيد بالدولار ($)">
-                <input type="number" name="syr" placeholder="رصيد بالليرة السورية">
