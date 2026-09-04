@@ -269,23 +269,38 @@ def reset_colors_route():
 def search():
     if not session.get('phone'): return redirect('/login')
     q=request.args.get('q','').strip()
-    con=db(); like="%"+q+"%"
+    con=db()
+    like = f"%{q}%"
     if q:
-        # البحث فقط بالمشتركين - الايبيات ما تطلع
-        rows=ex(con,"SELECT * FROM subs WHERE name LIKE? OR phone LIKE?",(like,like)).fetchall()
+        subs=ex(con,"SELECT * FROM subs WHERE name LIKE ? OR phone LIKE ? OR dish_ip LIKE ?", (like,like,like)).fetchall()
+        try:
+            dishes=ex(con,"SELECT * FROM dish_ips WHERE ip LIKE ? OR location LIKE ? OR site LIKE ?", (like,like,like)).fetchall()
+        except:
+            dishes=ex(con,"SELECT * FROM dish_ips WHERE ip LIKE ? OR location LIKE ?", (like,like)).fetchall()
     else:
-        rows=ex(con,"SELECT * FROM subs LIMIT 50").fetchall()
+        subs=ex(con,"SELECT * FROM subs LIMIT 50").fetchall()
+        dishes=ex(con,"SELECT * FROM dish_ips").fetchall()
     close_con(con)
-    tr=""
-    for r in rows:
-        d=dict(r) if not isinstance(r,dict) else r
-        tr+="<tr><td>"+str(d.get('name',''))+"</td><td>"+str(d.get('phone',''))+"</td><td>"+str(d.get('status',''))+"</td></tr>"
-    c="<form method='get' action='/search' style='display:flex;gap:8px;margin-bottom:15px'>"
-    c+="<input name='q' value='"+q+"' placeholder='ابحث اسم مشترك او هاتف...' style='flex:1'>"
-    c+="<button style='width:100px'>بحث</button></form>"
-    c+="<h3>المشتركين ("+str(len(rows))+")</h3><table><tr><th>الاسم</th><th>الهاتف</th><th>الحالة</th></tr>"+tr+"</table>"
-    return render(c)
 
+    # جدول المشتركين
+    tr1=""
+    for r in subs:
+        d=dict(r) if not isinstance(r,dict) else r
+        tr1+=f"<tr><td>{d.get('name','')}</td><td>{d.get('phone','')}</td><td style='direction:ltr'>{d.get('dish_ip','') or '-'}</td><td>{d.get('status','')}</td></tr>"
+
+    # جدول الصحون
+    tr2=""
+    for r in dishes:
+        d=dict(r) if not isinstance(r,dict) else r
+        tr2+=f"<tr><td>{d.get('location','')}</td><td>{d.get('site','') or '-'}</td><td style='direction:ltr'>{d.get('ip','')}</td></tr>"
+
+    c="<form method='get' action='/search' style='display:flex;gap:8px;margin-bottom:15px'>"
+    c+=f"<input name='q' value='{q}' placeholder='ابحث اسم، هاتف، IP، شبكة...' style='flex:1;direction:ltr;text-align:left'>"
+    c+="<button style='width:100px'>بحث</button></form>"
+
+    c+=f"<h3>المشتركين ({len(subs)})</h3><table><tr><th>الاسم</th><th>الهاتف</th><th>IP</th><th>الحالة</th></tr>{tr1}</table>"
+    c+=f"<h3 style='margin-top:20px'>الصحون ({len(dishes)})</h3><table><tr><th>اسم الشبكة</th><th>موقع البرج</th><th>IP</th></tr>{tr2}</table>"
+    return render(c)
 @app.route('/export')
 def export():
     con=db(); rows=ex(con,"SELECT s.name,s.phone,s.status,s.dish_ip,a.usd,a.syr FROM subs s LEFT JOIN accounts a ON a.sub_id=s.id").fetchall(); close_con(con)
