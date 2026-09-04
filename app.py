@@ -6,11 +6,13 @@ try: import psycopg2, psycopg2.extras
 except: psycopg2=None
 import sqlite3
 from colors import get_colors, save_colors_dict, reset_colors, DEFAULT_COLORS
+
 app=Flask(__name__)
 app.secret_key=os.environ.get("SECRET_KEY","omaia-sec")
 DATABASE_URL=os.environ.get("DATABASE_URL","")
 USE_PG=bool(DATABASE_URL and psycopg2)
 _pg_conn=None;_pg_time=0
+
 def db():
     global _pg_conn,_pg_time
     if USE_PG:
@@ -23,10 +25,12 @@ def db():
         _pg_conn=psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=5)
         _pg_conn.autocommit=True;_pg_time=now;return _pg_conn
     con=sqlite3.connect("omaia_company.db");con.row_factory=sqlite3.Row;return con
+
 def close_con(con):
     if not USE_PG:
         try:con.close()
         except:pass
+
 def ex(con,q,args=()):
     if USE_PG:
         cur=con.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -79,18 +83,36 @@ def mk_online(s):
         api=pool.get_api();r=api.get_resource('/ppp/active').get();pool.disconnect();return r
     except:return []
 
-LAYOUT="""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OMAIA</title>
-<style>body{font-family:Arial;margin:0;display:flex;min-height:100vh}.sidebar{width:230px;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto}.main{margin-left:230px;flex:1;padding:20px;width:100%}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid #ccc;text-align:center}input,select{width:100%;padding:9px;margin:5px 0;border-radius:8px;box-sizing:border-box}button{padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer}.card{padding:12px;border-radius:10px;margin:10px 0;border:1px solid #ccc}.form2{display:grid;grid-template-columns:1fr 1fr;gap:10px}</style></head><body>
+# LAYOUT يستخدم رموز من ملف colors.py فقط
+LAYOUT="""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>OMAIA</title>
+<style>
+body{font-family:Arial;margin:0;display:flex;min-height:100vh;background:__BG__;color:__TEXT__}
+.sidebar{width:230px;padding:15px;position:fixed;left:0;top:0;bottom:0;overflow-y:auto;background:__SIDEBAR__}
+.sidebar h2{color:__MAIN__;text-align:center}
+.sidebar a{display:block;color:#fff;padding:10px;margin:5px 0;background:__CARD__;text-decoration:none;border-radius:8px}
+.main{margin-left:230px;flex:1;padding:20px;width:100%}
+table{width:100%;border-collapse:collapse;font-size:14px;background:__CARD__;border-radius:10px;overflow:hidden}
+th,td{padding:8px;border-bottom:1px solid #334155;text-align:center}
+th{color:__MAIN__}
+input,select{width:100%;padding:9px;margin:5px 0;border-radius:8px;box-sizing:border-box;background:#0f172a;border:1px solid #334155;color:#fff}
+button{padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cursor:pointer;background:__MAIN__;color:#000}
+.card{padding:12px;border-radius:10px;margin:10px 0;border:1px solid #334155;background:__CARD__}
+.form2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+</style></head><body>
 <div class="sidebar"><h2>OMAIA</h2>{% if sess %}<a href="/dash?view=subs">المشتركين</a><br><a href="/search">بحث</a><br><a href="/dash?view=add">إضافة</a><br><a href="/dash?view=ledger">دفتر الحسابات</a><br><a href="/dash?view=dishes">صحون</a><br><a href="/dash?view=servers">سيرفرات</a><br>{% if role=='super' %}<a href="/dash?view=settings">إعدادات</a><br>{% endif %}<a href="/logout">خروج</a>{% endif %}</div>
 <div class="main">{{content|safe}}</div></body></html>"""
 
 def render(c):
     col=get_colors()
     h=LAYOUT
-    for k,v in col.items(): h=h.replace("__"+k.upper()+"__",v)
+    for k,v in col.items():
+        h=h.replace("__"+k.upper()+"__",v)
     return render_template_string(h,content=c,sess=session.get('phone'),role=session.get('role'))
+
 @app.route('/')
 def idx():return redirect('/dash') if session.get('phone') else redirect('/login')
+
 @app.route('/login',methods=['GET','POST'])
 def login():
     if request.method=='POST':
@@ -101,6 +123,7 @@ def login():
             return redirect('/dash')
         return render("<p>دخول مرفوض</p><form method='post'><input name='phone'><input type='password' name='password'><button>دخول</button></form>")
     return render("<div><h3>دخول الشركة</h3><form method='post'><input name='phone' required placeholder='الهاتف'><input type='password' name='password' required placeholder='كلمة السر'><button>دخول</button></form></div>")
+
 @app.route('/logout')
 def logout():session.clear();return redirect('/login')
 
@@ -109,8 +132,6 @@ def dash():
     if not session.get('phone'):return redirect('/login')
     v=request.args.get('view','subs');con=db()
     if v=='settings' and session.get('role')=='super':
-        try:ex(con,"ALTER TABLE users ADD COLUMN username TEXT")
-        except:pass
         users=ex(con,"SELECT * FROM users ORDER BY phone").fetchall()
         utr="".join([f"<tr><td>{u['phone']}</td><td>{u['role']}</td><td><a href='/toggle_user?ph={u['phone']}'>تعطيل/تشغيل</a> | <a href='/del_user?ph={u['phone']}'>حذف</a></td></tr>" for u in users])
         c=f"<div class='card'><h4>اليوزرات</h4><form method='post' action='/add_user'><div class='form2'><input name='phone' required placeholder='هاتف'><input name='username' placeholder='يوزر'><input name='password' required placeholder='باسورد'><select name='role'><option value='tech'>فني</option><option value='super'>super</option></select></div><button>إضافة</button></form><table>{utr}</table></div>"
@@ -156,6 +177,7 @@ def add_sub():
     con=db()
     cur=con.cursor();cur.execute("INSERT INTO subs(name,phone,status,server_id,dish_ip) VALUES(?,?,?,?,?)",(request.form['name'],request.form['phone'],request.form.get('status','نشط'),request.form.get('server_id') or None,request.form.get('dish_ip','')))
     sid=cur.lastrowid;cur.execute("INSERT OR IGNORE INTO accounts(sub_id) VALUES(?)",(sid,));con.commit();close_con(con);return redirect('/dash?view=subs')
+
 @app.route('/charge',methods=['POST'])
 def charge():
     sid=request.form['sub_id'];amt=float(request.form.get('amount') or 0);cur=request.form.get('currency','usd')
@@ -163,6 +185,7 @@ def charge():
     con=db();ex(con,"UPDATE accounts SET usd=usd+?,syr=syr+? WHERE sub_id=?",(usd,syr,sid))
     ex(con,"INSERT INTO ledger(sub_id,date,usd,syr,note,by_user) VALUES(?,?,?,?,?,?)",(sid,datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,syr,request.form.get('note',''),session.get('phone')))
     con.commit();close_con(con);return redirect('/dash?view=ledger')
+
 @app.route('/add_dish',methods=['POST'])
 def add_dish():
     con=db()
@@ -171,12 +194,16 @@ def add_dish():
         try:ex(con,"UPDATE dish_ips SET location=?,site=? WHERE ip=?",(request.form.get('location','').strip(),request.form.get('site','').strip(),request.form.get('ip','').strip()))
         except:pass
     con.commit();close_con(con);return redirect('/dash?view=dishes')
+
 @app.route('/del_dish/<int:i>')
 def del_dish(i):con=db();ex(con,"DELETE FROM dish_ips WHERE id=?",(i,));con.commit();close_con(con);return redirect('/dash?view=dishes')
+
 @app.route('/add_srv',methods=['POST'])
 def add_srv():con=db();ex(con,"INSERT INTO servers(name,host,username,password) VALUES(?,?,?,?)",(request.form['name'],request.form['host'],request.form['username'],request.form.get('password','')));con.commit();close_con(con);return redirect('/dash?view=servers')
+
 @app.route('/del_srv/<int:i>')
 def del_srv(i):con=db();ex(con,"DELETE FROM servers WHERE id=?",(i,));con.commit();close_con(con);return redirect('/dash?view=servers')
+
 @app.route('/toggle/<int:sid>')
 def toggle(sid):
     con=db();s=ex(con,"SELECT * FROM subs WHERE id=?",(sid,)).fetchone()
@@ -184,20 +211,24 @@ def toggle(sid):
         new='موقوف' if s['status']=='نشط' else 'نشط'
         ex(con,"UPDATE subs SET status=? WHERE id=?",(new,sid));con.commit()
     close_con(con);return redirect('/dash?view=subs')
+
 @app.route('/del_sub/<int:sid>')
 def del_sub(sid):con=db();ex(con,"DELETE FROM subs WHERE id=?",(sid,));con.commit();close_con(con);return redirect('/dash?view=subs')
+
 @app.route('/toggle_user')
 def toggle_user():
     if session.get('role')!='super':return redirect('/dash?view=settings')
     ph=request.args.get('ph','')
     if ph not in ('0900000000',):con=db();u=ex(con,"SELECT active FROM users WHERE phone=?",(ph,)).fetchone();ex(con,"UPDATE users SET active=? WHERE phone=?",(0 if u['active'] else 1,ph));con.commit();close_con(con)
     return redirect('/dash?view=settings')
+
 @app.route('/del_user')
 def del_user_q():
     if session.get('role')!='super':return redirect('/dash?view=settings')
     ph=request.args.get('ph','')
     if ph!='0900000000' and ph!=session.get('phone'):con=db();ex(con,"DELETE FROM users WHERE phone=?",(ph,));con.commit();close_con(con)
     return redirect('/dash?view=settings')
+
 @app.route('/add_user',methods=['POST'])
 def add_user():
     if session.get('role')!='super':return redirect('/dash?view=settings')
@@ -205,6 +236,7 @@ def add_user():
     try:ex(con,"INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",(request.form.get('phone','').strip(),request.form.get('username','').strip(),request.form.get('password',''),request.form.get('role','tech')));con.commit()
     except:pass
     close_con(con);return redirect('/dash?view=settings')
+
 @app.route('/edit_user/<ph>',methods=['POST'])
 def edit_user(ph):
     if session.get('role')!='super':return redirect('/dash?view=settings')
@@ -212,8 +244,10 @@ def edit_user(ph):
     if pw:ex(con,"UPDATE users SET username=?,password=? WHERE phone=?",(un,pw,ph))
     else:ex(con,"UPDATE users SET username=? WHERE phone=?",(un,ph))
     con.commit();close_con(con);return redirect('/dash?view=settings')
+
 @app.route('/lang/<l>')
 def set_lang(l):session['lang']=l;return redirect('/dash?view=settings')
+
 @app.route('/export')
 def export():
     con=db();rows=ex(con,"SELECT s.name,s.phone,s.status FROM subs s").fetchall();close_con(con)
