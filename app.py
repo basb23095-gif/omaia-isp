@@ -229,28 +229,31 @@ def dash():
         s=ex(con,"SELECT * FROM servers WHERE id=?",(request.args.get('id'),)).fetchone()
         on=mk_online(s); tr="".join([f"<tr><td>{u.get('name','')}</td><td>{u.get('address','')}</td><td>{u.get('uptime','')}</td></tr>" for u in on])
         c=f"<h3>{s['name']} - {len(on)} متصل</h3><table><tr><th>المستخدم</th><th>IP</th><th>المدة</th></tr>{tr}</table>"
-    elif v=='settings' and session.get('role')=='super':
-        col=get_colors()
-        users=ex(con,"SELECT * FROM users").fetchall()
-        utr=""
-        for u in users:
-            ph=u['phone']; rl=u['role']; ac=u['active']
-            utr+=f"<tr><td>{ph}</td><td>{rl}</td><td>{'مفعل' if ac else 'موقوف'}</td><td><a href='/dash?view=settings&edit={ph}' style='color:#60a5fa'>تعديل</a> | <a href='/toggle_user/{ph}' style='color:#d4af37'>تفعيل/ايقاف</a> | <a href='/del_user/{ph}' style='color:#f87171' onclick='return confirm(\"حذف؟\")'>حذف</a></td></tr>"
-        edit_id=request.args.get('edit'); edit_form=""
-        if edit_id:
-            eu=ex(con,"SELECT * FROM users WHERE phone=?",(edit_id,)).fetchone()
-            if eu:
-                eph=eu['phone']; erl=eu['role']
-                edit_form=f"<div class='card'><h4>تعديل {eph}</h4><form method='post' action='/edit_user/{eph}'><div class='form2'><input name='new_phone' value='{eph}' required><input name='password' placeholder='باسورد جديد'><select name='role'><option value='staff' {'selected' if erl=='staff' else ''}>موظف</option><option value='super' {'selected' if erl=='super' else ''}>مدير</option></select></div><button>حفظ التعديل</button></form></div>"
-        c=edit_form+f"<div class='card'><h4>👥 اليوزرات وكلمات السر</h4><form method='post' action='/add_user'><div class='form2'><input name='phone' required placeholder='هاتف'><input name='password' required placeholder='باسورد'><select name='role'><option value='staff'>موظف</option><option value='super'>مدير</option></select></div><button>إضافة يوزر</button></form><table><tr><th>يوزر</th><th>دور</th><th>حالة</th><th>تحكم</th></tr>{utr}</table></div>"
-        c+=f"""<div class='card'><h4>تغيير كلمة سرك</h4><form method='post' action='/change_pass'><input type='password' name='newpass' required placeholder='جديدة'><button>تغيير</button></form></div>
-        <div class='card'><h4>🎨 الألوان</h4><form method='post' action='/save_colors'><div class='form2'>
-        <div><label>الرئيسي</label><input type='color' name='main' value='{col["main"]}'></div>
-        <div><label>الخلفية</label><input type='color' name='bg' value='{col["bg"]}'></div>
-        <div><label>البطاقات</label><input type='color' name='card' value='{col["card"]}'></div>
-        <div><label>القائمة</label><input type='color' name='sidebar' value='{col.get("sidebar","#111827")}'></div>
-        <div><label>العلوي</label><input type='color' name='topbar' value='{col.get("topbar","#111827")}'></div>
-        </div><button>حفظ الألوان</button></form><a href='/reset_colors' style='color:#f87171'>استعادة الافتراضي</a></div>"""
+ elif v=='settings' and session.get('role')=='super':
+    try: ex(con,"ALTER TABLE users ADD COLUMN username TEXT")
+    except: pass
+    try: ex(con,"ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1")
+    except: pass
+    col=get_colors()
+    users=ex(con,"SELECT * FROM users ORDER BY phone").fetchall()
+    utr=""
+    for u in users:
+        ph=u['phone']; rl=u['role']; ac=u['active'] if 'active' in u.keys() else 1
+        un=u['username'] if 'username' in u.keys() and u['username'] else '-'
+        locked=ph in ('05344851045','5344851045')
+        st='مفعل' if ac else 'معطل'
+        ctrl="<span style='color:#fbbf24'>أساسي 🔒</span>" if locked else f"<a href='/toggle_user?ph={ph}' style='color:#fbbf24'>{'تعطيل' if ac else 'تشغيل'}</a> | <a href='/dash?view=settings&edit={ph}' style='color:#60a5fa'>تعديل</a> | <a href='/del_user?ph={ph}' style='color:#f87171'>حذف</a>"
+        utr+=f"<tr><td style='direction:ltr'>{ph}</td><td style='direction:ltr'>{un}</td><td>{rl}</td><td>{st}</td><td>{ctrl}</td></tr>"
+    edit_id=request.args.get('edit'); edit_form=""
+    if edit_id:
+        eu=ex(con,"SELECT * FROM users WHERE phone=?",(edit_id,)).fetchone()
+        if eu:
+            eun=eu['username'] if 'username' in eu.keys() and eu['username'] else ''
+            edit_form=f"<div class='card'><h4>تعديل {edit_id}</h4><form method='post' action='/edit_user/{edit_id}'><div class='form2'><input name='username' value='{eun}' placeholder='اسم مستخدم' style='direction:ltr'><input name='password' placeholder='كلمة جديدة'></div><button>حفظ</button></form></div>"
+    c=edit_form+f"<div style='display:flex;gap:15px;align-items:flex-start;flex-wrap:wrap'><div class='card' style='flex:1;min-width:340px'><h4>👥 اليوزرات وكلمات السر</h4><form method='post' action='/add_user'><div class='form2'><input name='phone' placeholder='رقم هاتف' required style='direction:ltr'><input name='username' placeholder='اسم مستخدم' style='direction:ltr'><input name='password' placeholder='كلمة السر' required><select name='role'><option value='tech'>فني</option><option value='super'>super</option></select></div><button>إضافة</button></form><table style='margin-top:10px'><tr><th>هاتف</th><th>يوزر</th><th>دور</th><th>حالة</th><th>تحكم</th></tr>{utr}</table></div>"
+    c+=f"<div class='card' style='width:200px'><h4>اللغة</h4><a href='/lang/ar' style='display:block;padding:10px;background:#1e293b;margin:5px;border-radius:8px;color:#fff;text-align:center;text-decoration:none'>العربية</a><a href='/lang/en' style='display:block;padding:10px;background:#1e293b;margin:5px;border-radius:8px;color:#fff;text-align:center;text-decoration:none'>English</a></div></div>"
+    c+=f"<div class='card'><h4>🎨 الألوان</h4><form method='post' action='/save_colors'><div class='form2'><div><label>الرئيسي</label><input type='color' name='main' value='{col["main"]}'></div><div><label>الخلفية</label><input type='color' name='bg' value='{col["bg"]}'></div><div><label>البطاقات</label><input type='color' name='card' value='{col["card"]}'></div></div><button>حفظ الألوان</button></form><a href='/reset_colors' style='color:#f87171'>استعادة الافتراضي</a></div>"
+    c+="<div style='text-align:center;margin-top:20px;opacity:0.6'>تصميم م. عبدو عباس</div>"
     close_con(con); return render(c)
 
 @app.route('/save_colors',methods=['POST'])
