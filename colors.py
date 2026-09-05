@@ -1,9 +1,9 @@
 DEFAULT_COLORS = {
-    "bg": "#F1F5F9",
-    "text": "#0F172A",
-    "sidebar": "#1E3A8A",
-    "card": "#FFFFFF",
-    "main": "#2563EB"
+    "bg": "#050B18",
+    "text": "#E0F7FF",
+    "sidebar": "#0A1830",
+    "card": "#0F2340",
+    "main": "#00D4FF"
 }
 
 _current = DEFAULT_COLORS.copy()
