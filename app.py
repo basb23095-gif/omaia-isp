@@ -52,7 +52,7 @@ def init():
         except:pass
         try:cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT")
         except:pass
-       cur.execute("SELECT * FROM users WHERE phone='05344851045'")
+               cur.execute("SELECT * FROM users WHERE phone='05344851045'")
         if not cur.fetchone():cur.execute("INSERT INTO users(phone,password,role,active) VALUES('05344851045','admin2024','super',1)")
         con.commit();cur.close();return
     con.execute("CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,active INT DEFAULT 1)")
