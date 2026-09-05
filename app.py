@@ -107,10 +107,12 @@ body{font-family:Arial;margin:0;min-height:100vh;background:__BG__;color:__TEXT_
 .sidebar{width:250px;padding:15px;position:fixed;top:56px;bottom:0;right:0;overflow-y:auto;background:__SIDEBAR__;transform:translateX(105%);transition:0.3s;z-index:1003}
 .sidebar.open{transform:translateX(0)}
 .sidebar h2{color:__MAIN__;text-align:center}
-.sidebar a{display:block;color:#fff;padding:10px;margin:6px 0;background:__CARD__;text-decoration:none;border-radius:8px}
+.sidebar a{display:block;color:#fff;padding:10px;margin:6px 0;background:__CARD__;text-decoration:none;border-radius:8px;cursor:pointer}
+.sidebar a.active{border:2px solid __MAIN__}
 .overlay{display:none;position:fixed;top:56px;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:1001}
 .overlay.show{display:block}
-.main{padding:76px 16px 20px 16px;max-width:1100px;margin:auto}
+.main{padding:76px 16px 20px 16px;max-width:1100px;margin:auto;transition:opacity.15s}
+.main.loading{opacity:.4}
 .login-wrap{display:flex;align-items:center;justify-content:center;min-height:80vh}
 .login-box{width:340px;max-width:92%;text-align:center;padding:22px;border-radius:14px;background:__CARD__;border:1px solid #334155}
 .login-box h2{color:__MAIN__;margin:5px 0}
@@ -126,15 +128,36 @@ button{padding:10px;width:100%;border:none;border-radius:8px;font-weight:bold;cu
 .footer a{color:__MAIN__;text-decoration:none}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 @media(max-width:700px){.stats{grid-template-columns:1fr 1fr}}
+.spinner{text-align:center;padding:30px;color:__MAIN__}
 </style></head><body>
-<div class="topbar"><button class="menu-btn" onclick="toggleSide()">☰</button><b>OMAIA ISP</b><div class="top-left"><a class="icon-btn" href="/search">🔍</a><a class="icon-btn" href="/dash?view=notifs">🔔<span id="nc">__NOTIF__</span></a></div></div>
+<div class="topbar"><button class="menu-btn" onclick="toggleSide()">☰</button><b>OMAIA ISP</b><div class="top-left"><a class="icon-btn" href="/search">🔍</a><a class="icon-btn" onclick="loadView('notifs')">🔔<span id="nc">__NOTIF__</span></a></div></div>
 <div class="overlay" id="ovl" onclick="toggleSide()"></div>
-<div class="sidebar" id="sdb"><h2>OMAIA ISP</h2>{% if sess %}<a href="/dash?view=home">🏠 الرئيسية</a><a href="/dash?view=subs">المشتركين</a><a href="/search">🔍 بحث</a><a href="/dash?view=add">إضافة</a><a href="/dash?view=ledger">دفتر الحسابات</a><a href="/dash?view=dishes">صحون</a><a href="/dash?view=servers">سيرفرات</a><a href="/dash?view=notifs">🔔 الإشعارات</a>{% if role=='super' %}<a href="/dash?view=settings">إعدادات</a>{% endif %}<a href="/logout">خروج</a>{% endif %}</div>
-<div class="main" id="mainc">{{content|safe}}<div class="footer">تصميم م عبدو عباس<br><a href="https://wa.me/905344851045" target="_blank">تواصل دعم فني واتساب</a></div></div>
+<div class="sidebar" id="sdb"><h2>OMAIA ISP</h2>{% if sess %}<a data-v="home" onclick="loadView('home')">🏠 الرئيسية</a><a data-v="subs" onclick="loadView('subs')">المشتركين</a><a href="/search">🔍 بحث</a><a data-v="add" onclick="loadView('add')">إضافة</a><a data-v="ledger" onclick="loadView('ledger')">دفتر الحسابات</a><a data-v="dishes" onclick="loadView('dishes')">صحون</a><a data-v="servers" onclick="loadView('servers')">سيرفرات</a><a data-v="notifs" onclick="loadView('notifs')">🔔 الإشعارات</a>{% if role=='super' %}<a data-v="settings" onclick="loadView('settings')">إعدادات</a>{% endif %}<a href="/logout">خروج</a>{% endif %}</div>
+<div class="main" id="mainc"><div id="viewc">{{content|safe}}</div><div class="footer">تصميم م عبدو عباس<br><a href="https://wa.me/905344851045" target="_blank">تواصل دعم فني واتساب</a></div></div>
 <a class="wa-float" href="https://wa.me/905344851045" target="_blank">💬</a>
 <script>
+var cache={};
 function toggleSide(){var s=document.getElementById('sdb');var o=document.getElementById('ovl');s.classList.toggle('open');o.classList.toggle('show');}
 document.getElementById('mainc').addEventListener('click',function(){var s=document.getElementById('sdb');if(s.classList.contains('open')){s.classList.remove('open');document.getElementById('ovl').classList.remove('show');}});
+function setActive(v){document.querySelectorAll('.sidebar a[data-v]').forEach(a=>{a.classList.toggle('active',a.getAttribute('data-v')===v)})}
+async function loadView(v){
+  setActive(v);
+  var s=document.getElementById('sdb');s.classList.remove('open');document.getElementById('ovl').classList.remove('show');
+  var vc=document.getElementById('viewc');
+  var mc=document.getElementById('mainc');
+  if(cache[v]){vc.innerHTML=cache[v];history.replaceState(null,'','/dash?view='+v);return;}
+  mc.classList.add('loading');
+  vc.innerHTML='<div class="spinner">⏳ جاري التحميل...</div>';
+  try{
+    let r=await fetch('/dash?view='+v+'&partial=1',{headers:{'X-Requested-With':'fetch'}});
+    let t=await r.text();
+    cache[v]=t;vc.innerHTML=t;
+    history.replaceState(null,'','/dash?view='+v);
+  }catch(e){vc.innerHTML='<div class="card">خطأ بالتحميل، حاول مجددا</div>';}
+  mc.classList.remove('loading');
+  window.scrollTo(0,0);
+}
+(function(){let m=location.search.match(/view=([^&]+)/);if(m)setActive(m[1]);})();
 if("Notification" in window && Notification.permission=="default"){Notification.requestPermission();}
 </script>
 </body></html>"""
@@ -145,6 +168,12 @@ def render(c, con=None):
     for k,v in col.items(): h=h.replace("__"+k.upper()+"__",v)
     h=h.replace("__NOTIF__",str(notif_count_reuse(con)))
     return render_template_string(h,content=c,sess=session.get('phone'),role=session.get('role'))
+
+def render_partial_or_full(html_content, con):
+    if request.args.get('partial')=='1' or request.headers.get('X-Requested-With')=='fetch':
+        close_con(con)
+        return html_content
+    r=render(html_content,con);close_con(con);return r
 
 @app.route('/')
 def idx():return redirect('/dash') if session.get('phone') else redirect('/login')
@@ -179,7 +208,7 @@ def dash():
     if not session.get('phone'):return redirect('/login')
     v=request.args.get('view','home');con=db()
     def done(html):
-        r=render(html,con);close_con(con);return r
+        return render_partial_or_full(html, con)
     if v=='home':
         n_sub=get_count(con,"subs");n_srv=get_count(con,"servers");n_dish=get_count(con,"dish_ips");n_led=get_count(con,"ledger")
         last_subs=ex(con,"SELECT * FROM subs ORDER BY id DESC LIMIT 5").fetchall()
@@ -361,12 +390,12 @@ def edit_srv(i):
     if not session.get('phone'):return redirect('/login')
     con=db()
     if request.method=='POST':
-        ex(con,"UPDATE servers SET name=?,host=?,username=?,password=?,sstp_host=?,sstp_user=?,sstp_pass=?,conn_type=? WHERE id=?",(request.form['name'],request.form['host'],request.form['username'],request.form.get('password',''),request.form.get('sstp_host',''),request.form.get('sstp_user',''),request.form.get('sstp_pass',''),request.form.get('conn_type','api'),i))
+        ex(con,"UPDATE servers SET name=?,host=?,username=?,password=?,sstp_host=?,sstp_user=?,sstp_pass=?,conn_type=? WHERE id=?",(request.form['name'],request.form['host'],request.form['username'],request.form.get('password',''),request.form.get('sstp_host',''),request.form.get('sstp_user',''),request.form.get('conn_type','api'),i))
         con.commit();close_con(con);return redirect('/dash?view=servers')
     r0=ex(con,"SELECT * FROM servers WHERE id=?",(i,)).fetchone()
     d=dict(r0) if r0 else {}
     def gv(k): return d.get(k,'') if isinstance(d,dict) else ''
-    r=render(f"<div class='card'><h4>تعديل سيرفر - API + SSTP</h4><form method='post'><input name='name' value='{gv('name')}' placeholder='اسم'><input name='host' value='{gv('host')}' dir='ltr' placeholder='host API'><input name='username' value='{gv('username')}' placeholder='يوزر API'><input name='password' value='{gv('password')}' placeholder='باس API'><input name='sstp_host' value='{gv('sstp_host')}' dir='ltr' placeholder='SSTP Host'><input name='sstp_user' value='{gv('sstp_user')}' placeholder='SSTP يوزر'><input name='sstp_pass' value='{gv('sstp_pass')}' placeholder='SSTP باس'><select name='conn_type'><option value='api'>API</option><option value='sstp'>SSTP</option><option value='both'>الاثنين</option></select><button>حفظ</button></form></div>",con)
+    r=render(f"<div class='card'><h4>تعديل سيرفر - API + SSTP</h4><form method='post'><input name='name' value='{gv('name')}' placeholder='اسم'><input name='host' value='{gv('host')}' dir='ltr' placeholder='host API'><input name='username' value='{gv('username')}' placeholder='يوزر API'><input name='sstp_host' value='{gv('sstp_host')}' dir='ltr' placeholder='SSTP Host'><input name='sstp_user' value='{gv('sstp_user')}' placeholder='SSTP يوزر'><input name='sstp_pass' value='{gv('sstp_pass')}' placeholder='SSTP باس'><select name='conn_type'><option value='api'>API</option><option value='sstp'>SSTP</option><option value='both'>الاثنين</option></select><button>حفظ</button></form></div>",con)
     close_con(con);return r
 
 @app.route('/del_srv/<int:i>')
