@@ -167,7 +167,7 @@ def dash():
         rows=ex(con,"SELECT * FROM notifications ORDER BY id DESC LIMIT 30").fetchall();close_con(con)
         tr="".join([f"<div class='card'><small>{r['date']}</small><br>{r['msg']}<br><small>بواسطة {r['by_user']}</small></div>" for r in rows])
         form="<div class='card'><h4>إرسال إشعار جديد</h4><form method='post' action='/add_notif'><input name='msg' required placeholder='نص الإشعار'><button>إرسال 🔔</button></form></div>" if session.get('role')=='super' else ""
-        return render(form+f"<h3>الإشعارات</h3>{tr}<script>if(Notification.permission=='granted'){new Notification('OMAIA ISP',{body:'عندك إشعارات جديدة'})}</script>")
+        return render(form+"<h3>الاشعارات</h3>"+tr)
     if v=='settings' and session.get('role')=='super':
         users=ex(con,"SELECT * FROM users ORDER BY phone").fetchall()
         def gd(u,k):
