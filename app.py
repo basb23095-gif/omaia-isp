@@ -73,7 +73,7 @@ def ping_one(ip):
    s=socket.create_connection((ip,p),timeout=0.7);s.close();return True
   except:continue
  return False
-def get_view_html(v,c,role):
+def get_view_html(v,c,role,q=""):
  if v=='home':
   col=get_colors()
   def cnt(t):
@@ -82,7 +82,6 @@ def get_view_html(v,c,role):
    except:return r[0]
   ns=cnt("subs");nd=cnt("dish_ips");nt=cnt("towers")
   today=datetime.date.today().isoformat()
-  r1=ex(c,"SELECT SUM(usd) s1 FROM ledger WHERE date LIKE?",(today+"%",)).fetchone();inc=(dict(r1).get('s1') or 0) if r1 else 0
   r=ex(c,"SELECT COUNT(*) as c FROM users WHERE active=0").fetchone()
   disabled=dict(r)['c'] if r else 0
   try:
@@ -92,15 +91,18 @@ def get_view_html(v,c,role):
   def icard(key, emoji, title, val):
    bg=col.get(key,'#333')
    return f"""<div style="background:{bg};border-radius:8px;padding:6px 2px;color:#fff;text-align:center;min-height:70px;max-height:70px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;will-change:transform"><div style="font-size:14px;line-height:1">{emoji}</div><div style="font-weight:700;margin:2px 0;font-size:9px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{title}</div><div style="font-size:14px;font-weight:800;line-height:1">{val}</div></div>"""
-  return f"""<div class="card eye" style="text-align:center"><h2>👋 أهلاً بك</h2><p>📅 {today} | 💰 دخل اليوم: <b>{inc}$</b></p></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:5px;margin:8px 0">{icard('icon_ip','📡','عدد IP',nd)}{icard('icon_disabled','⏸️','تم تعطيلهم',disabled)}{icard('icon_online','🟢','فاتحين الموقع',online)}{icard('icon_active','📶','المتصلين',ns)}{icard('icon_monqatein','❄️','المنقطعين',0)}{icard('icon_modirin','👔','المديرين',0)}{icard('icon_no_expire','⏸️','تم إيقافهم',0)}{icard('icon_expired','🔴','انتهى اشتراكهم',0)}{icard('icon_blocked','🚫','محظور',0)}</div>"""
+  return f"""<div class="card eye" style="text-align:center"><h2 style="margin:0">أمية</h2><p style="margin:4px 0;opacity:.8">📅 {today}</p></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:5px;margin:8px 0">{icard('icon_ip','📡','عدد IP',nd)}{icard('icon_disabled','⏸️','تم تعطيلهم',disabled)}{icard('icon_online','🟢','فاتحين الموقع',online)}{icard('icon_active','📶','المتصلين',ns)}{icard('icon_monqatein','❄️','المنقطعين',0)}{icard('icon_modirin','👔','المديرين',0)}{icard('icon_no_expire','⏸️','تم إيقافهم',0)}{icard('icon_expired','🔴','انتهى اشتراكهم',0)}{icard('icon_blocked','🚫','محظور',0)}</div>"""
  if v=='subs':
-  rs=ex(c,"SELECT * FROM subs ORDER BY id DESC LIMIT 50").fetchall()
+  if q:
+   rs=ex(c,"SELECT * FROM subs WHERE name LIKE? OR phone LIKE? ORDER BY id DESC LIMIT 50",("%"+q+"%","%"+q+"%")).fetchall()
+  else:
+   rs=ex(c,"SELECT * FROM subs ORDER BY id DESC LIMIT 50").fetchall()
   tr="".join([f"<tr><td>{r['name']}</td><td dir=ltr>{r['phone']}</td><td>{r['balance_usd']}$</td><td><a class='ic' href='https://wa.me/{r['phone']}' target=_blank>💬</a></td><td><a class='ic del' href='/del_sub/{r['id']}'>✖</a></td></tr>" for r in rs])
-  return f"<div class='card eye'><form method=post action=/add_sub><div class=row2><input name=name placeholder='الاسم' required><input name=phone placeholder='هاتف' required></div><button class='btn-soft'>إضافة مشترك</button></form></div><div class='card eye'><table><tr><th>اسم</th><th>هاتف</th><th>رصيد</th><th></th><th></th></tr>{tr}</table></div>"
+  return f"<div class='card eye'><input id='sq' placeholder='🔍 بحث عن مشترك...' value='{q}' oninput=\"fetch('/api/view?v=subs&q='+encodeURIComponent(this.value)).then(r=>r.text()).then(h=>{{document.getElementById('mn').innerHTML=h;let s=document.getElementById('sq');s.focus();s.setSelectionRange(s.value.length,s.value.length);bind()}})\" style='margin-bottom:8px'><form method=post action=/add_sub><div class=row2><input name=name placeholder='الاسم' required><input name=phone placeholder='هاتف' required></div><button class='btn-soft'>إضافة مشترك</button></form></div><div class='card eye'><table><tr><th>اسم</th><th>هاتف</th><th>رصيد</th><th></th><th></th></tr>{tr}</table></div>"
  if v=='dishes':
   rs=ex(c,"SELECT * FROM dish_ips ORDER BY id DESC LIMIT 100").fetchall()
-  tr="".join([f"<tr><td dir=ltr><a href='http://{dict(r)['ip']}' target='_blank' style='color:#4da3ff;text-decoration:underline'>{dict(r)['ip'] or '-'}</a></td><td>{dict(r).get('location','')}</td><td>{dict(r).get('area','')}</td><td><a class='ic del' href='/del_dish/{dict(r)['id']}'>✖</a></td></tr>" for r in rs])
-  return f"<div class='card eye'><h3>📡 الصحون</h3><form method=post action=/add_dish><div class=row2><input name=ip placeholder='IP' dir=ltr><input name=location placeholder='اسم الصحن'></div><div class=row2><input name=area placeholder='المنطقة'><input name=tower placeholder='البرج'></div><div class=row2><input name=lat placeholder='Lat' type=number step=any><input name=lng placeholder='Lng' type=number step=any></div><button class='btn-soft'>إضافة</button></form></div><div class='card eye'><table><tr><th>IP</th><th>اسم</th><th>منطقة</th><th></th></tr>{tr}</table></div>"
+  tr="".join([f"<tr><td dir=ltr><a href='http://{dict(r)['ip']}' target='_blank' style='color:#4da3ff;text-decoration:underline'>{dict(r)['ip'] or '-'}</a></td><td>{dict(r).get('location','')}</td><td>{dict(r).get('area','')}</td><td><a class='ic' href='/edit_dish/{dict(r)['id']}'>✏️</a> <a class='ic del' href='/del_dish/{dict(r)['id']}'>✖</a></td></tr>" for r in rs])
+  return f"<div class='card eye'><h3>📡 الصحون</h3><form method=post action=/add_dish><div class=row2><input name=ip placeholder='IP' dir=ltr><input name=location placeholder='اسم الصحن'></div><div class=row2><input name=area placeholder='المنطقة'><input name=tower placeholder='البرج'></div><div class=row2><input name=lat placeholder='Lat' type=number step=any><input name=lng placeholder='Lng' type=number step=any></div><button class='btn-soft'>إضافة</button></form></div><div class='card eye'><table><tr><th>IP</th><th>اسم</th><th>منطقة</th><th>تعديل</th></tr>{tr}</table></div>"
  if v=='ping':
   rs=ex(c,"SELECT * FROM dish_ips ORDER BY id DESC LIMIT 10").fetchall()
   ips=[dict(r) for r in rs]
@@ -111,19 +113,32 @@ def get_view_html(v,c,role):
  if v=='towers':
   rs=ex(c,"SELECT * FROM towers ORDER BY id DESC LIMIT 100").fetchall()
   tr="".join([f"<tr><td>{dict(r).get('name','')}</td><td>{dict(r).get('area','') or ''}</td><td>{dict(r).get('owner','') or ''}</td><td>{dict(r).get('lat',0)},{dict(r).get('lng',0)}</td><td><a class='ic del' href='/del_tower/{dict(r)['id']}'>✖</a></td></tr>" for r in rs])
-  return f"<div class='card eye'><h3>🗼 إضافة برج مع إحداثيات</h3><form method=post action=/add_tower><input name=name placeholder='اسم برج - مثال: برج حمص' required><div class=row2><input name=area placeholder='منطقه'><input name=owner placeholder='لمين برج'></div><div class=row2><input name=lat placeholder='Lat 34.72' type=number step=any required><input name=lng placeholder='Lng 36.72' type=number step=any required></div><input name=location placeholder='موقع برج'><button class='btn-soft'>📍 حفظ البرج مع الموقع</button></form></div><div class='card eye'><table><tr><th>اسم</th><th>منطقه</th><th>لمين</th><th>إحداثيات</th><th></th></tr>{tr}</table></div>"
+  return f"<div class='card eye'><h3>🗼 إضافة برج مع إحداثيات</h3><form method=post action=/add_tower><input name=name placeholder='اسم برج - مثال: برج حمص' required><div class=row2><input name=area placeholder='منطقه'><input name=owner placeholder='لمين برج'></div><div class=row2><input name=lat placeholder='Lat 34.72' type=number step=any required><input name=lng placeholder='Lng 36.72' type=number step=any required></div><input name=location placeholder='موقع برج'><button class='btn-soft'>📍 حفظ البرج مع الموقع - يظهر بالخريطة تلقائي</button></form></div><div class='card eye'><table><tr><th>اسم</th><th>منطقه</th><th>لمين</th><th>إحداثيات</th><th></th></tr>{tr}</table></div>"
  if v=='map':
-  dishes=ex(c,"SELECT location,lat,lng FROM dish_ips WHERE lat!=0 LIMIT 200").fetchall()
-  towers=ex(c,"SELECT name,lat,lng FROM towers WHERE lat!=0 LIMIT 200").fetchall()
-  pts=",".join([f"{{n:'📡 {r['location']}',la:{r['lat']},ln:{r['lng']}}}" for r in dishes])
-  pts2=",".join([f"{{n:'🗼 {r['name']}',la:{r['lat']},ln:{r['lng']}}}" for r in towers])
-  allpts=(pts+","+pts2).strip(",")
-  return f"<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'><div class='card eye'><h3>🗺️ الخريطة</h3><div id=map style='height:400px'></div></div><script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script><script>var m=L.map('map').setView([34.72,36.72],11);L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(m);var pts=[{allpts}];pts.forEach(p=>L.marker([p.la,p.ln]).addTo(m).bindPopup(p.n));setTimeout(()=>m.invalidateSize(),600);</script>"
+  dishes=list(ex(c,"SELECT location,lat,lng FROM dish_ips WHERE lat!=0 LIMIT 200").fetchall())
+  towers=list(ex(c,"SELECT name,lat,lng FROM towers WHERE lat!=0 LIMIT 200").fetchall())
+  pts=[]
+  for r in dishes:
+   try: pts.append("['📡 "+str(r['location']).replace("'","")+"',"+str(float(r['lat']))+","+str(float(r['lng']))+"]")
+   except: pass
+  for r in towers:
+   try: pts.append("['🗼 "+str(r['name']).replace("'","")+"',"+str(float(r['lat']))+","+str(float(r['lng']))+"]")
+   except: pass
+  pts_str=",".join(pts) if pts else "['📍 حمص',34.72,36.72]"
+  h="<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"
+  h+="<div class='card eye'><h3>🗺️ الخريطة</h3><div id='map' style='height:420px;border-radius:12px;background:#222'></div></div>"
+  h+="<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script><script>"
+  h+="var m=L.map('map').setView([34.72,36.72],11);"
+  h+="L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OSM'}).addTo(m);"
+  h+=f"var pts=[{pts_str}];"
+  h+="pts.forEach(p=>{L.marker([p[1],p[2]]).addTo(m).bindPopup(p[0])});"
+  h+="setTimeout(function(){m.invalidateSize()},700);</script>"
+  return h
  if v=='ledger':
   if role not in ('super','admin'):return "<div class='card eye'>ممنوع</div>"
   rs=ex(c,"SELECT * FROM ledger ORDER BY id DESC LIMIT 100").fetchall()
-  tr="".join([f"<tr><td>{dict(r)['date']}</td><td>{dict(r).get('note','')}</td><td>{dict(r).get('usd',0)}$</td><td>{dict(r).get('syr',0)}</td></tr>" for r in rs])
-  return f"<div class='card eye'><h3>📒 دفتر حسابات</h3><form method=post action=/charge><input name=cust_name placeholder='اسم الزبون' required><div class=row2><input name=amount type=number step=0.01 required placeholder='مبلغ'><select name=currency><option value=usd>$ دولار</option><option value=syr>ل.س سوري</option></select></div><button class='btn-soft'>➕ إضافة</button></form></div><div class='card eye'><table><tr><th>تاريخ</th><th>الاسم</th><th>$</th><th>ل.س</th></tr>{tr}</table></div>"
+  tr="".join([f"<tr><td>{dict(r)['date']}</td><td>{dict(r).get('note','')}</td><td>{dict(r).get('usd',0)}$</td><td>{dict(r).get('syr',0)}</td><td><a class='ic' href='/edit_ledger/{dict(r)['id']}'>✏️</a> <a class='ic del' href='/del_ledger/{dict(r)['id']}'>✖</a></td></tr>" for r in rs])
+  return f"<div class='card eye'><h3>📒 دفتر حسابات</h3><form method=post action=/charge><input name=cust_name placeholder='اسم الزبون' required><div class=row2><input name=amount type=number step=0.01 required placeholder='مبلغ'><select name=currency><option value=usd>$ دولار</option><option value=syr>ل.س سوري</option></select></div><button class='btn-soft'>➕ إضافة</button></form></div><div class='card eye'><table><tr><th>تاريخ</th><th>الاسم</th><th>$</th><th>ل.س</th><th>تعديل</th></tr>{tr}</table></div>"
  if v=='report':
   today=datetime.date.today().isoformat()
   r1=ex(c,"SELECT SUM(usd) s1 FROM ledger WHERE date LIKE?",(today+"%",)).fetchone();a=dict(r1) if r1 else {}
@@ -169,7 +184,7 @@ input,select{{width:100%;padding:9px;margin:5px 0;border-radius:10px;border:1px 
 #map{{height:400px;border-radius:12px;background:#222}}
 .wa{{position:fixed;bottom:14px;left:14px;width:52px;height:52px;border-radius:50%;background:#25D366;display:flex!important;align-items:center;justify-content:center;font-size:26px;text-decoration:none;z-index:9999;}}
 </style></head><body>
-<div class="top" style="position:fixed;top:0;right:0;left:0;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;z-index:1002;"><button id="mb" style="width:80px;height:36px;border-radius:16px;border:none;background:linear-gradient(135deg,{main_col},{col['accent']});color:#fff;font-size:11px;font-weight:700;cursor:pointer">{T('menu')}</button><div style="display:flex;align-items:center;gap:8px">{get_logo_html()}<b style="color:{text_col};font-size:13px">OMAIA ISP</b></div><div style="display:flex;gap:6px;align-items:center"><input id="q" placeholder="🔍 بحث" style="width:110px;height:30px;border-radius:10px;padding:0 8px;margin:0" onkeydown="if(event.key==='Enter')location.href='/dash?view=subs'"><button onclick="toggleTheme()" style="width:42px;height:30px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:{text_col}">🌙</button><button class="langb" style="width:42px;height:30px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:{text_col}" onclick="location.href='/set_lang/{'en' if is_ar else 'ar'}'">{'EN' if is_ar else 'ع'}</button></div></div>
+<div class="top" style="position:fixed;top:0;right:0;left:0;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;z-index:1002;"><button id="mb" style="width:80px;height:36px;border-radius:16px;border:none;background:linear-gradient(135deg,{main_col},{col['accent']});color:#fff;font-size:11px;font-weight:700;cursor:pointer">{T('menu')}</button><div style="display:flex;align-items:center;gap:8px">{get_logo_html()}<b style="color:{text_col};font-size:13px">OMAIA ISP</b></div><div style="display:flex;gap:6px;align-items:center"><input id="q" placeholder="🔍 بحث" style="width:110px;height:30px;border-radius:10px;padding:0 8px;margin:0" onkeydown="if(event.key==='Enter'){{fetch('/api/view?v=subs&q='+encodeURIComponent(this.value)).then(r=>r.text()).then(h=>{{document.getElementById('mn').innerHTML=h;bind()}});loadView('subs',true)}}"><button onclick="toggleTheme()" style="width:42px;height:30px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:{text_col}">🌙</button><button class="langb" style="width:42px;height:30px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:{text_col}" onclick="location.href='/set_lang/{'en' if is_ar else 'ar'}'">{'EN' if is_ar else 'ع'}</button></div></div>
 <div class="sb hide" id="sb"><a href="#" data-v="home">{T('home')}</a><a href="#" data-v="subs">{T('subs')}</a><a href="#" data-v="dishes">{T('dishes')}</a><a href="#" data-v="map">{T('map')}</a><a href="#" data-v="ping">{T('ping')}</a>{ledger_link}<a href="#" data-v="towers">{T('towers')}</a><a href="#" data-v="report">{T('report')}</a><a href="#" data-v="notifs">{T('notifs')}</a><a href="#" data-v="logs">{T('logs')}</a><a href="#" data-v="settings">{T('settings')}</a><a href="#" data-v="support">{T('support')}</a><a href="/logout">{T('logout')}</a></div>
 <div class="mn" id="mn">{content}</div>
 <div style='text-align:center;padding:20px 10px 60px;font-size:10px;opacity:.9'>تصميم م. عبدو عباس<br><a href='https://wa.me/{SUPPORT}' target='_blank' style='color:{col['link']};text-decoration:underline' dir=ltr>{SUPPORT_DISPLAY} 💬</a></div>
@@ -180,7 +195,7 @@ if(localStorage.getItem('th')=='l')document.body.classList.add('light');
 let cache={{}},sb=document.getElementById('sb'),mn=document.getElementById('mn');
 document.getElementById('mb').onclick=e=>{{e.stopPropagation();sb.classList.toggle('hide')}};
 document.addEventListener('click',e=>{{if(!sb.classList.contains('hide')&&!sb.contains(e.target))sb.classList.add('hide')}});
-async function loadView(v,force){{sb.classList.add('hide');window.scrollTo({{top:0,behavior:'smooth'}});if(!force&&cache[v]){{mn.innerHTML=cache[v];bind();return}}mn.innerHTML='<div class=card>⏳ جاري التحميل...</div>';try{{let r=await fetch('/api/view?v='+v);let h=await r.text();cache[v]=h;mn.innerHTML=h;bind()}}catch(e){{}}}}
+async function loadView(v,force){{sb.classList.add('hide');window.scrollTo({{top:0,behavior:'smooth'}});if(!force&&cache[v]&&v!='subs'){{mn.innerHTML=cache[v];bind();return}}mn.innerHTML='<div class=card>⏳ جاري التحميل...</div>';try{{let r=await fetch('/api/view?v='+v);let h=await r.text();if(v!='subs')cache[v]=h;mn.innerHTML=h;bind()}}catch(e){{}}}}
 function bind(){{mn.querySelectorAll('script').forEach(s=>{{let n=document.createElement('script');n.textContent=s.textContent;document.body.appendChild(n);s.remove()}})}}
 document.querySelectorAll('[data-v]').forEach(a=>a.onclick=e=>{{e.preventDefault();loadView(a.dataset.v)}});
 if(location.hash)loadView(location.hash.replace('#',''));
@@ -206,32 +221,38 @@ def login():
    ex(c,"INSERT INTO login_logs(phone,date,ip) VALUES(?,?,?)",(d['phone'],datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),request.remote_addr));c.commit();cc(c);return redirect('/dash')
   try:cc(c)
   except:pass
-  m="<p style='color:#ff9a9a'>خطأ</p>"
- col=get_colors()
- return f"""<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>دخول</title><style>body{{margin:0;font-family:'Segoe UI';{get_bg_css()};color:#fff;font-size:12px}}.wrap{{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:14px}}.box{{background:rgba(255,255,255,.06);border-radius:20px;padding:28px 18px;max-width:340px;width:100%;text-align:center}}input{{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#1a2332;color:#fff}}button{{width:100%;padding:13px;border:none;border-radius:12px;background:linear-gradient(135deg,{col['main']},{col['accent']});color:#fff;font-weight:800}}</style></head><body><div class="wrap"><div class="box"><div style="margin-bottom:10px">{get_logo_html(60)}</div><h2>OMAIA ISP</h2>{m}<form method=post><input name=phone placeholder="رقم الهاتف" required><input name=password type=password placeholder="كلمة السر" required><button>دخول</button></form></div></div></body></html>"""
+  m="<p style='color:#ff6b6b;text-align:center;margin:8px'>❌ خطأ بالدخول</p>"
+ return f"""<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OMAIA - دخول</title><style>*{{box-sizing:border-box;margin:0}}body{{font-family:'Segoe UI';min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at top,#1e293b 0%,#0f172a 55%,#020617 100%);color:#fff;overflow:hidden}}body::before{{content:'';position:absolute;width:520px;height:520px;background:radial-gradient(circle,rgba(59,130,246,.28),transparent 70%);border-radius:50%;top:-160px;right:-160px;animation:fl 7s ease-in-out infinite}}body::after{{content:'';position:absolute;width:380px;height:380px;background:radial-gradient(circle,rgba(139,92,246,.22),transparent 70%);border-radius:50%;bottom:-120px;left:-120px;animation:fl 8s ease-in-out infinite reverse}}@keyframes fl{{0%,100%{{transform:translateY(0)}}50%{{transform:translateY(36px)}}}}.box{{position:relative;z-index:2;background:rgba(255,255,255,.08);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.16);border-radius:28px;padding:38px 28px;max-width:370px;width:92%;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.6);animation:up.7s ease}}@keyframes up{{from{{opacity:0;transform:translateY(36px)}}to{{opacity:1;transform:none}}}}.logo{{font-size:62px;margin-bottom:8px;animation:pu 2.6s infinite}}@keyframes pu{{0%,100%{{transform:scale(1)}}50%{{transform:scale(1.12)}}}}h1{{font-size:30px;background:linear-gradient(135deg,#60a5fa,#a78bfa,#f472b6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:900;margin-bottom:4px}}p.sub{{opacity:.62;font-size:12.5px;margin-bottom:20px}}input{{width:100%;padding:14px;margin:7px 0;border-radius:14px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-size:15px;outline:none;text-align:center;transition:.25s}}input:focus{{border-color:#60a5fa;box-shadow:0 0 0 4px rgba(96,165,250,.22);background:rgba(255,255,255,.1)}}button{{width:100%;padding:15px;border:none;border-radius:14px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;font-weight:900;font-size:16.5px;cursor:pointer;margin-top:10px;transition:.25s}}button:hover{{transform:translateY(-2px);box-shadow:0 14px 32px rgba(59,130,246,.45)}}.foot{{margin-top:18px;font-size:11px;opacity:.55;line-height:1.9}}</style></head><body><div class="box"><div class="logo">📡</div><h1>OMAIA ISP</h1><p class="sub">نظام إدارة الشبكة الذكي - أمية</p>{m}<form method=post><input name=phone placeholder="📱 رقم الهاتف" required dir=ltr><input name=password type=password placeholder="🔒 كلمة السر" required><button>🚀 دخول آمن</button></form><div class="foot">تصميم م. عبدو عباس<br><a href="https://wa.me/{SUPPORT}" style="color:#60a5fa;text-decoration:none">💬 واتساب الدعم {SUPPORT_DISPLAY}</a></div></div></body></html>"""
 @app.route('/logout')
 def lo():session.clear();return redirect('/login')
 @app.route('/dash')
 def dash():
  if not session.get('phone'):return redirect('/login')
- v=request.args.get('view','home');c=db();html=get_view_html(v,c,session.get('role','tech'));cc(c)
+ v=request.args.get('view','home');c=db();html=get_view_html(v,c,session.get('role','tech'),request.args.get('q',''));cc(c)
  return render_template_string(base_html(html,v))
 @app.route('/api/view')
 def apiv():
  if not session.get('phone'):return "no"
- v=request.args.get('v','home')
- if v!='ping':
+ v=request.args.get('v','home');q=request.args.get('q','')
+ if v not in ('ping','subs') :
   ch=cached_view("view_"+v,60)
   if ch: return ch
- c=db();h=get_view_html(v,c,session.get('role','tech'));cc(c)
- if v!='ping': set_cache("view_"+v,h)
+ c=db();h=get_view_html(v,c,session.get('role','tech'),q);cc(c)
+ if v not in ('ping','subs'): set_cache("view_"+v,h)
  return h
 @app.route('/add_sub',methods=['POST'])
 def a1():c=db();ex(c,"INSERT INTO subs(name,phone,status) VALUES(?,?,?)",(request.form['name'],request.form['phone'],'نشط'));c.commit();cc(c);_cache_data.clear();return redirect('/dash#subs')
 @app.route('/del_sub/<int:i>')
-def d1(i):c=db();ex(c,"DELETE FROM subs WHERE id=?",(i,));c.commit();cc(c);_cache_data.clear();return redirect('/dash#dishes')
+def d1(i):c=db();ex(c,"DELETE FROM subs WHERE id=?",(i,));c.commit();cc(c);_cache_data.clear();return redirect('/dash#subs')
 @app.route('/add_dish',methods=['POST'])
 def a2():c=db();f=request.form;ex(c,"INSERT INTO dish_ips(ip,location,area,tower,lat,lng) VALUES(?,?,?,?,?,?)",(f.get('ip') or '',f.get('location') or '',f.get('area') or '',f.get('tower') or '',float(f.get('lat') or 0),float(f.get('lng') or 0)));c.commit();cc(c);_cache_data.clear();return redirect('/dash#dishes')
+@app.route('/edit_dish/<int:i>',methods=['GET','POST'])
+def edit_dish(i):
+ c=db()
+ if request.method=='POST':
+  f=request.form;ex(c,"UPDATE dish_ips SET ip=?,location=?,area=?,tower=? WHERE id=?",(f.get('ip'),f.get('location'),f.get('area'),f.get('tower'),i));c.commit();cc(c);_cache_data.clear();return redirect('/dash#dishes')
+  r=dict(ex(c,"SELECT * FROM dish_ips WHERE id=?",(i,)).fetchone());cc(c)
+  return f"<div style='padding:24px;max-width:380px;margin:auto'><h3>✏️ تعديل IP</h3><form method=post><input name=ip value='{r['ip']}' dir=ltr style='width:100%;padding:10px;margin:5px'><input name=location value='{r['location']}' style='width:100%;padding:10px;margin:5px'><input name=area value='{r.get('area','')}' style='width:100%;padding:10px;margin:5px'><input name=tower value='{r.get('tower','')}' style='width:100%;padding:10px;margin:5px'><button style='width:100%;padding:12px;background:#3b82f6;color:#fff;border:none;border-radius:10px'>💾 حفظ</button></form></div>"
 @app.route('/del_dish/<int:i>')
 def d2(i):c=db();ex(c,"DELETE FROM dish_ips WHERE id=?",(i,));c.commit();cc(c);_cache_data.clear();return redirect('/dash#dishes')
 @app.route('/add_tower',methods=['POST'])
@@ -258,6 +279,15 @@ def ch():
  usd=amt if cur=='usd' else 0;syr=amt if cur=='syr' else 0;c=db()
  ex(c,"INSERT INTO ledger(date,usd,syr,type,note,by_user) VALUES(?,?,?,?,?,?)",(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,syr,'قبض',cust_name,session.get('phone')))
  c.commit();cc(c);_cache_data.clear();return redirect('/dash#ledger')
+@app.route('/edit_ledger/<int:i>',methods=['GET','POST'])
+def edit_ledger(i):
+ c=db()
+ if request.method=='POST':
+  ex(c,"UPDATE ledger SET note=?,usd=?,syr=? WHERE id=?",(request.form.get('note'),float(request.form.get('usd') or 0),float(request.form.get('syr') or 0),i));c.commit();cc(c);_cache_data.clear();return redirect('/dash#ledger')
+ r=dict(ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone());cc(c)
+ return f"<div style='padding:24px;max-width:380px;margin:auto'><h3>✏️ تعديل قيد</h3><form method=post><input name=note value='{r.get('note','')}' style='width:100%;padding:10px;margin:5px'><input name=usd value='{r.get('usd',0)}' type=number step=0.01 style='width:100%;padding:10px;margin:5px'><input name=syr value='{r.get('syr',0)}' type=number step=0.01 style='width:100%;padding:10px;margin:5px'><button style='width:100%;padding:12px;background:#22c55e;color:#fff;border:none;border-radius:10px'>💾 حفظ التعديل</button></form></div>"
+@app.route('/del_ledger/<int:i>')
+def del_ledger(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));c.commit();cc(c);_cache_data.clear();return redirect('/dash#ledger')
 @app.route('/export_subs')
 def es():
  c=db();rs=ex(c,"SELECT name,phone,balance_usd FROM subs").fetchall();cc(c)
