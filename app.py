@@ -37,7 +37,7 @@ def init():
    cur.execute("INSERT INTO users VALUES('05344851045','05344851045','admin2024','super',1)")
   else:
    cur.execute("UPDATE users SET password='admin2024', active=1, username='05344851045' WHERE phone='05344851045'")
-  c.commit();cur.close();return # تم إصلاح الخطأ هنا: c.commit أصبحت الآن تعمل بشكل صحيح لأن c تم تعريفه في البداية كـ db()
+  cur.close();return
  for q in qs:c.execute(q)
  for t,col in [("dish_ips","name"),("dish_ips","network"),("dish_ips","tower"),("ledger","amount"),("ledger","currency")]:
   try:c.execute(f"SELECT {col} FROM {t} LIMIT 1")
