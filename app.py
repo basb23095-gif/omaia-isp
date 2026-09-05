@@ -48,11 +48,11 @@ def init():
         cur.execute("CREATE TABLE IF NOT EXISTS ledger(id SERIAL PRIMARY KEY,sub_id INT,date TEXT,usd FLOAT,syr FLOAT,note TEXT,by_user TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS servers(id SERIAL PRIMARY KEY,name TEXT,host TEXT,username TEXT,password TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT UNIQUE,location TEXT,sub_id INT)")
-        try:cur.execute("ALTER TABLE dish_ips ADD COLUMN IF NOT EXISTS site TEXT")
+       try:cur.execute("ALTER TABLE dish_ips ADD COLUMN IF NOT EXISTS site TEXT")
         except:pass
         try:cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT")
         except:pass
-               cur.execute("SELECT * FROM users WHERE phone='05344851045'")
+        cur.execute("SELECT * FROM users WHERE phone='05344851045'")
         if not cur.fetchone():cur.execute("INSERT INTO users(phone,password,role,active) VALUES('05344851045','admin2024','super',1)")
         con.commit();cur.close();return
     con.execute("CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,active INT DEFAULT 1)")
