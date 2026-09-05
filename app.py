@@ -1,4 +1,4 @@
-شfrom flask import Flask,request,redirect,render_template_string,session,send_from_directory
+from flask import Flask,request,redirect,render_template_string,session,send_from_directory
 import os,sqlite3,time
 from datetime import datetime
 try: import psycopg2,psycopg2.extras
