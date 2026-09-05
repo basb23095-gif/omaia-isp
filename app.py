@@ -153,13 +153,10 @@ def dsv(i):c=db();ex(c,"DELETE FROM servers WHERE id=?",(i,));c.commit();close(c
 def a3():c=db();d=datetime.now().strftime('%Y-%m-%d %H:%M');ex(c,"INSERT INTO ledger(date,sub,amount,currency,note)VALUES(?,?,?,?,?)",(d,request.form.get('sub'),float(request.form.get('amount') or 0),request.form.get('currency','USD'),request.form.get('note')));c.commit();close(c);return redirect('/dash?view=ledger')
 @app.route('/edit_ledger/<int:i>',methods=['GET','POST'])
 def el(i):
- c=db()
- if request.method=='POST':ex(c,"UPDATE ledger SET sub=?,amount=?,currency=?,note=? WHERE id=?",(request.form.get('sub'),float(request.form.get('amount') or 0),request.form.get('currency'),request.form.get('note'),i));c.commit();close(c);return redirect('/dash?view=ledger')
- r=dict(ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone());close(c);cur=r.get('currency','USD') or 'USD';lbl='💵 $' if cur=='USD' else '💶 ل.س'
- sub_val = r.get('sub','')
- amount_val = r.get('amount') or 0
- note_val = r.get('note','')
- return R(f'<div class=c><form method=post><input name=sub value="{sub_val}"><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value="{amount_val}"><button type=button onclick="let s=document.getElementById(\'cur\');s.value=s.value==\'USD\'?\'SYR\':\'USD\';this.textContent=s.value==\'USD\'?\'💵 $\':\'💶 ل.س'" style=width:110px>{lbl}</button><input type=hidden name=currency id=cur value="{cur}"></div><input name=note value="{note_val}"><button>💾 حفظ</button></form></div>')
+ c=db();if request.method=='POST':ex(c,"UPDATE ledger SET sub=?,amount=?,currency=?,note=? WHERE id=?",(request.form.get('sub'),float(request.form.get('amount') or 0),request.form.get('currency'),request.form.get('note'),i));(c.commit() if not USE_PG else None);close(c);return redirect('/dash?view=ledger')
+ row=ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone();if not row:close(c);return redirect('/dash?view=ledger')
+ r=dict(row);close(c);cur=r.get('currency','USD') or 'USD';lbl='💵 $' if cur=='USD' else '💶 ل.س';s_v=r.get('sub','');a_v=r.get('amount') or 0;n_v=r.get('note','')
+ h='<div class=c><form method=post><input name=sub value="'+str(s_v)+'"><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value="'+str(a_v)+'"><button type=button onclick="let s=document.getElementById(\'cur\');s.value=s.value==\'USD\'?\'SYR\':\'USD\';this.textContent=s.value==\'USD\'?\'💵 $\':\'💶 ل.س\'" style=width:110px>'+lbl+'</button><input type=hidden name=currency id=cur value="'+cur+'"></div><input name=note value="'+str(n_v)+'"><button>💾 حفظ</button></form></div>';return R(h)
 @app.route('/del_ledger/<int:i>')
 def d3(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));c.commit();close(c);return redirect('/dash?view=ledger')
 @app.route('/upload_ledger',methods=['POST'])
