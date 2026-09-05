@@ -72,10 +72,14 @@ def notify(m):
  except:pass
 def get_view_html(v,c,role):
  if v=='home':
+  col=get_colors()
   ns=len(ex(c,"SELECT id FROM subs").fetchall());nd=len(ex(c,"SELECT id FROM dish_ips").fetchall());nt=len(ex(c,"SELECT id FROM towers").fetchall());nl=len(ex(c,"SELECT id FROM ledger").fetchall())
   today=datetime.date.today().isoformat()
   r1=ex(c,"SELECT SUM(usd) s1 FROM ledger WHERE date LIKE?",(today+"%",)).fetchone();inc=(dict(r1).get('s1') or 0) if r1 else 0
-  return f"""<div class="card eye" style="text-align:center"><h2>👋 أهلاً بك</h2><p>📅 {today} | 💰 دخل اليوم: <b>{inc}$</b></p></div><div class="row4"><div class="stat eye"><h2>{ns}</h2><p>👥 مشتركين</p></div><div class="stat eye"><h2>{nd}</h2><p>📡 صحون</p></div><div class="stat eye"><h2>{nt}</h2><p>🗼 أبراج</p></div><div class="stat eye"><h2>{nl}</h2><p>📒 قيود</p></div></div>"""
+  def icard(key, emoji, title, val):
+   bg=col.get(key,'#333')
+   return f"""<div style="background:{bg};border-radius:16px;padding:16px;color:#fff;text-align:center;min-height:130px;display:flex;flex-direction:column;justify-content:center;box-shadow:0 4px 12px {bg}55"><div style="font-size:26px">{emoji}</div><div style="font-weight:700;margin:6px 0;font-size:12px">{title}</div><div style="font-size:28px;font-weight:900">{val}</div></div>"""
+  return f"""<div class="card eye" style="text-align:center"><h2>👋 أهلاً بك</h2><p>📅 {today} | 💰 دخل اليوم: <b>{inc}$</b></p></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0">{icard('icon_momtaz','👕','الممتاز',3)}{icard('icon_mowazin','👤','الموزعين',0)}{icard('icon_modirin','👔','المديرين',0)}{icard('icon_monqatein','❄️','المنقطعين',0)}{icard('icon_no_expire','⏸️','تم إيقافهم',0)}{icard('icon_expired','🔴','انتهى اشتراكهم',0)}{icard('icon_active','🟢','متاحين',ns)}{icard('icon_blocked','🚫','محظور',0)}</div><div class="row4"><div class="stat eye"><h2>{ns}</h2><p>👥 مشتركين</p></div><div class="stat eye"><h2>{nd}</h2><p>📡 صحون</p></div><div class="stat eye"><h2>{nt}</h2><p>🗼 أبراج</p></div><div class="stat eye"><h2>{nl}</h2><p>📒 قيود</p></div></div>"""
  if v=='subs':
   rs=ex(c,"SELECT * FROM subs ORDER BY id DESC LIMIT 50").fetchall()
   tr="".join([f"<tr><td>{r['name']}</td><td dir=ltr>{r['phone']}</td><td>{r['balance_usd']}$</td><td><a class='ic' href='https://wa.me/{r['phone']}' target=_blank>💬</a></td><td><a class='ic del' href='/del_sub/{r['id']}'>✖</a></td></tr>" for r in rs])
