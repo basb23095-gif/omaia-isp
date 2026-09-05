@@ -14,3 +14,4 @@ def get_logo_html(s=38):
 def get_menu_css():
     c=get_colors()
     return f"body{{background:{c['body_bg']}!important;color:{c['text']}!important;}}.sb{{background:{c['menu_bg']}!important;}}.sb a{{color:{c['menu_text']}!important;}}.card{{background:{c['card_bg']}!important;}}"
+'icon_ip':'#0099ff','icon_disabled':'#ff6b6b','icon_online':'#00d1b2',
