@@ -114,6 +114,12 @@ def R(h):
     if request.headers.get('X-Requested-With') == 'Fetch': return h
     return render_template_string(LAY, c=h)
 
+def gv(res):
+    try:
+        row = res.fetchone() if hasattr(res, 'fetchone') else (res[0] if res else None)
+        return dict(row) if row else None
+    except: return None
+
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/dash', methods=['GET', 'POST'])
 def system_main_route():
@@ -121,18 +127,18 @@ def system_main_route():
         c = db(); view = request.args.get('view', 'home')
         
         if view == 'home':
-            n_subs = ex(c, "SELECT COUNT(*) FROM subs").fetchone()
-            n_dishes = ex(c, "SELECT COUNT(*) FROM dish_ips").fetchone()
-            n_users = ex(c, "SELECT COUNT(*) FROM users").fetchone()
-            v_subs = list(dict(n_subs).values()) if n_subs else 0
-            v_dishes = list(dict(n_dishes).values()) if n_dishes else 0
-            v_users = list(dict(n_users).values()) if n_users else 0
+            v_subs = gv(ex(c, "SELECT COUNT(*) as cnt FROM subs"))
+            v_dishes = gv(ex(c, "SELECT COUNT(*) as cnt FROM dish_ips"))
+            v_users = gv(ex(c, "SELECT COUNT(*) as cnt FROM users"))
+            s_cnt = v_subs.get('cnt', 0) if v_subs else 0
+            d_cnt = v_dishes.get('cnt', 0) if v_dishes else 0
+            u_cnt = v_users.get('cnt', 0) if v_users else 0
             
             h = f"""<div class=pt>🏠 لوحة التحكم والإحصائيات</div>
             <div class=stats-grid>
-                <div class=stat-card><h3>{v_subs}</h3><p>إجمالي المشتركين</p></div>
-                <div class=stat-card><h3>{v_dishes}</h3><p>إجمالي الصحون والـ IPs</p></div>
-                <div class=stat-card><h3>{v_users}</h3><p>الفنيين والمستخدمين</p></div>
+                <div class=stat-card><h3>{s_cnt}</h3><p>إجمالي المشتركين</p></div>
+                <div class=stat-card><h3>{d_cnt}</h3><p>إجمالي الصحون والـ IPs</p></div>
+                <div class=stat-card><h3>{u_cnt}</h3><p>الفنيين والمستخدمين</p></div>
             </div>
             <div class=c style='text-align:center'><h3>مرحباً بك في نظام إدارة OMIA ISP</h3><p style='color:#94a3b8'>نظام تصفح سريع بحركات ناعمة وسلاسة تحكم فائقة.</p></div>"""
             return R(h)
@@ -147,8 +153,8 @@ def system_main_route():
             edit_id = request.args.get('edit')
             sub_row = {"id": "", "name": "", "phone": "", "status": "نشط", "action": "add"}
             if edit_id:
-                curr = ex(c, "SELECT * FROM subs WHERE id=?", (edit_id,)).fetchone()
-                if curr: sub_row = dict(curr); sub_row['action'] = 'edit'
+                curr = gv(ex(c, "SELECT * FROM subs WHERE id=?", (edit_id,)))
+                if curr: sub_row = curr; sub_row['action'] = 'edit'
 
             h = f"""<div class=pt>👥 إدارة المشتركين</div>
             <div class=c>
