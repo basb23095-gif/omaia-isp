@@ -23,7 +23,7 @@ def close(c):
   except:pass
 def ex(c,q,a=()):
  if USE_PG:
-  cur=c.cursor(cursor_factory=psycopg2.extras.RealDictCursor);cur.execute(q.replace("?","%s"),a);return cur
+  cur=c.cursor(cursor_factory=psycopg2.extras.RealDictCursor);cur.execute(q.replace("%s","%s").replace("?","%s"),a);return cur
  return c.execute(q,a)
 def init():
  c=db()
@@ -35,10 +35,6 @@ def init():
  if USE_PG:
   cur=c.cursor()
   for q in qs:cur.execute(q.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY"))
-  # ترقية من النظام القديم بدون تخريب
-  for col in ["name","network","tower","amount","currency"]:
-   try:cur.execute(f"ALTER TABLE dish_ips ADD COLUMN {col} TEXT" if col in ["name","network","tower"] else f"ALTER TABLE ledger ADD COLUMN {col} TEXT")
-   except:pass
   cur.execute("SELECT 1 FROM users WHERE phone='05344851045'")
   if not cur.fetchone():cur.execute("INSERT INTO users VALUES('05344851045','05344851045','admin2024','super',1)")
   c.commit();cur.close();return
@@ -61,14 +57,15 @@ def bg():
  try:return send_from_directory('static','bg.jpg')
  except:return send_from_directory('.','bg.jpg')
 
-CSS="body{font-family:Arial;margin:0;background:__BG__;color:__TEXT__}body.lb{background:linear-gradient(rgba(4,30,54,.55),rgba(4,30,54,.78)),url('/bg.jpg') center/cover fixed,__BG__;min-height:100vh;display:flex;align-items:center;justify-content:center}.t{position:fixed;top:0;left:0;right:0;height:52px;background:__SIDEBAR__;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:20;border-bottom:1px solid __MAIN__}.m{padding:62px 10px;max-width:1050px;margin:auto}.c{background:__CARD__;border:1px solid __MAIN__;border-radius:12px;padding:12px;margin:8px 0}button{background:__MAIN__;border:0;padding:9px;width:100%;border-radius:8px;font-weight:bold;cursor:pointer}input,select{width:100%;padding:8px;margin:4px 0;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#fff;box-sizing:border-box}table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px solid #334155;text-align:center;font-size:14px}th{color:__MAIN__}.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}@media(max-width:700px){.g4{grid-template-columns:1fr 1fr}.g2{grid-template-columns:1fr}}.drawer{position:fixed;top:0;right:-280px;width:260px;height:100%;background:__SIDEBAR__;z-index:30;transition:.3s;padding:60px 12px}.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;z-index:25}.overlay.show{display:block}.drawer a{display:block;color:#fff;text-decoration:none;padding:11px;border-bottom:1px solid #1e3a5f}.foot{text-align:center;font-size:12px;color:__MAIN__;margin:18px 0}"
+CSS="*{transition:.2s}body{font-family:Arial;margin:0;background:__BG__;color:__TEXT__}body.lb{background:linear-gradient(rgba(4,30,54,.55),rgba(4,30,54,.78)),url('/bg.jpg') center/cover fixed,__BG__;min-height:100vh;display:flex;align-items:center;justify-content:center}.t{position:fixed;top:0;left:0;right:0;height:54px;background:__SIDEBAR__;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:20;border-bottom:2px solid __MAIN__}.m{padding:64px 10px;max-width:1050px;margin:auto}.c{background:__CARD__;border:1px solid __MAIN__;border-radius:14px;padding:14px;margin:10px 0;box-shadow:0 2px 12px rgba(0,0,0,.25)}.pt{text-align:right;font-weight:bold;font-size:18px;color:__MAIN__;margin:6px 2px}.ic{display:flex;align-items:center;gap:8px;font-size:15px}button{background:linear-gradient(135deg,__MAIN__,#0090c8);border:0;padding:10px;width:100%;border-radius:10px;font-weight:bold;cursor:pointer;color:#021}button:active{transform:scale(.97)}input,select{width:100%;padding:9px;margin:5px 0;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#fff;box-sizing:border-box}table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #234;text-align:center;font-size:14px}th{color:__MAIN__}.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:700px){.g4{grid-template-columns:1fr 1fr}.g2{grid-template-columns:1fr}}.drawer{position:fixed;top:0;right:-285px;width:265px;height:100%;background:__SIDEBAR__;z-index:30;transition:.3s cubic-bezier(.4,0,.2,1);padding:62px 12px;box-shadow:-4px 0 18px rgba(0,0,0,.4)}.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:25}.overlay.show{display:block}.drawer a{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;padding:12px;border-radius:10px;margin:2px 0}.drawer a:hover{background:#123}.menuBtn{cursor:pointer;font-size:24px;color:#fff;background:__MAIN__;width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px}.foot{text-align:center;font-size:12px;color:__MAIN__;margin:18px 0}.wa{position:fixed;bottom:16px;left:16px;background:#25D366;width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;z-index:22;box-shadow:0 4px 14px rgba(0,0,0,.4);text-decoration:none}"
 LAY="""<!DOCTYPE html><html dir=rtl><head><meta charset=UTF-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA</title><style>"""+CSS+"""</style></head><body class=__BC__>
-<div class=t><b style=color:__MAIN__>OMAIA ISP</b><div><a href=/lang/toggle style='color:#fff;text-decoration:none;margin:0 10px;font-size:18px' title='لغة'>🌐</a><span onclick="document.getElementById('dr').classList.add('open');document.getElementById('ov').classList.add('show')" style=cursor:pointer;font-size:22px;color:#fff>☰</span></div></div>
+<div class=t><b style=color:__MAIN__>✨ OMAIA ISP</b><div style=display:flex;gap:8px;align-items:center><a href=/lang/toggle style='color:#fff;text-decoration:none;font-size:20px' title='لغة'>🌐</a><div class=menuBtn onclick="document.getElementById('dr').classList.add('open');document.getElementById('ov').classList.add('show')">☰</div></div></div>
 <div id=ov class=overlay onclick="document.getElementById('dr').classList.remove('open');this.classList.remove('show')"></div>
 <div id=dr class=drawer>
-<a href=/dash>🏠 الرئيسية</a><a href=/dash?view=subs>👥 المشتركين</a><a href=/dash?view=dishes>📡 الصحون</a><a href=/dash?view=servers>🖥️ سيرفرات</a><a href=/dash?view=ledger>📒 دفتر حسابات</a><a href=/dash?view=settings>⚙️ الإعدادات</a><a href=/logout>🚪 خروج</a>
-<hr><a href='https://wa.me/"""+WA_LINK+"""' target=_blank>📞 دعم فني """+WA_DISPLAY+"""</a>
-</div><div class=m>{{c|safe}}<div class=foot>تصميم م. عبدو عباس<br><a href='https://wa.me/"""+WA_LINK+"""' style=color:__MAIN__;text-decoration:none>📞 تواصل دعم فني """+WA_DISPLAY+"""</a></div></div></body></html>"""
+<a href=/dash><span>🏠</span> الرئيسية</a><a href=/dash?view=subs><span>👥</span> المشتركين</a><a href=/dash?view=dishes><span>📡</span> الصحون</a><a href=/dash?view=servers><span>🖥️</span> السيرفرات</a><a href=/dash?view=ledger><span>📒</span> دفتر الحسابات</a><a href=/dash?view=settings><span>⚙️</span> الإعدادات</a><a href=/logout><span>🚪</span> خروج</a>
+<hr style=border-color:#1e3a5f><a href='https://wa.me/"""+WA_LINK+"""' target=_blank><span>💬</span> دعم """+WA_DISPLAY+"""</a>
+</div><div class=m>{{c|safe}}<div class=foot>تصميم م. عبدو عباس<br><a href='https://wa.me/"""+WA_LINK+"""' style=color:__MAIN__;text-decoration:none>📞 تواصل دعم فني """+WA_DISPLAY+"""</a></div></div>
+<a class=wa href='https://wa.me/"""+WA_LINK+"""' target=_blank>💬</a></body></html>"""
 def R(h,bc=""):
  s=LAY;co=get_colors()
  for k,v in co.items():s=s.replace("__"+k+"__",v)
@@ -76,6 +73,7 @@ def R(h,bc=""):
 def gv(r):
  try:return list(dict(r).values())[0]
  except:return r[0] if r else 0
+def title(t,icon): return f"<div class=pt>{icon} {t}</div>"
 
 @app.route('/',methods=['GET','POST'])
 def login():
@@ -84,7 +82,7 @@ def login():
   if d and d['password']==request.form.get('password') and d['active']:
    session['p']=d['phone'];return redirect('/dash')
   return R("<div class=c style='width:320px;text-align:center'><p style=color:red>خطأ</p><a href=/>رجوع</a></div>","lb")
- return R("<div class=c style='width:320px;text-align:center'><h2 style=color:#00D4FF>OMAIA ISP</h2><form method=post><input name=phone placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='باسورد' required><button>دخول</button></form><p style=font-size:12px;color:#00D4FF>تصميم م. عبدو عباس</p></div>","lb")
+ return R("<div class=c style='width:330px;text-align:center'><h2 style=color:#00D4FF>✨ OMAIA ISP</h2><form method=post><input name=phone placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='باسورد' required><button>دخول 🚀</button></form><p style=font-size:12px;color:#00D4FF>تصميم م. عبدو عباس</p></div>","lb")
 @app.route('/logout')
 def lo():session.clear();return redirect('/')
 @app.route('/lang/toggle')
@@ -97,40 +95,42 @@ def dash():
  def F(h):r=R(h);close(c);return r
  if v=='home':
   ns=gv(ex(c,"SELECT COUNT(*)k FROM subs").fetchone());nd=gv(ex(c,"SELECT COUNT(*)k FROM dish_ips").fetchone());nl=gv(ex(c,"SELECT COUNT(*)k FROM ledger").fetchone());nu=gv(ex(c,"SELECT COUNT(*)k FROM users").fetchone())
-  return F(f"<div class=g4><div class=c style=text-align:center><h2 style=color:{M}>{ns}</h2>👥</div><div class=c style=text-align:center><h2 style=color:{M}>{nd}</h2>📡</div><div class=c style=text-align:center><h2 style=color:{M}>{nl}</h2>📒</div><div class=c style=text-align:center><h2 style=color:{M}>{nu}</h2>👤</div></div>")
+  return F(title("الرئيسية","🏠")+f"<div class=g4><div class=c style=text-align:center><div style=font-size:28px>👥</div><h2 style=color:{M}>{ns}</h2>مشتركين</div><div class=c style=text-align:center><div style=font-size:28px>📡</div><h2 style=color:{M}>{nd}</h2>صحون</div><div class=c style=text-align:center><div style=font-size:28px>📒</div><h2 style=color:{M}>{nl}</h2>قيود</div><div class=c style=text-align:center><div style=font-size:28px>👤</div><h2 style=color:{M}>{nu}</h2>يوزرات</div></div>")
  if v=='subs':
   rows=ex(c,"SELECT * FROM subs ORDER BY id DESC LIMIT 50").fetchall()
   tr="".join(f"<tr><td>{dict(x).get('name')}</td><td>{dict(x).get('phone')}</td><td><a href=/edit_sub/{dict(x)['id']}>✏️</a></td></tr>" for x in rows)
-  return F(f"<div class=c><form method=post action=/add_sub><input name=name placeholder='اسم' required><input name=phone placeholder='هاتف'><button>+</button></form></div><div class=c><table><tr><th>اسم</th><th>هاتف</th><th>تعديل</th></tr>{tr}</table></div>")
+  return F(title("المشتركين","👥")+f"<div class=c><form method=post action=/add_sub><input name=name placeholder='👤 اسم' required><input name=phone placeholder='📞 هاتف'><button>➕ إضافة</button></form></div><div class=c><table><tr><th>اسم</th><th>هاتف</th><th>✏️</th></tr>{tr}</table></div>")
  if v=='dishes':
   rows=ex(c,"SELECT * FROM dish_ips ORDER BY id DESC LIMIT 50").fetchall()
-  tr="".join(f"<tr><td dir=ltr>{dict(x).get('ip','')}</td><td>{dict(x).get('name','') or dict(x).get('location','')}</td><td>{dict(x).get('network','')}</td><td>{dict(x).get('tower','') or dict(x).get('region','')}</td><td><a href=/del_dish/{dict(x)['id']}>🗑️</a></td></tr>" for x in rows)
-  return F(f"<div class=c><h3>📡 الصحون</h3><form method=post action=/add_dish><input name=ip placeholder='IP' dir=ltr required><input name=name placeholder='الاسم' required><input name=network placeholder='الشبكة'><input name=tower placeholder='البرج'><button>+ إضافة</button></form></div><div class=c><table><tr><th>IP</th><th>الاسم</th><th>الشبكة</th><th>البرج</th><th></th></tr>{tr}</table></div>")
+  tr=""
+  for x in rows:
+   d=dict(x);ip=d.get('ip','')
+   tr+=f"<tr><td dir=ltr><a href='http://{ip}' target=_blank style=color:{M};font-weight:bold;text-decoration:none>🌐 {ip} ↗</a></td><td>📛 {d.get('name','')}</td><td>📶 {d.get('network','')}</td><td>🗼 {d.get('tower','')}</td><td><a href=/del_dish/{d['id']}>🗑️</a></td></tr>"
+  return F(title("الصحون","📡")+f"<div class=c><div class=g2><div><div class=ic>🔧 القسم 1: الأساسي</div><form method=post action=/add_dish><input name=ip placeholder='🌐 IP' dir=ltr required><input name=name placeholder='📛 الاسم' required></div><div><div class=ic>📍 القسم 2: الموقع</div><input name=network placeholder='📶 الشبكة'><input name=tower placeholder='🗼 البرج'></div></div><button>➕ إضافة صحن</button></form></div><div class=c><table><tr><th>IP (اضغط للفتح بكروم)</th><th>الاسم</th><th>الشبكة</th><th>البرج</th><th></th></tr>{tr}</table></div>")
  if v=='servers':
   rows=ex(c,"SELECT * FROM servers ORDER BY id DESC LIMIT 50").fetchall()
-  tr="".join(f"<tr><td>{dict(x).get('name')}</td><td dir=ltr>{dict(x).get('ip')}</td><td><a href=/del_server/{dict(x)['id']}>🗑️</a></td></tr>" for x in rows)
-  return F(f"<div class=c><form method=post action=/add_server><input name=name placeholder='سيرفر' required><input name=ip placeholder='IP' dir=ltr><button>+</button></form></div><div class=c><table>{tr}</table></div>")
+  tr="".join(f"<tr><td>🖥️ {dict(x).get('name')}</td><td dir=ltr><a href='http://{dict(x).get('ip')}' target=_blank style=color:{M}>{dict(x).get('ip')} ↗</a></td><td><a href=/del_server/{dict(x)['id']}>🗑️</a></td></tr>" for x in rows)
+  return F(title("السيرفرات","🖥️")+f"<div class=c><form method=post action=/add_server><input name=name placeholder='🖥️ اسم السيرفر' required><input name=ip placeholder='🌐 IP' dir=ltr><button>➕ إضافة</button></form></div><div class=c><table>{tr}</table></div>")
  if v=='ledger':
   rows=ex(c,"SELECT * FROM ledger ORDER BY id DESC LIMIT 50").fetchall()
   def fmt(x):
    d=dict(x);amt=d.get('amount');cur=d.get('currency','USD')
-   if amt is None: # دعم قديم usd/syr
+   if amt is None:
     if d.get('usd'):amt,cur=d.get('usd'),'USD'
     else:amt,cur=d.get('syr',''),'SYR'
-   sym='$' if cur=='USD' else 'ل.س';return f"{amt} {sym}"
+   return f"{amt} {'💵 $' if cur=='USD' else '💶 ل.س'}"
   tr="".join(f"<tr><td>{dict(x).get('date')}</td><td>{dict(x).get('sub')}</td><td>{fmt(x)}</td><td><a href=/edit_ledger/{dict(x)['id']}>✏️</a> <a href=/del_ledger/{dict(x)['id']}>🗑️</a></td></tr>" for x in rows)
-  return F(f"""<div class=c><h3>📒 دفتر حسابات</h3>
-  <form method=post action=/add_ledger><input name=date type=date required><input name=sub placeholder='الاسم' required>
-  <div style=display:flex;gap:6px><input name=amount type=number step=0.01 placeholder='المبلغ' required>
-  <button type=button id=curBtn onclick="let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'" style=width:90px>💵 $</button>
+  return F(title("دفتر الحسابات","📒")+f"""<div class=c>
+  <form method=post action=/add_ledger><input name=date type=date required><input name=sub placeholder='👤 الاسم' required>
+  <div style=display:flex;gap:6px><input name=amount type=number step=0.01 placeholder='💰 المبلغ' required>
+  <button type=button onclick="let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'" style=width:100px>💵 $</button>
   <input type=hidden name=currency id=cur value=USD></div>
-  <input name=note placeholder='ملاحظة'><button>+ حفظ</button></form>
-  <form method=post action=/upload_ledger enctype=multipart/form-data><input type=file name=file accept=.xlsx required><button>📤 رفع اكسل</button></form></div>
-  <div class=c><table><tr><th>تاريخ</th><th>اسم</th><th>مبلغ</th><th>تعديل+حفظ</th></tr>{tr}</table></div>""")
+  <input name=note placeholder='📝 ملاحظة'><button>💾 حفظ</button></form></div>
+  <div class=c><table><tr><th>تاريخ</th><th>اسم</th><th>مبلغ</th><th>تحكم</th></tr>{tr}</table></div>""")
  if v=='settings':
   us=ex(c,"SELECT * FROM users LIMIT 100").fetchall()
-  tr="".join(f"<tr><td dir=ltr>{dict(x).get('username')}</td><td><a href=/edit_user/{dict(x)['phone']}>✏️</a> <a href=/toggle_user/{dict(x)['phone']}>🔄</a></td></tr>" for x in us)
-  return F(f"<div class=c><h3>⚙️ الإعدادات</h3><form method=post action=/add_user><input name=ident placeholder='هاتف / مستخدم' required><input name=password placeholder='باسورد' required><button>+ يوزر</button></form><table>{tr}</table></div>")
+  tr="".join(f"<tr><td dir=ltr>👤 {dict(x).get('username')}</td><td><a href=/edit_user/{dict(x)['phone']}>✏️</a> <a href=/toggle_user/{dict(x)['phone']}>🔄</a></td></tr>" for x in us)
+  return F(title("الإعدادات","⚙️")+f"<div class=c><div class=ic>🌐 اللغة</div><div class=g2><a href=/lang/toggle><button>🔄 تبديل AR / EN</button></a><a href='https://wa.me/{WA_LINK}' target=_blank><button style=background:#25D366>💬 واتساب {WA_DISPLAY}</button></a></div><p>اللغة الحالية: {session.get('lang','ar')}</p></div><div class=c><div class=ic>👥 اليوزرات</div><form method=post action=/add_user><input name=ident placeholder='📱 هاتف / مستخدم' required><input name=password placeholder='🔑 باسورد' required><button>➕ إضافة يوزر</button></form><table>{tr}</table></div>")
  return F("")
 
 @app.route('/add_sub',methods=['POST'])
@@ -140,7 +140,7 @@ def e1(i):
  c=db()
  if request.method=='POST':ex(c,"UPDATE subs SET name=?,phone=? WHERE id=?",(request.form.get('name'),request.form.get('phone'),i));c.commit();close(c);return redirect('/dash?view=subs')
  r=dict(ex(c,"SELECT * FROM subs WHERE id=?",(i,)).fetchone());close(c)
- return R(f"<div class=c><form method=post><input name=name value='{r['name']}'><input name=phone value='{r['phone']}'><button>💾 حفظ</button></form></div>")
+ return R(title("تعديل مشترك","✏️")+f"<div class=c><form method=post><input name=name value='{r['name']}'><input name=phone value='{r['phone']}'><button>💾 حفظ</button></form></div>")
 @app.route('/add_dish',methods=['POST'])
 def a2():c=db();ex(c,"INSERT INTO dish_ips(ip,name,network,tower)VALUES(?,?,?,?)",(request.form.get('ip'),request.form.get('name'),request.form.get('network'),request.form.get('tower')));c.commit();close(c);return redirect('/dash?view=dishes')
 @app.route('/del_dish/<int:i>')
@@ -157,10 +157,7 @@ def el(i):
  if request.method=='POST':ex(c,"UPDATE ledger SET date=?,sub=?,amount=?,currency=?,note=? WHERE id=?",(request.form.get('date'),request.form.get('sub'),float(request.form.get('amount') or 0),request.form.get('currency'),request.form.get('note'),i));c.commit();close(c);return redirect('/dash?view=ledger')
  r=dict(ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone());close(c)
  cur=r.get('currency','USD') or 'USD';lbl='💵 $' if cur=='USD' else '💶 ل.س'
- return R(f"""<div class=c><h3>تعديل قيد</h3><form method=post><input name=date type=date value='{r.get('date','')}'>
- <input name=sub value='{r.get('sub','')}'><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value='{r.get('amount') or r.get('usd') or r.get('syr') or 0}'>
- <button type=button onclick="let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'" style=width:90px>{lbl}</button>
- <input type=hidden name=currency id=cur value={cur}></div><input name=note value='{r.get('note','')}'><button>💾 حفظ</button></form></div>""")
+ return R(f"<div class=c><form method=post><input name=date type=date value='{r.get('date','')}'><input name=sub value='{r.get('sub','')}'><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value='{r.get('amount') or 0}'><button type=button onclick=\"let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'\" style=width:100px>{lbl}</button><input type=hidden name=currency id=cur value={cur}></div><input name=note value='{r.get('note','')}'><button>💾 حفظ</button></form></div>")
 @app.route('/del_ledger/<int:i>')
 def d3(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));c.commit();close(c);return redirect('/dash?view=ledger')
 @app.route('/upload_ledger',methods=['POST'])
