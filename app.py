@@ -18,11 +18,11 @@ def cached_view(k,s=60):
  now=time.time()
  if k in _cache_data and now-_cache_time.get(k,0)<s: return _cache_data[k]
  return None
-def set_cache(k,h):
+ set_cache(k,h):
  _cache_data[k]=h;_cache_time[k]=time.time()
 LANGS={'ar':{'home':'🏠 الرئيسية','subs':'👥 المشتركين','dishes':'📡 الصحون','map':'🗺️ الخريطة','ping':'📶 فحص','towers':'🗼 الأبراج','report':'📊 تقرير','notifs':'🔔 إشعارات','logs':'📝 السجل','settings':'⚙️ الإعدادات','support':'🛠️ دعم','ledger':'📒 الحسابات','logout':'🚪 خروج','menu':'☰ القائمة'},'en':{'home':'🏠 Home','subs':'👥 Subs','dishes':'📡 Dishes','map':'🗺️ Map','ping':'📶 Ping','towers':'🗼 Towers','report':'📊 Report','notifs':'🔔 Notifs','logs':'📝 Logs','settings':'⚙️ Settings','support':'🛠️ Support','ledger':'📒 Ledger','logout':'🚪 Logout','menu':'☰ Menu'}}
-def T(k): return LANGS.get(session.get('lang','ar'),{}).get(k,k)
-def db():
+ T(k): return LANGS.get(session.get('lang','ar'),{}).get(k,k)
+ db():
  global _pg,_pt
  if USE_PG:
   if _pg and time.time()-_pt<300:
@@ -30,15 +30,15 @@ def db():
    except:pass
   _pg=psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=5);_pg.autocommit=True;_pt=time.time();return _pg
  c=sqlite3.connect("omia.db");c.row_factory=sqlite3.Row;return c
-def cc(c):
+ cc(c):
  if not USE_PG:
   try:c.close()
   except:pass
-def ex(c,q,a=()):
+ ex(c,q,a=()):
  if USE_PG:
   cur=c.cursor(cursor_factory=psycopg2.extras.RealDictCursor);cur.execute(q.replace("?","%s"),a);return cur
  return c.execute(q,a)
-def init():
+ init():
  c=db()
  ss=["CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT DEFAULT 1)","CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,status TEXT,balance_usd REAL DEFAULT 0,balance_syr REAL DEFAULT 0)","CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,site TEXT,area TEXT,tower TEXT,lat REAL DEFAULT 0,lng REAL DEFAULT 0)","CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,lat REAL,lng REAL,note TEXT)","CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,sub_id INT,date TEXT,usd REAL,syr REAL,type TEXT,note TEXT,by_user TEXT)","CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,msg TEXT,date TEXT,seen INT DEFAULT 0)","CREATE TABLE IF NOT EXISTS login_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,phone TEXT,date TEXT,ip TEXT)"]
  if USE_PG:ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
@@ -90,8 +90,8 @@ def get_view_html(v,c,role):
    online=dict(r)['c'] if USE_PG else r[0]
   except: online=0
   def icard(key, emoji, title, val):
-   bg=col.get(key,'#333')
-   return f"""<div style="background:{bg};border-radius:12px;padding:12px 6px;color:#fff;text-align:center;min-height:130px;display:flex;flex-direction:column;justify-content:center;box-shadow:0 2px 8px {bg}44"><div style="font-size:20px">{emoji}</div><div style="font-weight:700;margin:4px 0;font-size:11px">{title}</div><div style="font-size:20px;font-weight:800">{val}</div></div>"""
+  bg=col.get(key,'#333')
+  return f"""<div style="background:{bg};border-radius:8px;padding:6px 2px;color:#fff;text-align:center;min-height:70px;max-height:70px;display:flex;flex-direction:column;justify-content:center;overflow:hidden"><div style="font-size:14px;line-height:1">{emoji}</div><div style="font-weight:700;margin:2px 0;font-size:9px">{title}</div><div style="font-size:14px;font-weight:800">{val}</div></div>"""
   return f"""<div class="card eye" style="text-align:center"><h2>👋 أهلاً بك</h2><p>📅 {today} | 💰 دخل اليوم: <b>{inc}$</b></p></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin:10px 0">{icard('icon_ip','📡','عدد IP',nd)}{icard('icon_disabled','⏸️','تم تعطيلهم',disabled)}{icard('icon_online','🟢','فاتحين الموقع',online)}{icard('icon_active','📶','المتصلين',ns)}{icard('icon_monqatein','❄️','المنقطعين',0)}{icard('icon_modirin','👔','المديرين',0)}{icard('icon_no_expire','⏸️','تم إيقافهم',0)}{icard('icon_expired','🔴','انتهى اشتراكهم',0)}{icard('icon_blocked','🚫','محظور',0)}</div>"""
  if v=='subs':
   rs=ex(c,"SELECT * FROM subs ORDER BY id DESC LIMIT 50").fetchall()
