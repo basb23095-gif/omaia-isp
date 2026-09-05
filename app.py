@@ -82,21 +82,31 @@ def gv(r):
  try:return list(dict(r).values())[0]
  except:return r[0] if r else 0
 def title(t,icon): return f"<div class=pt>{icon} {t}</div>"
-@app.route('/',methods=['GET','POST'])
+@app.route('/', methods=['GET', 'POST'])
 def login():
- if request.method=='POST':
-  i=request.form.get('phone','').strip();c=db();u=ex(c,"SELECT * FROM users WHERE phone=? OR username=?",(i,i)).fetchone();d=dict(u) if u else None;close(c)
-  if d and d['password']==request.form.get('password') and d['active']:
-   session['p']=d['phone'];return redirect('/dash')
-  return R("<div class=c style='width:320px;text-align:center'><p style=color:red>خطأ</p><a href=/>رجوع</a></div>","lb")
- return R("<div class=c style='width:330px;text-align:center'><h2 style=color:#00D4FF><span class=logoA>✨</span> OMAIA ISP</h2><form method=post><input name=phone placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='باسورد' required><button>دخول 🚀</button></form><p style=font-size:12px;color:#00D4FF>تصميم م. عبدو عباس</p></div>","lb")
+    if request.method == 'POST':
+        i = request.form.get('phone', '').strip()
+        c = db()
+        u = ex(c, "SELECT * FROM users WHERE phone=? OR username=?", (i, i))
+        d = u[0] if u else None
+        if d and d['password'] == request.form.get('password') and d['active']:
+            session['p'] = d['phone']
+            return redirect('/dash')
+        return R("<div class='c' style='width:320px;text-align:center'><p style='color:red'>خطأ في اسم المستخدم أو كلمة المرور</p><a href='/'>إعادة المحاولة</a></div>", "lb")
+        
+    return R("<div class='c' style='width:330px;text-align:center'><h2 style='color:#00D4FF'><span class='logo'>&#00D4FF;</span> OMAIA ISP</h2><form method='post'><input name='phone' placeholder='اسم / رقم هاتف' required><input name='password' type='password' placeholder='كلمة المرور' required><button>دخول</button></form></div>", "lb")
+
 @app.route('/logout')
-def lo():session.clear();return redirect('/')
+def lo():
+    session.clear()
+    return redirect('/')
+
 @app.route('/lang/toggle')
 def lt():
- cur=session.get('lang','ar')
- session['lang']='en' if cur=='ar' else 'ar'
- session.modified=True
+    cur = session.get('lang', 'ar')
+    session['lang'] = 'en' if cur == 'ar' else 'ar'
+    session.modified = True
+    return redirect('/')
  return redirect(request.referrer or '/dash')
 @app.route('/reset')
 def reset():
