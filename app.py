@@ -6,10 +6,9 @@ try: import psycopg2
 except ImportError: psycopg2 = None
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "omia-secure-key-2026")
+app.secret_key = os.environ.get("SECRET_KEY", "omia-secure-2026")
 DBURL = os.environ.get("DATABASE_URL", "")
 USE_PG = bool(DBURL and psycopg2)
-
 WA_DISPLAY, WA_LINK = "0095344851045", "963544851045"
 
 def get_db():
@@ -25,30 +24,23 @@ def q_db(c, q, a=()):
     try:
         if cur.description:
             res = cur.fetchall()
-            if USE_PG: return [dict(zip([d[0] for d in cur.description], row)) for row in res]
-            return [dict(row) for row in res]
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in res]
     except: pass
     return cur
 
 def init_system():
     c = get_db()
-    if USE_PG:
-        tbs = [
-            "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT)",
-            "CREATE TABLE IF NOT EXISTS subs(id SERIAL PRIMARY KEY,name TEXT,phone TEXT,status TEXT)",
-            "CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT,name TEXT,location TEXT,tower TEXT,zone TEXT)",
-            "CREATE TABLE IF NOT EXISTS ledger(id SERIAL PRIMARY KEY,date TEXT,sub TEXT,amount REAL,currency TEXT,note TEXT)"
-        ]
-    else:
-        tbs = [
-            "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT)",
-            "CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,status TEXT)",
-            "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,name TEXT,location TEXT,tower TEXT,zone TEXT)",
-            "CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,date TEXT,sub TEXT,amount REAL,currency TEXT,note TEXT)"
-        ]
+    p, s = "id SERIAL PRIMARY KEY,", "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    tbs = [
+        "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT)",
+        f"CREATE TABLE IF NOT EXISTS subs({p if USE_PG else s}name TEXT,phone TEXT,status TEXT)",
+        f"CREATE TABLE IF NOT EXISTS dish_ips({p if USE_PG else s}ip TEXT,name TEXT,location TEXT,tower TEXT,zone TEXT)",
+        f"CREATE TABLE IF NOT EXISTS ledger({p if USE_PG else s}date TEXT,sub TEXT,amount REAL,currency TEXT,note TEXT)"
+    ]
     for t in tbs: q_db(c, t)
-    chk = q_db(c, "SELECT 1 FROM users WHERE phone='05344851045'")
-    if not chk: q_db(c, "INSERT INTO users VALUES('05344851045','admin','admin2024','super',1)")
+    if not q_db(c, "SELECT 1 FROM users WHERE phone='05344851045'"):
+        q_db(c, "INSERT INTO users VALUES('05344851045','admin','admin2024','super',1)")
     c.close()
 
 init_system()
@@ -67,24 +59,24 @@ def system_main_route():
     if 'p' in session:
         c = get_db(); view = request.args.get('view', 'home')
         if view == 'home':
-            v_subs = q_db(c, "SELECT COUNT(*) as c FROM subs")[0]['c']
-            v_dishes = q_db(c, "SELECT COUNT(*) as c FROM dish_ips")[0]['c']
-            v_users = q_db(c, "SELECT COUNT(*) as c FROM users")[0]['c']
+            s_res, d_res, u_res = q_db(c, "SELECT COUNT(*) as c FROM subs"), q_db(c, "SELECT COUNT(*) as c FROM dish_ips"), q_db(c, "SELECT COUNT(*) as c FROM users")
+            v_subs = s_res[0]['c'] if s_res else 0
+            v_dishes = d_res[0]['c'] if d_res else 0
+            v_users = u_res[0]['c'] if u_res else 0
             c.close()
-            h = f"""<div class=pt>🏠 الإحصائيات</div><div class=stats-grid><div class=stat-card><h3>{v_subs}</h3><p>المشتركين</p></div><div class=stat-card><h3>{v_dishes}</h3><p>الصحون والـ IPs</p></div><div class=stat-card><h3>{v_users}</h3><p>المستخدمين</p></div></div><div class=c style='text-align:center'><h3>مرحباً بك في نظام إدارة OMIA ISP</h3><p style='color:#94a3b8'>تصفح فوري وسريع بحركات ناعمة وسلاسة تحكم فائقة.</p></div>"""
-            return R(h)
+            return R(f"<div class=pt>🏠 الإحصائيات</div><div class=stats-grid><div class=stat-card><h3>{v_subs}</h3><p>المشتركين</p></div><div class=stat-card><h3>{v_dishes}</h3><p>الصحون والـ IPs</p></div><div class=stat-card><h3>{v_users}</h3><p>المستخدمين</p></div></div><div class=c style='text-align:center'><h3>مرحباً بك في نظام إدارة OMIA ISP</h3><p style='color:#94a3b8'>تصفح سريع وسلس بجودة عالية.</p></div>")
         if view == 'subs':
             if request.method == 'POST':
                 if request.form.get('action') == 'add': q_db(c, "INSERT INTO subs(name,phone,status) VALUES(?,?,?)", (request.form.get('name'), request.form.get('phone'), request.form.get('status')))
                 elif request.form.get('action') == 'edit': q_db(c, "UPDATE subs SET name=?,phone=?,status=? WHERE id=?", (request.form.get('name'), request.form.get('phone'), request.form.get('status'), request.form.get('id')))
             rows = q_db(c, "SELECT * FROM subs") or []
             edit_id = request.args.get('edit')
-            sub_row = {"id": "", "name": "", "phone": "", "status": "نشط", "action": "add"}
+            s_row = {"id": "", "name": "", "phone": "", "status": "نشط", "action": "add"}
             if edit_id:
                 curr = q_db(c, "SELECT * FROM subs WHERE id=?", (edit_id,))
-                if curr: sub_row = curr[0]; sub_row['action'] = 'edit'
+                if curr: s_row = curr[0]; s_row['action'] = 'edit'
             c.close()
-            h = f"""<div class=pt>👥 المشتركين</div><div class=c><form method=post action='/?view=subs'><input type=hidden name=action value='{sub_row['action']}'><input type=hidden name=id value='{sub_row['id']}'><input name=name value='{sub_row['name']}' placeholder='اسم المشترك' required><input name=phone value='{sub_row['phone']}' placeholder='رقم الهاتف'><select name=status><option {'selected' if sub_row['status']=='نشط' else ''}>نشط</option><option {'selected' if sub_row['status']=='منتهي' else ''}>منتهي</option></select><button>💾 حفظ</button></form></div><div class=c><input placeholder='🔍 بحث...' oninput='fS(this.value)'><table><tr><th>الاسم</th><th>الهاتف</th><th>الحالة</th><th>التحكم</th></tr>"""
+            h = f"""<div class=pt>👥 المشتركين</div><div class=c><form method=post action='/?view=subs'><input type=hidden name=action value='{s_row['action']}'><input type=hidden name=id value='{s_row['id']}'><input name=name value='{s_row['name']}' placeholder='الاسم' required><input name=phone value='{s_row['phone']}' placeholder='الهاتف'><select name=status><option {'selected' if s_row['status']=='نشط' else ''}>نشط</option><option {'selected' if s_row['status']=='منتهي' else ''}>منتهي</option></select><button>💾 حفظ</button></form></div><div class=c><input placeholder='🔍 بحث...' oninput='fS(this.value)'><table><tr><th>الاسم</th><th>الهاتف</th><th>الحالة</th><th>التحكم</th></tr>"""
             for rd in rows: h += f"<tr><td>{rd['name']}</td><td>{rd['phone']}</td><td>{rd['status']}</td><td><a class=btn-edit href='/?view=subs&edit={rd['id']}'>📝</a><a class=btn-del href='/del?t=subs&id={rd['id']}'>🗑️</a></td></tr>"
             return R(h + "</table></div>")
         if view == 'dishes':
@@ -92,3 +84,9 @@ def system_main_route():
                 if request.form.get('action') == 'add': q_db(c, "INSERT INTO dish_ips(ip,name,location,tower,zone) VALUES(?,?,?,?,?)", (request.form.get('ip'), request.form.get('name'), request.form.get('location'), request.form.get('tower'), request.form.get('zone')))
                 elif request.form.get('action') == 'edit': q_db(c, "UPDATE dish_ips SET ip=?,name=?,location=?,tower=?,zone=? WHERE id=?", (request.form.get('ip'), request.form.get('name'), request.form.get('location'), request.form.get('tower'), request.form.get('zone'), request.form.get('id')))
             rows = q_db(c, "SELECT * FROM dish_ips") or []
+            edit_id = request.args.get('edit')
+            d_row = {"id": "", "ip": "", "name": "", "location": "", "tower": "", "zone": "", "action": "add"}
+            if edit_id:
+                curr = q_db(c, "SELECT * FROM dish_ips WHERE id=?", (edit_id,))
+                if curr: d_row = curr[0]; d_row['action'] = 'edit'
+            c.close()
