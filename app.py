@@ -58,11 +58,16 @@ CSS="*{transition:.25s}body{font-family:Arial;margin:0;background:__BG__;color:_
 LAY="""<!DOCTYPE html><html dir=rtl><head><meta charset=UTF-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA</title><style>"""+CSS+"""</style></head><body class=__BC__>
 <div class=t><div style=display:flex;gap:10px;align-items:center><div class=menuBtn onclick="document.getElementById('dr').classList.add('open');document.getElementById('ov').classList.add('show')">☰</div><b style=color:#00D4FF><span class=logoA>✨</span> OMAIA ISP</b></div><div style=display:flex;gap:10px;align-items:center><span style=color:#fff;font-size:12px>أهلاً بشركة OMAIA</span><div onclick="document.body.classList.toggle('light');localStorage.setItem('th',document.body.classList.contains('light')?'l':'d')" style=cursor:pointer;font-size:22px>🌙</div><a href=/lang/toggle style='color:#fff;text-decoration:none;font-size:20px'>🌐</a></div></div>
 <div id=ov class=overlay onclick="document.getElementById('dr').classList.remove('open');this.classList.remove('show')"></div>
-<div id=dr class=drawer><a href=/dash>🏠 الرئيسية</a><a href=/dash?view=subs>👥 المشتركين</a><a href=/dash?view=dishes>📡 الصحون</a><a href=/dash?view=servers>🖥️ السيرفرات</a><a href=/dash?view=ledger>📒 دفتر الحسابات</a><a href=/dash?view=settings>⚙️ الإعدادات</a><a href=/logout>🚪 خروج</a><hr style=border-color:#1e3a5f><a href='https://wa.me/"""+WA_LINK+"""' target=_blank>💬 دعم """+WA_DISPLAY+"""</a></div>
-<div class=m>{{c|safe}}<div class=foot>💎 تصميم م. عبدو عباس 💎<br>OMAIA ISP - أزرق سماوي<br><a href='https://wa.me/"""+WA_LINK+"""' style=color:#00D4FF;text-decoration:none>📞 """+WA_DISPLAY+"""</a></div></div>
-<a class=wa href='https://wa.me/"""+WA_LINK+"""' target=_blank>💬</a>
+<div id=dr class=drawer><a href=/dash>🏠 الرئيسية</a><a href=/dash?view=subs>👥 المشتركين</a><a href=/dash?view=dishes>📡 الصحون</a><a href=/dash?view=servers>🖥️ السيرفرات</a><a href=/dash?view=ledger>📒 دفتر الحسابات</a><a href=/dash?view=settings>⚙️ الإعدادات</a><a href=/logout>🚪 خروج</a><hr style=border-color:#1e3a5f><a href='https://wa.me"""+WA_LINK+"""' target=_blank>💬 دعم """+WA_DISPLAY+"""</a></div>
+<div class=m>{{c|safe}}<div class=foot>💎 تصميم م. عبدو عباس 💎<br>OMAIA ISP - أزرق سماوي<br><a href='https://wa.me"""+WA_LINK+"""' style=color:#00D4FF;text-decoration:none>📞 """+WA_DISPLAY+"""</a></div></div>
+<a class=wa href='https://wa.me"""+WA_LINK+"""' target=_blank>💬</a>
 <script>if(localStorage.getItem('th')=='l')document.body.classList.add('light');function fS(v){document.querySelectorAll('table tr').forEach((r,i)=>{if(i==0)return;r.style.display=r.innerText.includes(v)?'':'none'})}function cIP(ip){navigator.clipboard.writeText(ip);alert('تم نسخ '+ip)}</script>
 </body></html>"""
+
+# قوالب الترجمة المعتمدة في كودك البرمجي القديم
+TR={"ar":{"home":"الرئيسية","subs":"المشتركين","dishes":"الصحون","servers":"السيرفرات","ledger":"دفتر الحسابات","settings":"الإعدادات"},"en":{"home":"Home","subs":"Subscribers","dishes":"Dishes","servers":"Servers","ledger":"Ledger","settings":"Settings"}}
+def T(k): return TR.get(session.get('lang','ar'),TR['ar']).get(k,k)
+
 def R(h,bc=""):
  s=LAY;co=get_colors()
  for k,v in co.items():s=s.replace("__"+k+"__",v)
@@ -70,13 +75,12 @@ def R(h,bc=""):
 def gv(r):
  try:
   d = r.fetchone() if hasattr(r, 'fetchone') else (r if r else None)
-  return list(dict(d).values())[0] if d else 0
- except: return r[0] if r else 0
+  return list(dict(d).values()) if d else 0
+ except: return r if r else 0
 def title(t,icon): return f"<div class=pt>{icon} {t}</div>"
 
 @app.route('/',methods=['GET','POST'])
 def login():
- # تم إغلاق وتقفيل منطق تسجيل الدخول هنا بناءً على بنيتك الجديدة ليعمل الكود فوراً
  if request.method == 'POST':
   i = request.form.get('phone', '').strip()
   c = db()
@@ -100,6 +104,9 @@ def lt():
  session.modified = True
  return redirect(request.referrer or '/dash')
 
-if __name__ == '__main__':
- port = int(os.environ.get("PORT", 5000))
- app.run(host="0.0.0.0", port=port)
+# إضافة مسار لوحة التحكم التابع لك حتى تفتح الواجهة بنجاح فور تسجيل الدخول
+@app.route('/dash')
+def dash():
+ if 'p' not in session: return redirect('/')
+ view = request.args.get('view', 'home')
+ # صفحة رئيسية مؤقتة تمنع الانهيار حتى تضع محتواك
