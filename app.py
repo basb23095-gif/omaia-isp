@@ -62,7 +62,7 @@ def init():
 
 init()
 
-CSS = """*{transition:all 0.4s cubic-bezier(0.4, 0, 0.2, 1);box-sizing:border-box}
+CSS = """*{transition:all 0.4s ease;box-sizing:border-box}
 body{font-family:Arial,sans-serif;margin:0;background:#0b111e;color:#e2e8f0;overflow-x:hidden}
 .t{position:fixed;top:0;left:0;right:0;height:56px;background:rgba(17,24,39,0.8);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:20;border-bottom:1px solid rgba(0,212,255,0.25)}
 .m{padding:76px 12px 24px;max-width:1100px;margin:auto}
@@ -76,7 +76,7 @@ input,select{width:100%;padding:11px;margin:6px 0;border-radius:12px;border:1px 
 input:focus{border-color:#00D4FF;outline:none}
 table{width:100%;border-collapse:collapse;margin-top:10px}td,th{padding:10px;border-bottom:1px solid rgba(51,65,85,0.4);text-align:center}th{color:#00D4FF}
 .drawer{position:fixed;top:0;right:-285px;width:265px;height:100%;background:#0f172a;z-index:30;transition:0.4s;padding:62px 12px;box-shadow:-5px 0 25px rgba(0,0,0,0.5)}
-.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0 Ramaz,0.5);display:none;z-index:25}.overlay.show{display:block}
+.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;z-index:25}.overlay.show{display:block}
 .drawer a{display:flex;gap:10px;color:#fff;text-decoration:none;padding:11px;border-radius:10px;cursor:pointer}
 .drawer a:hover{background:rgba(0,212,255,0.15);color:#00D4FF;transform:translateX(-5px)}
 .menuBtn{cursor:pointer;font-size:22px;color:#fff;background:#00D4FF;width:38px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px}
@@ -91,7 +91,7 @@ table{width:100%;border-collapse:collapse;margin-top:10px}td,th{padding:10px;bor
 LAY = """<!DOCTYPE html><html dir=rtl><head><meta charset=UTF-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMIA ISP</title><style>""" + CSS + """</style></head><body>
 <div class=t><div style=display:flex;gap:10px;align-items:center><div class=menuBtn onclick="document.getElementById('dr').classList.add('open');document.getElementById('ov').classList.add('show')">☰</div><b style=color:#00D4FF>✨ OMIA ISP</b></div></div>
 <div id=ov class=overlay onclick="document.getElementById('dr').classList.remove('open');this.classList.remove('show')"></div>
-<div id=dr class=drawer><a onclick="go('/')">🏠 الرئيسية</a><a onclick="go('/?view=subs')">👥 المشتركين</a><a onclick="go('/?view=dishes')">📡 الصحون</a><a onclick="go('/?view=ledger')">📒 الحسابات</a><a onclick="go('/?view=settings')">⚙️ الإعدادات</a><a href=/logout>🚪 خروج</a></div>
+<div id=dr class=drawer><a href=/>🏠 الرئيسية</a><a onclick="go('/?view=subs')">👥 المشتركين</a><a onclick="go('/?view=dishes')">📡 الصحون</a><a onclick="go('/?view=ledger')">📒 الحسابات</a><a onclick="go('/?view=settings')">⚙️ الإعدادات</a><a href=/logout>🚪 خروج</a></div>
 <div class=m id=panel_content>{{c|safe}}</div>
 <script>
 function fS(v){document.querySelectorAll('table tr').forEach((r,i)=>{if(i==0)return;r.style.display=r.innerText.includes(v)?'':'none'})}
@@ -124,9 +124,9 @@ def system_main_route():
             n_subs = ex(c, "SELECT COUNT(*) FROM subs").fetchone()
             n_dishes = ex(c, "SELECT COUNT(*) FROM dish_ips").fetchone()
             n_users = ex(c, "SELECT COUNT(*) FROM users").fetchone()
-            v_subs = list(dict(n_subs).values())[0] if n_subs else 0
-            v_dishes = list(dict(n_dishes).values())[0] if n_dishes else 0
-            v_users = list(dict(n_users).values())[0] if n_users else 0
+            v_subs = list(dict(n_subs).values()) if n_subs else 0
+            v_dishes = list(dict(n_dishes).values()) if n_dishes else 0
+            v_users = list(dict(n_users).values()) if n_users else 0
             
             h = f"""<div class=pt>🏠 لوحة التحكم والإحصائيات</div>
             <div class=stats-grid>
