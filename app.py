@@ -9,7 +9,8 @@ app.secret_key=os.environ.get("SECRET_KEY","omia-sec-2026")
 DATABASE_URL=os.environ.get("DATABASE_URL","")
 USE_PG=bool(DATABASE_URL and psycopg2)
 _pg=None;_pt=0
-SUPPORT="0095344851045"
+SUPPORT="95344851045"
+SUPPORT_DISPLAY="0095344851045"
 LANGS={'ar':{'home':'🏠 الرئيسية','subs':'👥 المشتركين','dishes':'📡 الصحون','map':'🗺️ الخريطة','ping':'📶 فحص','towers':'🗼 الأبراج','report':'📊 تقرير','servers':'🖥️ سيرفرات','notifs':'🔔 إشعارات','logs':'📝 السجل','settings':'⚙️ الإعدادات','support':'🛠️ دعم','ledger':'📒 الحسابات','logout':'🚪 خروج','menu':'☰ القائمة'},'en':{'home':'🏠 Home','subs':'👥 Subs','dishes':'📡 Dishes','map':'🗺️ Map','ping':'📶 Ping','towers':'🗼 Towers','report':'📊 Report','servers':'🖥️ Servers','notifs':'🔔 Notifs','logs':'📝 Logs','settings':'⚙️ Settings','support':'🛠️ Support','ledger':'📒 Ledger','logout':'🚪 Logout','menu':'☰ Menu'}}
 def T(k): return LANGS.get(session.get('lang','ar'),{}).get(k,k)
 def db():
@@ -52,8 +53,14 @@ init()
 def ping(ip):
  ip=(ip or '').strip()
  if not ip:return False
- for p in (80,443):
-  try:socket.create_connection((ip,p),timeout=0.8).close();return True
+ try:
+  import subprocess, platform
+  prm="-n" if platform.system().lower()=="windows" else "-c"
+  r=subprocess.run(["ping",prm,"1","-W","1",ip],capture_output=True,timeout=4)
+  if r.returncode==0:return True
+ except:pass
+ for p in (80,443,22,53,8080):
+  try:socket.create_connection((ip,p),timeout=1).close();return True
   except:continue
  return False
 def notify(m):
@@ -75,15 +82,15 @@ def get_view_html(v,c,role):
   return f"<div class='card glass eye'><form method=post action=/add_sub><div class=row2><input name=name placeholder='الاسم' required><input name=phone placeholder='هاتف' required></div><button class='btn-soft'>إضافة مشترك</button></form></div><div class='card glass eye'><table><tr><th>اسم</th><th>هاتف</th><th>رصيد</th><th></th><th></th></tr>{tr}</table></div>"
  if v=='dishes':
   rs=ex(c,"SELECT * FROM dish_ips ORDER BY id DESC LIMIT 100").fetchall()
-  tr="".join([f"<tr><td dir=ltr>{dict(r)['ip'] or '-'}</td><td>{dict(r).get('location','')}</td><td>{dict(r).get('area','')}</td><td><a class='ic del' href='/del_dish/{dict(r)['id']}'>✖</a></td></tr>" for r in rs])
+  tr="".join([f"<tr><td dir=ltr><a href='http://{dict(r)['ip']}' target='_blank' style='color:#4da3ff;text-decoration:underline'>{dict(r)['ip'] or '-'}</a></td><td>{dict(r).get('location','')}</td><td>{dict(r).get('area','')}</td><td><a class='ic del' href='/del_dish/{dict(r)['id']}'>✖</a></td></tr>" for r in rs])
   return f"<div class='card glass eye'><h3>📡 الصحون</h3><form method=post action=/add_dish><div class=row2><input name=ip placeholder='IP' dir=ltr><input name=location placeholder='اسم الصحن'></div><div class=row2><input name=area placeholder='المنطقة'><input name=tower placeholder='البرج'></div><button class='btn-soft'>إضافة</button></form></div><div class='card glass eye'><table><tr><th>IP</th><th>اسم</th><th>منطقة</th><th></th></tr>{tr}</table></div>"
  if v=='ping':
   rs=ex(c,"SELECT * FROM dish_ips ORDER BY id DESC LIMIT 50").fetchall();tr=""
   for r in rs:
    d=dict(r);ok=ping(d['ip'] or '');dot="🟢" if ok else "🔴"
    if not ok and d['ip']:notify(f"🔴 صحن فاصل: {d.get('location')} {d['ip']}")
-   tr+=f"<tr><td>{dot}</td><td dir=ltr>{d['ip']}</td><td>{d.get('location','')}</td></tr>"
-  return f"<div class='card glass eye'><h3>📶 Ping</h3><button class='btn-soft' onclick=\"loadView('ping',true)\">🔄 فحص</button></div><div class='card glass eye'><table><tr><th>حالة</th><th>IP</th><th>اسم</th></tr>{tr}</table></div>"
+   tr+=f"<tr><td>{dot}</td><td dir=ltr><a href='http://{d['ip']}' target='_blank' style='color:#4da3ff;text-decoration:underline'>{d['ip']}</a></td><td>{d.get('location','')}</td></tr>"
+  return f"<div class='card glass eye'><h3>📶 فحص Ping</h3><button class='btn-soft' onclick=\"loadView('ping',true)\">🔄 فحص الآن</button></div><div class='card glass eye'><table><tr><th>حالة</th><th>IP</th><th>اسم</th></tr>{tr}</table></div>"
  if v=='towers':
   rs=ex(c,"SELECT * FROM towers ORDER BY id DESC LIMIT 100").fetchall()
   tr="".join([f"<tr><td>{dict(r).get('name','')}</td><td>{dict(r).get('area','') or ''}</td><td>{dict(r).get('owner','') or ''}</td><td><a class='ic del' href='/del_tower/{dict(r)['id']}'>✖</a></td></tr>" for r in rs])
@@ -94,10 +101,9 @@ def get_view_html(v,c,role):
   return f"<div class='card glass eye'><h3>🗺️ الخريطة</h3><div id=map></div></div><script>var m=L.map('map').setView([34.72,36.72],10);L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(m);var pts=[{pts}];pts.forEach(p=>L.marker([p.la,p.ln]).addTo(m).bindPopup(p.n));setTimeout(()=>m.invalidateSize(),500);</script>"
  if v=='ledger':
   if role not in ('super','admin'):return "<div class='card glass eye'>ممنوع</div>"
-  rs=ex(c,"SELECT l.*,s.name sn FROM ledger l LEFT JOIN subs s ON s.id=l.sub_id ORDER BY l.id DESC LIMIT 100").fetchall()
-  subs=ex(c,"SELECT id,name FROM subs LIMIT 200").fetchall();opts="".join([f"<option value='{s['id']}'>{s['name']}</option>" for s in subs])
-  tr="".join([f"<tr><td>{r['date']}</td><td>{r['sn']}</td><td>{r['usd']}</td></tr>" for r in rs])
-  return f"<div class='card glass eye'><h3>📒 دفتر</h3><form method=post action=/charge><select name=sub_id>{opts}</select><div class=row2><input name=amount type=number step=0.01 required placeholder='مبلغ'><select name=currency><option value=usd>$</option><option value=syr>ل.س</option></select></div><button class='btn-soft'>تسجيل</button></form></div><div class='card glass eye'><table><tr><th>تاريخ</th><th>مشترك</th><th>$</th></tr>{tr}</table></div>"
+  rs=ex(c,"SELECT * FROM ledger ORDER BY id DESC LIMIT 100").fetchall()
+  tr="".join([f"<tr><td>{dict(r)['date']}</td><td>{dict(r).get('note','')}</td><td>{dict(r).get('usd',0)}$</td><td>{dict(r).get('syr',0)}</td></tr>" for r in rs])
+  return f"<div class='card glass eye'><h3>📒 دفتر حسابات منفصل</h3><form method=post action=/charge><input name=cust_name placeholder='اسم الزبون - اكتب الاسم هنا' required><div class=row2><input name=amount type=number step=0.01 required placeholder='مبلغ'><select name=currency><option value=usd>$ دولار</option><option value=syr>ل.س سوري</option></select></div><button class='btn-soft'>تسجيل</button></form></div><div class='card glass eye'><table><tr><th>تاريخ</th><th>الاسم</th><th>$</th><th>ل.س</th></tr>{tr}</table></div>"
  if v=='report':
   today=datetime.date.today().isoformat()
   r1=ex(c,"SELECT SUM(usd) s1 FROM ledger WHERE date LIKE?",(today+"%",)).fetchone();a=dict(r1) if r1 else {}
@@ -120,8 +126,8 @@ def get_view_html(v,c,role):
    st="<span class='badge green'>نشط</span>" if active else "<span class='badge gray'>معطل</span>"
    bt="تعطيل" if active else "تفعيل"
    cards+=f"<div class='ucard'><b dir=ltr>{d['phone']}</b><div style='margin:5px 0'>الدور: <b>{d['role']}</b></div><div>الحالة: {st}</div><div class='ubtns'><a class='mini-btn blue' href='#' onclick=\"document.getElementById('e{d['phone']}').style.display='flex';return false\">تعديل</a><a class='mini-btn orange' href='/toggle_user/{d['phone']}'>{bt}</a><a class='mini-btn red' href='/del_user/{d['phone']}'>حذف</a></div><div id='e{d['phone']}' class='modal' style='display:none'><form method=post action='/edit_user/{d['phone']}' class='modal-box'><h4 dir=ltr>{d['phone']}</h4><input name=password value='{d['password']}' required><select name=role><option value='tech' {'selected' if d['role']=='tech' else ''}>فني</option><option value='admin' {'selected' if d['role']=='admin' else ''}>مدير</option><option value='distributor' {'selected' if d['role']=='distributor' else ''}>موزع</option></select><div class=row2><button class='mini-btn blue'>حفظ</button><button type=button class='mini-btn gray' onclick=\"document.getElementById('e{d['phone']}').style.display='none'\">إلغاء</button></div></form></div></div>"
-  return f"<style>.u-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}}.ucard{{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:10px;text-align:center;font-size:10px}}.badge{{font-size:9px!important;padding:2px 8px;border-radius:20px;color:#fff}}.badge.green{{background:#22c55e}}.badge.gray{{background:#6b7280}}.ubtns{{display:flex;gap:4px;justify-content:center;margin-top:7px;flex-wrap:wrap}}.mini-btn{{font-size:10px!important;padding:5px 9px!important;border-radius:8px;text-decoration:none;color:#fff;font-weight:700;display:inline-block}}.mini-btn.blue{{background:#3b82f6}}.mini-btn.orange{{background:#f59e0b}}.mini-btn.red{{background:#ef4444}}.mini-btn.gray{{background:#6b7280}}.modal{{position:fixed;top:0;right:0;left:0;bottom:0;background:rgba(0,0,0,.6);z-index:2000;align-items:center;justify-content:center}}.modal-box{{background:#1a2332;padding:14px;border-radius:14px;width:90%;max-width:300px}}</style><div class='card glass eye'><h3>⚙️ إضافة مستخدم</h3><form method=post action=/add_user><input name=phone placeholder='رقم الهاتف' required dir=ltr><div class=row2><input name=password placeholder='كلمة السر' required><select name=role><option value='tech'>فني</option><option value='admin'>مدير</option><option value='distributor'>موزع</option></select></div><button class='btn-soft'>+ إضافة</button></form></div><div class='u-grid'>{cards}</div>"
- if v=='support': return f"<div class='card glass eye' style='text-align:center'><h3>🛠️ الدعم</h3><h2 dir=ltr>{SUPPORT}</h2><button class='btn-soft' onclick=\"window.open('https://wa.me/{SUPPORT}','_blank')\">💬 واتساب</button></div>"
+  return f"<style>.u-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}}.ucard{{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:10px;text-align:center;font-size:10px}}.badge{{font-size:9px!important;padding:2px 8px;border-radius:20px;color:#fff}}.badge.green{{background:#22c55e}}.badge.gray{{background:#6b7280}}.ubtns{{display:flex;gap:4px;justify-content:center;margin-top:7px;flex-wrap:wrap}}.mini-btn{{font-size:10px!important;padding:5px 9px!important;border-radius:8px;text-decoration:none;color:#fff;font-weight:700;display:inline-block}}.mini-btn.blue{{background:#3b82f6}}.mini-btn.orange{{background:#f59e0b}}.mini-btn.red{{background:#ef4444}}.mini-btn.gray{{background:#6b7280}}.modal{{position:fixed;top:0;right:0;left:0;bottom:0;background:rgba(0,0,0,.6);z-index:2000;align-items:center;justify-content:center}}.modal-box{{background:#1a2332;padding:14px;border-radius:14px;width:90%;max-width:300px}}</style><div class='card glass eye' style='text-align:center'><h3>⚙️ الإعدادات</h3><p style='opacity:.7'>تصميم م. عبدو عباس<br><span dir=ltr>{SUPPORT_DISPLAY}</span></p></div><div class='card glass eye'><h3>⚙️ إضافة مستخدم</h3><form method=post action=/add_user><input name=phone placeholder='رقم الهاتف' required dir=ltr><div class=row2><input name=password placeholder='كلمة السر' required><select name=role><option value='tech'>فني</option><option value='admin'>مدير</option><option value='distributor'>موزع</option></select></div><button class='btn-soft'>+ إضافة</button></form></div><div class='u-grid'>{cards}</div>"
+ if v=='support': return f"<div class='card glass eye' style='text-align:center'><h3>🛠️ الدعم</h3><h2 dir=ltr>{SUPPORT_DISPLAY}</h2><button class='btn-soft' onclick=\"window.open('https://wa.me/{SUPPORT}','_blank')\">💬 واتساب</button><p style='margin-top:10px;opacity:.6'>تصميم م. عبدو عباس</p></div>"
  return ""
 def base_html(content,curview):
  col=get_colors();con=db()
@@ -153,13 +159,14 @@ input,select{{width:100%;padding:9px;margin:5px 0;border-radius:10px;border:1px 
 .row2{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}.row4{{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}}
 .stat{{border-radius:14px;padding:12px;text-align:center}}.stat h2{{font-size:20px!important;margin:0;color:{main_col}}}
 #map{{height:300px;border-radius:12px}}
-.wa{{position:fixed;bottom:14px;left:14px;width:44px;height:44px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;font-size:20px;text-decoration:none}}
+.wa{{position:fixed;bottom:14px;left:14px;width:48px;height:48px;border-radius:50%;background:#22c55e;display:flex!important;align-items:center;justify-content:center;font-size:22px;text-decoration:none;z-index:1005;box-shadow:0 4px 12px rgba(0,0,0,.3)}}
 @media(max-width:480px){{.row4{{grid-template-columns:1fr 1fr}}}}
 </style></head><body>
 <div class="top"><button id="mb">{T('menu')}</button><b style="color:{main_col};font-size:13px">OMAIA ISP</b><div style="display:flex;gap:6px;align-items:center"><span>{nn if nn else ''}</span><button class="langb" onclick="location.href='/set_lang/{'en' if is_ar else 'ar'}'">{'EN' if is_ar else 'ع'}</button></div></div>
 <div class="sb eye hide" id="sb"><a href="#" data-v="home">{T('home')}</a><a href="#" data-v="subs">{T('subs')}</a><a href="#" data-v="dishes">{T('dishes')}</a><a href="#" data-v="map">{T('map')}</a><a href="#" data-v="ping">{T('ping')}</a>{ledger_link}<a href="#" data-v="towers">{T('towers')}</a><a href="#" data-v="report">{T('report')}</a><a href="#" data-v="servers">{T('servers')}</a><a href="#" data-v="notifs">{T('notifs')}</a><a href="#" data-v="logs">{T('logs')}</a><a href="#" data-v="settings">{T('settings')}</a><a href="#" data-v="support">{T('support')}</a><a href="/logout">{T('logout')}</a></div>
 <div class="mn" id="mn">{content}</div>
-<a class="wa" href="https://wa.me/{SUPPORT}" target="_blank">💬</a>
+<div style='text-align:center;padding:20px 10px 60px;font-size:10px;opacity:.6'>تصميم م. عبدو عباس<br><span dir=ltr>{SUPPORT_DISPLAY}</span></div>
+<a class="wa" href="https://wa.me/{SUPPORT}?text=%D9%85%D8%B1%D8%AD%D8%A8%D8%A7" target="_blank">💬</a>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script>
 let cache={{}},curView="{curview}";let sb=document.getElementById('sb'),mn=document.getElementById('mn');
@@ -193,7 +200,7 @@ def login():
   except:pass
   m="<p style='color:#ff9a9a'>خطأ</p>"
  col=get_colors()
- return f"""<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>دخول</title><style>body{{margin:0;font-family:'Segoe UI';background:#0f1420;color:#fff;font-size:12px}}.wrap{{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:14px}}.box{{background:rgba(255,255,255,.06);border-radius:20px;padding:28px 18px;max-width:340px;width:100%;text-align:center}}input{{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#1a2332;color:#fff}}button{{width:100%;padding:13px;border:none;border-radius:12px;background:linear-gradient(135deg,{col['main']},#7c3aed);color:#fff;font-weight:800}}</style></head><body><div class="wrap"><div class="box"><h2>OMAIA ISP</h2>{m}<form method=post><input name=phone placeholder="رقم الهاتف" required><input name=password type=password placeholder="كلمة السر" required><button>دخول</button></form></div></div></body></html>"""
+ return f"""<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>دخول</title><style>body{{margin:0;font-family:'Segoe UI';background:#0f1420;color:#fff;font-size:12px}}.wrap{{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:14px}}.box{{background:rgba(255,255,255,.06);border-radius:20px;padding:28px 18px;max-width:340px;width:100%;text-align:center}}input{{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#1a2332;color:#fff}}button{{width:100%;padding:13px;border:none;border-radius:12px;background:linear-gradient(135deg,{col['main']},#7c3aed);color:#fff;font-weight:800}}.sign{{margin-top:18px;font-size:11px;opacity:.7;line-height:1.8}}</style></head><body><div class="wrap"><div class="box"><h2>OMAIA ISP</h2>{m}<form method=post><input name=phone placeholder="رقم الهاتف" required><input name=password type=password placeholder="كلمة السر" required><button>دخول</button></form><div class="sign">تصميم م. عبدو عباس<br><span dir="ltr">{SUPPORT_DISPLAY}</span></div></div></div></body></html>"""
 @app.route('/logout')
 def lo():session.clear();return redirect('/login')
 @app.route('/dash')
@@ -235,9 +242,10 @@ def du(ph):
 def tu(ph):c=db();u=ex(c,"SELECT active FROM users WHERE phone=?",(ph,)).fetchone();na=0 if dict(u)['active']==1 else 1;ex(c,"UPDATE users SET active=? WHERE phone=?",(na,ph));c.commit();cc(c);return redirect('/dash#settings')
 @app.route('/charge',methods=['POST'])
 def ch():
- sid=request.form['sub_id'];amt=float(request.form['amount']);cur=request.form['currency'];usd=amt if cur=='usd' else 0;c=db()
- ex(c,"INSERT INTO ledger(sub_id,date,usd,syr,type,note,by_user) VALUES(?,?,?,?,?,?,?)",(sid,datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,0,'قبض','',session.get('phone')))
- ex(c,"UPDATE subs SET balance_usd=balance_usd+? WHERE id=?",(usd,sid));c.commit();cc(c);return redirect('/dash#ledger')
+ amt=float(request.form['amount']);cur=request.form.get('currency','usd');cust_name=request.form.get('cust_name','')
+ usd=amt if cur=='usd' else 0;syr=amt if cur=='syr' else 0;c=db()
+ ex(c,"INSERT INTO ledger(date,usd,syr,type,note,by_user) VALUES(?,?,?,?,?,?)",(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,syr,'قبض',cust_name,session.get('phone')))
+ c.commit();cc(c);return redirect('/dash#ledger')
 @app.route('/export_subs')
 def es():
  c=db();rs=ex(c,"SELECT name,phone,balance_usd FROM subs").fetchall();cc(c)
