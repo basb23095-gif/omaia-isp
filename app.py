@@ -1,11 +1,3 @@
-import os
-import pandas as pd
-from flask import Flask, request, redirect
-
-app = Flask(__name__)
-
-# افترضنا وجود هذه الدوال لديك سابقاً في المشروع:
-# db(), ex(), close(), R()
 from flask import Flask,request,redirect,render_template_string,session,send_from_directory
 import os,sqlite3,time
 from datetime import datetime
@@ -81,10 +73,11 @@ def gv(r):
 def title(t,icon): return f"<div class=pt>{icon} {t}</div>"
 @app.route('/',methods=['GET','POST'])
 def login():
+ if 'p' in session:return redirect('/dash')
  if request.method=='POST':
-  i=request.form.get('phone','').strip();c=db();u=ex(c,"SELECT * FROM users WHERE phone=? OR username=?",(i,i)).fetchone();d=dict(u) if u else None;close(c)
-  if d and d['password']==request.form.get('password') and d['active']:
-   session['p']=d['phone'];return redirect('/dash')
+  i=request.form.get('phone','').strip();c=db();row=ex(c,"SELECT * FROM users WHERE phone=? OR username=?",(i,i)).fetchone();u=dict(row) if row else None;close(c)
+  if u and u.get('password')==request.form.get('password') and u.get('active'):
+   session['p']=u['phone'];return redirect('/dash')
   return R("<div class=c style='width:320px;text-align:center'><p style=color:red>خطأ</p><a href=/>رجوع</a></div>","lb")
  return R("<div class=c style='width:330px;text-align:center'><h2 style=color:#00D4FF><span class=logoA>✨</span> OMAIA ISP</h2><form method=post><input name=phone placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='باسورد' required><button>دخول 🚀</button></form><p style=font-size:12px;color:#00D4FF>تصميم م. عبدو عباس</p></div>","lb")
 @app.route('/logout')
@@ -136,7 +129,9 @@ def a1():c=db();ex(c,"INSERT INTO subs(name,phone,status)VALUES(?,?,'active')",(
 def e1(i):
  c=db()
  if request.method=='POST':ex(c,"UPDATE subs SET name=?,phone=? WHERE id=?",(request.form.get('name'),request.form.get('phone'),i));c.commit();close(c);return redirect('/dash?view=subs')
- r=dict(ex(c,"SELECT * FROM subs WHERE id=?",(i,)).fetchone());close(c)
+ row=ex(c,"SELECT * FROM subs WHERE id=?",(i,)).fetchone()
+ if not row:close(c);return redirect('/dash?view=subs')
+ r=dict(row);close(c)
  return R(title("تعديل مشترك","✏️")+f"<div class=c><form method=post><input name=name value='{r['name']}'><input name=phone value='{r['phone']}'><button>💾 حفظ</button></form></div>")
 @app.route('/add_dish',methods=['POST'])
 def a2():c=db();ex(c,"INSERT INTO dish_ips(ip,name,network,tower)VALUES(?,?,?,?)",(request.form.get('ip'),request.form.get('name'),request.form.get('network'),request.form.get('tower')));c.commit();close(c);return redirect('/dash?view=dishes')
@@ -148,7 +143,9 @@ def asv():c=db();ex(c,"INSERT INTO servers(name,ip,location)VALUES(?,?,?)",(requ
 def esv(i):
  c=db()
  if request.method=='POST':ex(c,"UPDATE servers SET name=?,ip=?,location=? WHERE id=?",(request.form.get('name'),request.form.get('ip'),request.form.get('location',''),i));c.commit();close(c);return redirect('/dash?view=servers')
- r=dict(ex(c,"SELECT * FROM servers WHERE id=?",(i,)).fetchone());close(c)
+ row=ex(c,"SELECT * FROM servers WHERE id=?",(i,)).fetchone()
+ if not row:close(c);return redirect('/dash?view=servers')
+ r=dict(row);close(c)
  return R(title("تعديل سيرفر","✏️")+f"<div class=c><form method=post><input name=name value='{r.get('name','')}' required><input name=ip value='{r.get('ip','')}' dir=ltr required><input name=location value='{r.get('location','')}'><button>💾 حفظ</button></form></div>")
 @app.route('/del_server/<int:i>')
 def dsv(i):c=db();ex(c,"DELETE FROM servers WHERE id=?",(i,));c.commit();close(c);return redirect('/dash?view=servers')
@@ -158,8 +155,10 @@ def a3():c=db();d=datetime.now().strftime('%Y-%m-%d %H:%M');ex(c,"INSERT INTO le
 def el(i):
  c=db()
  if request.method=='POST':ex(c,"UPDATE ledger SET sub=?,amount=?,currency=?,note=? WHERE id=?",(request.form.get('sub'),float(request.form.get('amount') or 0),request.form.get('currency'),request.form.get('note'),i));c.commit();close(c);return redirect('/dash?view=ledger')
- r=dict(ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone());close(c);cur=r.get('currency','USD') or 'USD';lbl='💵 $' if cur=='USD' else '💶 ل.س'
- return R(f"<div class=c><form method=post><input name=sub value='{r.get('sub','')}'><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value='{r.get('amount') or 0}'><button type=button onclick=\"let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'\" style=width:110px>{lbl}</button><input type=hidden name=currency id=cur value={cur}></div><input name=note value='{r.get('note','')}'><button>💾 حفظ</button></form></div>")
+ row=ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone()
+ if not row:close(c);return redirect('/dash?view=ledger')
+ r=dict(row);close(c);cur=r.get('currency','USD') or 'USD';lbl='💵 $' if cur=='USD' else '💶 ل.س'
+ return R(f"<div class=c><form method=post><input name=sub value='{r.get('sub','')}'><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value='{r.get('amount') or 0}'><button type=button onclick="let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'" style=width:110px>{lbl}</button><input type=hidden name=currency id=cur value={cur}></div><input name=note value='{r.get('note','')}'><button>💾 حفظ</button></form></div>")
 @app.route('/del_ledger/<int:i>')
 def d3(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));c.commit();close(c);return redirect('/dash?view=ledger')
 @app.route('/upload_ledger',methods=['POST'])
@@ -182,147 +181,16 @@ def a4():
 def e4(p):
  c=db()
  if request.method=='POST':ni=request.form.get('ident','').strip();ex(c,"UPDATE users SET phone=?,username=?,password=? WHERE phone=?",(ni,ni,request.form.get('password'),p));c.commit();close(c);return redirect('/dash?view=settings')
- u=dict(ex(c,"SELECT * FROM users WHERE phone=?",(p,)).fetchone());close(c)
+ row=ex(c,"SELECT * FROM users WHERE phone=?",(p,)).fetchone()
+ if not row:close(c);return redirect('/dash?view=settings')
+ u=dict(row);close(c)
  return R(f"<div class=c><form method=post><input name=ident value='{u['username']}' required><input name=password value='{u['password']}' required><button>💾 حفظ</button></form></div>")
 @app.route('/toggle_user/<p>')
-def t4(p):c=db();u=dict(ex(c,"SELECT * FROM users WHERE phone=?",(p,)).fetchone());ex(c,"UPDATE users SET active=? WHERE phone=?",(0 if u['active'] else 1,p));c.commit();close(c);return redirect('/dash?view=settings')
-if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.environ.get('PORT',10000)))
-
-# إحالة الصفحة الرئيسية لتجنب خطأ 404 Not Found
-@app.route("/")
-def home():
-    return redirect("/dash?view=ledger")
-
-
-def render_ledger_form(r, cur, lbl):
-    sub_val = r.get("sub", "") or ""
-    amount_val = r.get("amount") if r.get("amount") is not None else 0
-    note_val = r.get("note", "") or ""
-
-    return R(
-        f'<div class="c">'
-        f'<form method="post">'
-        f'<input name="sub" value="{sub_val}">'
-        f'<div style="display:flex;gap:6px">'
-        f'<input name="amount" type="number" step="0.01" value="{amount_val}">'
-        f"<button type="button" onclick="let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'" style="width:110px">{lbl}</button>"
-        f'<input type="hidden" name="currency" id="cur" value="{cur}">'
-        f"</div>"
-        f'<input name="note" value="{note_val}">'
-        f"<button>💾 حفظ</button>"
-        f"</form>"
-        f"</div>"
-    )
-
-
-@app.route("/del_ledger/<int:i>")
-def d3(i):
-    c = db()
-    ex(c, "DELETE FROM ledger WHERE id=?", (i,))
-    c.commit()
-    close(c)
-    return redirect("/dash?view=ledger")
-
-
-@app.route("/upload_ledger", methods=["POST"])
-def u3():
-    if "pd" not in globals() or pd is None:
-        return "ثبت pandas"
-
-    f = request.files.get("file")
-    if f:
-        df = pd.read_excel(f)
-        df = df.fillna("")
-        c = db()
-        for _, r in df.iterrows():
-            amount = r.get("amount", 0)
-            try:
-                amount = float(amount)
-            except (ValueError, TypeError):
-                amount = 0.0
-
-            ex(
-                c,
-                "INSERT INTO ledger(date,sub,amount,currency,note) VALUES(?,?,?,?,?)",
-                (
-                    str(r.get("date", "")),
-                    str(r.get("sub", "")),
-                    amount,
-                    str(r.get("currency", "USD")),
-                    str(r.get("note", "")),
-                ),
-            )
-        c.commit()
-        close(c)
-    return redirect("/dash?view=ledger")
-
-
-@app.route("/add_user", methods=["POST"])
-def a4():
-    c = db()
-    i = request.form.get("ident", "").strip()
-    if i:
-        try:
-            ex(
-                c,
-                "INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",
-                (i, i, request.form.get("password"), "tech"),
-            )
-            c.commit()
-        except Exception:
-            pass
-    close(c)
-    return redirect("/dash?view=settings")
-
-
-@app.route("/edit_user/<p>", methods=["GET", "POST"])
-def e4(p):
-    c = db()
-    if request.method == "POST":
-        ni = request.form.get("ident", "").strip()
-        ex(
-            c,
-            "UPDATE users SET phone=?,username=?,password=? WHERE phone=?",
-            (ni, ni, request.form.get("password"), p),
-        )
-        c.commit()
-        close(c)
-        return redirect("/dash?view=settings")
-
-    res = ex(c, "SELECT * FROM users WHERE phone=?", (p,)).fetchone()
-    if not res:
-        close(c)
-        return "المستخدم غير موجود", 404
-
-    u = dict(res)
-    close(c)
-    return R(
-        f'<div class="c">'
-        f'<form method="post">'
-        f'<input name="ident" value="{u.get("username", "")}" required>'
-        f'<input name="password" value="{u.get("password", "")}" required>'
-        f"<button>💾 حفظ</button>"
-        f"</form>"
-        f"</div>"
-    )
-
-
-@app.route("/toggle_user/<p>")
 def t4(p):
-    c = db()
-    res = ex(c, "SELECT active FROM users WHERE phone=?", (p,)).fetchone()
-    if res:
-        u = dict(res)
-        new_status = 0 if u["active"] else 1
-        ex(
-            c,
-            "UPDATE users SET active=? WHERE phone=?",
-            (new_status, p),
-        )
-        c.commit()
-    close(c)
-    return redirect("/dash?view=settings")
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+ c=db()
+ row=ex(c,"SELECT * FROM users WHERE phone=?",(p,)).fetchone()
+ if row:
+  u=dict(row)
+  ex(c,"UPDATE users SET active=? WHERE phone=?",(0 if u['active'] else 1,p));c.commit()
+ close(c);return redirect('/dash?view=settings')
+if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.environ.get('PORT',10000)))
