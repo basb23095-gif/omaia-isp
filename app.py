@@ -71,33 +71,24 @@ body{font-family:Tahoma,Arial;margin:0;min-height:100vh;background:__BG__;color:
 @keyframes fadeIn{to{opacity:1}}
 @keyframes slideUp{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:none}}
 .topbar{position:fixed;top:0;right:0;left:0;height:56px;background:rgba(17,24,39,.9);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1002;border-bottom:1px solid rgba(0,212,255,.2)}
-.sidebar{width:260px;padding:15px;position:fixed;top:56px;bottom:0;right:0;overflow-y:auto;background:__SIDEBAR__;transform:translateX(105%);transition:transform .35s cubic-bezier(.4,0,.2,1);z-index:1003;box-shadow:-10px 0 30px rgba(0,0,0,.3)}
+.sidebar{width:260px;padding:15px;position:fixed;top:56px;bottom:0;right:0;overflow-y:auto;background:__SIDEBAR__;transform:translateX(105%);transition:transform .35s cubic-bezier(.4,0,.2,1);z-index:1003}
 .sidebar.open{transform:translateX(0)}
-.sidebar a{display:flex;align-items:center;gap:10px;color:#fff;padding:12px;margin:6px 0;background:__CARD__;text-decoration:none;border-radius:10px;transform:translateX(20px);opacity:0;animation:slideUp .3s forwards}
-.sidebar.open a:nth-child(2){animation-delay:.05s}.sidebar.open a:nth-child(3){animation-delay:.1s}.sidebar.open a:nth-child(4){animation-delay:.15s}.sidebar.open a:nth-child(5){animation-delay:.2s}
-.sidebar a:hover{background:rgba(0,212,255,.15);transform:translateX(-4px)}
+.sidebar a{display:flex;align-items:center;gap:10px;color:#fff;padding:12px;margin:6px 0;background:__CARD__;text-decoration:none;border-radius:10px}
 .sidebar a.active{background:linear-gradient(135deg,rgba(0,212,255,.3),rgba(0,212,255,.1));border:1px solid rgba(0,212,255,.4);color:__MAIN__}
-.overlay{display:none;position:fixed;top:56px;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);z-index:1001;opacity:0}
-.overlay.show{display:block;opacity:1}
+.overlay{display:none;position:fixed;top:56px;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1001}
+.overlay.show{display:block}
 .main{padding:76px 16px 20px;max-width:1100px;margin:auto;animation:slideUp .4s ease}
-.card{padding:14px;border-radius:14px;margin:10px 0;border:1px solid rgba(0,212,255,.15);background:rgba(30,41,59,.6);backdrop-filter:blur(8px);animation:slideUp .4s ease}
-.card:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,212,255,.1)}
+.card{padding:14px;border-radius:14px;margin:10px 0;border:1px solid rgba(0,212,255,.15);background:rgba(30,41,59,.6)}
 table{width:100%;border-collapse:collapse;font-size:14px;background:rgba(30,41,59,.6);border-radius:12px;overflow:hidden}
 th,td{padding:10px;border-bottom:1px solid #334155;text-align:center}
 th{color:__MAIN__}
-tr{transition:background .2s}
-tr:hover{background:rgba(0,212,255,.05)}
 input,select{width:100%;padding:10px;margin:5px 0;border-radius:10px;background:#0f172a;border:1px solid #334155;color:#fff}
-input:focus{border-color:__MAIN__;box-shadow:0 0 0 2px rgba(0,212,255,.2);outline:none}
 button{padding:11px;width:100%;border:none;border-radius:10px;font-weight:bold;cursor:pointer;background:linear-gradient(135deg,__MAIN__,#0090c0);color:#001}
-button:hover{transform:translateY(-1px);box-shadow:0 5px 15px rgba(0,212,255,.3)}
-button:active{transform:scale(.98)}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .stat-num{font-size:28px;font-weight:bold;color:__MAIN__}
 @media(max-width:700px){.stats{grid-template-columns:1fr 1fr}}
-.page-transition{opacity:0;transform:translateY(10px)}
 </style></head><body>
-<div class="topbar"><button onclick="toggleSide()" style="width:auto;padding:8px 14px">☰</button><b style="color:__MAIN__">✨ OMIA ISP</b><div><a href="/search" style="color:#fff;text-decoration:none;padding:8px">🔍</a><a href="/dash?view=notifs" style="color:#fff;text-decoration:none">🔔</a></div></div>
+<div class="topbar"><button onclick="toggleSide()" style="width:auto;padding:8px 14px">☰</button><b style="color:__MAIN__">✨ OMIA ISP</b><div><a href="/search" style="color:#fff;text-decoration:none;padding:8px">🔍</a></div></div>
 <div class="overlay" id="ovl" onclick="toggleSide()"></div>
 <div class="sidebar" id="sdb"><h2 style="color:__MAIN__;text-align:center">OMIA ISP</h2>
 <a href="/dash?view=home" data-v="home">🏠 الرئيسية</a>
@@ -110,21 +101,6 @@ button:active{transform:scale(.98)}
 <div class="main" id="mainc">{{content|safe}}</div>
 <script>
 function toggleSide(){document.getElementById('sdb').classList.toggle('open');document.getElementById('ovl').classList.toggle('show')}
-document.addEventListener('click',e=>{
-  let s=document.getElementById('sdb');
-  if(s.classList.contains('open') && !s.contains(e.target) && !e.target.closest('button')) toggleSide();
-});
-// تنقل سلس بدون ريلود كامل
-document.querySelectorAll('.sidebar a[data-v]').forEach(a=>{
-  a.addEventListener('click',e=>{
-    e.preventDefault();
-    let url=a.href;
-    document.getElementById('mainc').classList.add('page-transition');
-    toggleSide();
-    setTimeout(()=>{window.location.href=url},150);
-  });
-});
-// تمييز القسم النشط
 let v=new URLSearchParams(location.search).get('view')||'home';
 document.querySelectorAll('[data-v]').forEach(a=>{if(a.dataset.v===v)a.classList.add('active')});
 </script></body></html>"""
@@ -166,21 +142,21 @@ def dash():
         nd=len(ex(con,"SELECT id FROM dish_ips").fetchall())
         nu=len(ex(con,"SELECT phone FROM users").fetchall())
         nl=len(ex(con,"SELECT id FROM ledger").fetchall())
-        return done(f"<div class='stats'><div class='card'><div class='stat-num'>{ns}</div>مشتركين</div><div class='card'><div class='stat-num'>{nd}</div>صحون</div><div class='card'><div class='stat-num'>{nu}</div>مستخدمين</div><div class='card'><div class='stat-num'>{nl}</div>قيود</div></div><div class='card' style='text-align:center'><h3>مرحباً بك في OMIA ISP</h3><p style='color:#94a3b8'>نظام سلس وسريع</p></div>")
+        return done(f"<div class='stats'><div class='card'><div class='stat-num'>{ns}</div>مشتركين</div><div class='card'><div class='stat-num'>{nd}</div>صحون</div><div class='card'><div class='stat-num'>{nu}</div>مستخدمين</div><div class='card'><div class='stat-num'>{nl}</div>قيود</div></div>")
     if v=='subs':
         rows=ex(con,"SELECT * FROM subs").fetchall()
-        tr="".join([f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{r['status']}</td><td><a href='/del_sub/{r['id']}'>حذف</a></td></tr>" for r in rows])
+        tr="".join([f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{r['status']}</td><td><a href='/del_sub/{r['id']}' style='color:#f87171'>حذف</a></td></tr>" for r in rows])
         return done(f"<div class='card'><form method='post' action='/add_sub'><input name='name' placeholder='الاسم' required><input name='phone' placeholder='هاتف' required><button>إضافة مشترك</button></form></div><table><tr><th>الاسم</th><th>هاتف</th><th>حالة</th><th></th></tr>{tr}</table>")
     if v=='dishes':
         rows=ex(con,"SELECT * FROM dish_ips").fetchall()
-        tr="".join([f"<tr><td>{r['location']}</td><td><a href='http://{r['ip']}' target='_blank' style='color:#00D4FF' dir='ltr'>{r['ip']}</a></td><td><a href='/del_dish/{r['id']}'>حذف</a></td></tr>" for r in rows])
-        return done(f"<div class='card'><form method='post' action='/add_dish'><input name='location' placeholder='اسم الموقع' required><input name='ip' placeholder='IP' dir='ltr' required><input name='site' placeholder='البرج / المنطقة'><button>إضافة صحن</button></form></div><div class='card'><input placeholder='🔍 بحث...' oninput=\"document.querySelectorAll('table tr').forEach((x,i)=>{{if(i==0)return;x.style.display=x.innerText.includes(this.value)?'':'none'}})\"></div><table><tr><th>الموقع</th><th>IP</th><th></th></tr>{tr}</table>")
+        tr="".join([f"<tr><td>{r['location']}</td><td><a href='http://{r['ip']}' target='_blank' style='color:#00D4FF' dir='ltr'>{r['ip']}</a></td><td><a href='/del_dish/{r['id']}' style='color:#f87171'>حذف</a></td></tr>" for r in rows])
+        return done(f"<div class='card'><form method='post' action='/add_dish'><input name='location' placeholder='اسم الموقع' required><input name='ip' placeholder='IP' dir='ltr' required><input name='site' placeholder='البرج'><button>إضافة صحن</button></form></div><table><tr><th>الموقع</th><th>IP</th><th></th></tr>{tr}</table>")
     if v=='ledger':
         rows=ex(con,"SELECT l.*,s.name FROM ledger l LEFT JOIN subs s ON s.id=l.sub_id ORDER BY l.id DESC LIMIT 100").fetchall()
         subs=ex(con,"SELECT id,name FROM subs").fetchall()
         opts="".join([f"<option value='{s['id']}'>{s['name']}</option>" for s in subs])
         tr="".join([f"<tr><td>{r['name']}</td><td>{r['usd']}</td><td>{r['syr']}</td><td>{r['date']}</td></tr>" for r in rows])
-        return done(f"<div class='card'><form method='post' action='/charge'><select name='sub_id'>{opts}</select><input name='amount' type='number' step='0.01' placeholder='المبلغ' required><select name='currency'><option value='usd'>دولار $</option><option value='syr'>سوري ل.س</option></select><input name='note' placeholder='ملاحظة'><button>⚡ شحن</button></form></div><table><tr><th>الشخص</th><th>$</th><th>ل.س</th><th>تاريخ</th></tr>{tr}</table>")
+        return done(f"<div class='card'><form method='post' action='/charge'><select name='sub_id'>{opts}</select><input name='amount' type='number' step='0.01' placeholder='المبلغ' required><select name='currency'><option value='usd'>دولار $</option><option value='syr'>سوري</option></select><input name='note' placeholder='ملاحظة'><button>شحن</button></form></div><table><tr><th>الشخص</th><th>$</th><th>ل.س</th><th>تاريخ</th></tr>{tr}</table>")
     if v=='servers':
         rows=ex(con,"SELECT * FROM servers").fetchall()
         tr="".join([f"<tr><td>{r['name']}</td><td dir='ltr'>{r['host']}</td></tr>" for r in rows])
@@ -203,20 +179,26 @@ def search():
 @app.route('/add_sub',methods=['POST'])
 def add_sub():
     con=db(); ex(con,"INSERT INTO subs(name,phone,status) VALUES(?,?,?)",(request.form['name'],request.form['phone'],'نشط')); con.commit(); close_con(con); return redirect('/dash?view=subs')
-@app.route('/del_sub/<int i>')
+
+@app.route('/del_sub/<int:i>')
 def del_sub(i): con=db(); ex(con,"DELETE FROM subs WHERE id=?",(i,)); con.commit(); close_con(con); return redirect('/dash?view=subs')
+
 @app.route('/add_dish',methods=['POST'])
 def add_dish(): con=db(); ex(con,"INSERT INTO dish_ips(ip,location,site) VALUES(?,?,?)",(request.form['ip'],request.form['location'],request.form.get('site',''))); con.commit(); close_con(con); return redirect('/dash?view=dishes')
-@app.route('/del_dish/<int i>')
+
+@app.route('/del_dish/<int:i>')
 def del_dish(i): con=db(); ex(con,"DELETE FROM dish_ips WHERE id=?",(i,)); con.commit(); close_con(con); return redirect('/dash?view=dishes')
+
 @app.route('/add_srv',methods=['POST'])
 def add_srv(): con=db(); ex(con,"INSERT INTO servers(name,host,username,password) VALUES(?,?,?,?)",(request.form['name'],request.form['host'],'u','p')); con.commit(); close_con(con); return redirect('/dash?view=servers')
+
 @app.route('/add_user',methods=['POST'])
 def add_user():
     con=db()
     try: ex(con,"INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",(request.form['phone'],request.form['username'],request.form['password'],'tech')); con.commit()
     except: pass
     close_con(con); return redirect('/dash?view=settings')
+
 @app.route('/charge',methods=['POST'])
 def charge():
     sid=request.form['sub_id']; amt=float(request.form['amount']); cur=request.form['currency']
