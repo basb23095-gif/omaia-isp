@@ -92,7 +92,7 @@ def login():
         if d and d['password'] == request.form.get('password') and d['active']:
             session['p'] = d['phone']
             return redirect('/dash')
-        return R("<div class='c' style='width:320px;text-align:center'><p style='color:red'>خطأ في اسم المستخدم أو كلمة المرور</p><a href='/'>إعادة المحاولة</a></div>", "lb")
+     return R("<div class='c' style='width:330px;text-align:center'><h2 style='color:#00D4FF'><span class='logo'>&#127760;</span> OMAIA ISP</h2><form method='post'><input name='phone' placeholder='اسم / رقم هاتف' required><input name='password' type='password' placeholder='كلمة المرور' required><button>دخول</button></form></div>", "lb")
         
     return R("<div class='c' style='width:330px;text-align:center'><h2 style='color:#00D4FF'><span class='logo'>&#00D4FF;</span> OMAIA ISP</h2><form method='post'><input name='phone' placeholder='اسم / رقم هاتف' required><input name='password' type='password' placeholder='كلمة المرور' required><button>دخول</button></form></div>", "lb")
 
