@@ -1,5 +1,6 @@
-from flask import Flask, request, redirect, render_template_string, session, jsonify
+from flask import Flask, request, redirect, render_template_string, session
 import os, sqlite3, time
+from datetime import datetime
 
 try:
     import psycopg2
@@ -36,25 +37,25 @@ def ex(c, q, a=()):
 def init():
     c = db()
     if USE_PG:
-        qs = [
+        qs_pg = [
             "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT)",
             "CREATE TABLE IF NOT EXISTS subs(id SERIAL PRIMARY KEY,name TEXT,phone TEXT,status TEXT)",
             "CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT,name TEXT,location TEXT,tower TEXT,zone TEXT)",
             "CREATE TABLE IF NOT EXISTS ledger(id SERIAL PRIMARY KEY,date TEXT,sub TEXT,amount REAL,currency TEXT,note TEXT)"
         ]
         cur = c.cursor()
-        for q in qs: cur.execute(q)
+        for q in qs_pg: cur.execute(q)
         cur.execute("SELECT 1 FROM users WHERE phone='05344851045'")
         if not cur.fetchone(): cur.execute("INSERT INTO users VALUES('05344851045','admin','admin2024','super',1)")
         cur.close(); return
     else:
-        qs = [
+        qs_lite = [
             "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT)",
             "CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,status TEXT)",
             "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,name TEXT,location TEXT,tower TEXT,zone TEXT)",
             "CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,date TEXT,sub TEXT,amount REAL,currency TEXT,note TEXT)"
         ]
-        for q in qs: c.execute(q)
+        for q in qs_lite: c.execute(q)
         if not c.execute("SELECT 1 FROM users WHERE phone='05344851045'").fetchone():
             c.execute("INSERT INTO users VALUES('05344851045','admin','admin2024','super',1)")
         c.commit(); c.close()
@@ -75,7 +76,7 @@ input,select{width:100%;padding:11px;margin:6px 0;border-radius:12px;border:1px 
 input:focus{border-color:#00D4FF;outline:none}
 table{width:100%;border-collapse:collapse;margin-top:10px}td,th{padding:10px;border-bottom:1px solid rgba(51,65,85,0.4);text-align:center}th{color:#00D4FF}
 .drawer{position:fixed;top:0;right:-285px;width:265px;height:100%;background:#0f172a;z-index:30;transition:0.4s;padding:62px 12px;box-shadow:-5px 0 25px rgba(0,0,0,0.5)}
-.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;z-index:25}.overlay.show{display:block}
+.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0 Ramaz,0.5);display:none;z-index:25}.overlay.show{display:block}
 .drawer a{display:flex;gap:10px;color:#fff;text-decoration:none;padding:11px;border-radius:10px;cursor:pointer}
 .drawer a:hover{background:rgba(0,212,255,0.15);color:#00D4FF;transform:translateX(-5px)}
 .menuBtn{cursor:pointer;font-size:22px;color:#fff;background:#00D4FF;width:38px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px}
@@ -119,7 +120,6 @@ def system_main_route():
     if 'p' in session:
         c = db(); view = request.args.get('view', 'home')
         
-        # 1. الصفحة الرئيسية والعدادات الذكية
         if view == 'home':
             n_subs = ex(c, "SELECT COUNT(*) FROM subs").fetchone()
             n_dishes = ex(c, "SELECT COUNT(*) FROM dish_ips").fetchone()
@@ -137,7 +137,6 @@ def system_main_route():
             <div class=c style='text-align:center'><h3>مرحباً بك في نظام إدارة OMIA ISP</h3><p style='color:#94a3b8'>نظام تصفح سريع بحركات ناعمة وسلاسة تحكم فائقة.</p></div>"""
             return R(h)
 
-        # 2. إدارة وتعديل المشتركين
         if view == 'subs':
             if request.method == 'POST':
                 if request.form.get('action') == 'add':
@@ -145,7 +144,6 @@ def system_main_route():
                 elif request.form.get('action') == 'edit':
                     ex(c, "UPDATE subs SET name=?, phone=?, status=? WHERE id=?", (request.form.get('name'), request.form.get('phone'), request.form.get('status'), request.form.get('id')))
             rows = ex(c, "SELECT * FROM subs").fetchall()
-            
             edit_id = request.args.get('edit')
             sub_row = {"id": "", "name": "", "phone": "", "status": "نشط", "action": "add"}
             if edit_id:
