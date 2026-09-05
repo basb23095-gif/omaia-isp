@@ -91,3 +91,9 @@ def system_main_route():
                 curr = q_db(c, "SELECT * FROM dish_ips WHERE id=?", (edit_id,))
                 if curr: d_row = curr[0]; d_row['action'] = 'edit'
             c.close()
+
+@app.route('/logout')
+def lo(): session.clear(); return redirect('/')
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
