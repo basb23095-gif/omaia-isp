@@ -6,7 +6,7 @@ try: import psycopg2
 except ImportError: psycopg2 = None
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "omia-secure-2026")
+app.secret_key = os.environ.get("SECRET_KEY", "omia-sec-2026")
 DBURL = os.environ.get("DATABASE_URL", "")
 USE_PG = bool(DBURL and psycopg2)
 WA_DISPLAY, WA_LINK = "0095344851045", "963544851045"
@@ -65,6 +65,7 @@ def system_main_route():
             v_users = u_res[0]['c'] if u_res else 0
             c.close()
             return R(f"<div class=pt>🏠 الإحصائيات</div><div class=stats-grid><div class=stat-card><h3>{v_subs}</h3><p>المشتركين</p></div><div class=stat-card><h3>{v_dishes}</h3><p>الصحون والـ IPs</p></div><div class=stat-card><h3>{v_users}</h3><p>المستخدمين</p></div></div><div class=c style='text-align:center'><h3>مرحباً بك في نظام إدارة OMIA ISP</h3><p style='color:#94a3b8'>تصفح سريع وسلس بجودة عالية.</p></div>")
+        
         if view == 'subs':
             if request.method == 'POST':
                 if request.form.get('action') == 'add': q_db(c, "INSERT INTO subs(name,phone,status) VALUES(?,?,?)", (request.form.get('name'), request.form.get('phone'), request.form.get('status')))
@@ -79,6 +80,7 @@ def system_main_route():
             h = f"""<div class=pt>👥 المشتركين</div><div class=c><form method=post action='/?view=subs'><input type=hidden name=action value='{s_row['action']}'><input type=hidden name=id value='{s_row['id']}'><input name=name value='{s_row['name']}' placeholder='الاسم' required><input name=phone value='{s_row['phone']}' placeholder='رقم الهاتف'><select name=status><option {'selected' if s_row['status']=='نشط' else ''}>نشط</option><option {'selected' if s_row['status']=='منتهي' else ''}>منتهي</option></select><button>💾 حفظ</button></form></div><div class=c><input placeholder='🔍 بحث...' oninput='fS(this.value)'><table><tr><th>الاسم</th><th>الهاتف</th><th>الحالة</th><th>التحكم</th></tr>"""
             for rd in rows: h += f"<tr><td>{rd['name']}</td><td>{rd['phone']}</td><td>{rd['status']}</td><td><a class=btn-edit href='/?view=subs&edit={rd['id']}'>📝</a><a class=btn-del href='/del?t=subs&id={rd['id']}'>🗑️</a></td></tr>"
             return R(h + "</table></div>")
+        
         if view == 'dishes':
             if request.method == 'POST':
                 if request.form.get('action') == 'add': q_db(c, "INSERT INTO dish_ips(ip,name,location,tower,zone) VALUES(?,?,?,?,?)", (request.form.get('ip'), request.form.get('name'), request.form.get('location'), request.form.get('tower'), request.form.get('zone')))
