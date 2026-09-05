@@ -1,4 +1,4 @@
-from flask import Flask, request, redirect, render_template_string, session
+from flask import Flask, request, redirect, render_template_string, session, jsonify
 import os, sqlite3, time
 
 try:
@@ -8,7 +8,7 @@ except ImportError:
     psycopg2 = None
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "omaia-sec")
+app.secret_key = os.environ.get("SECRET_KEY", "omia-secure-key-2026")
 DBURL = os.environ.get("DATABASE_URL", "")
 USE_PG = bool(DBURL and psycopg2)
 
@@ -24,7 +24,7 @@ def db():
             except: pass
         _pg = psycopg2.connect(DBURL, sslmode='require')
         _pg.autocommit = True; _pt = time.time(); return _pg
-    c = sqlite3.connect("omaia.db", check_same_thread=False)
+    c = sqlite3.connect("omia.db", check_same_thread=False)
     c.row_factory = sqlite3.Row; return c
 
 def ex(c, q, a=()):
@@ -39,82 +39,123 @@ def init():
         qs = [
             "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT)",
             "CREATE TABLE IF NOT EXISTS subs(id SERIAL PRIMARY KEY,name TEXT,phone TEXT,status TEXT)",
-            "CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT,name TEXT,network TEXT,tower TEXT)",
-            "CREATE TABLE IF NOT EXISTS servers(id SERIAL PRIMARY KEY,name TEXT,ip TEXT,location TEXT)",
+            "CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT,name TEXT,location TEXT,tower TEXT,zone TEXT)",
             "CREATE TABLE IF NOT EXISTS ledger(id SERIAL PRIMARY KEY,date TEXT,sub TEXT,amount REAL,currency TEXT,note TEXT)"
         ]
         cur = c.cursor()
         for q in qs: cur.execute(q)
         cur.execute("SELECT 1 FROM users WHERE phone='05344851045'")
-        if not cur.fetchone(): cur.execute("INSERT INTO users VALUES('05344851045','05344851045','admin2024','super',1)")
+        if not cur.fetchone(): cur.execute("INSERT INTO users VALUES('05344851045','admin','admin2024','super',1)")
         cur.close(); return
     else:
         qs = [
             "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT)",
             "CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,status TEXT)",
-            "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,name TEXT,network TEXT,tower TEXT)",
-            "CREATE TABLE IF NOT EXISTS servers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,ip TEXT,location TEXT)",
+            "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,name TEXT,location TEXT,tower TEXT,zone TEXT)",
             "CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,date TEXT,sub TEXT,amount REAL,currency TEXT,note TEXT)"
         ]
         for q in qs: c.execute(q)
+        if not c.execute("SELECT 1 FROM users WHERE phone='05344851045'").fetchone():
+            c.execute("INSERT INTO users VALUES('05344851045','admin','admin2024','super',1)")
         c.commit(); c.close()
 
 init()
 
-CSS = """*{transition:.25s;box-sizing:border-box}body{font-family:Arial;margin:0;background:#0f172a;color:#fff}.t{position:fixed;top:0;left:0;right:0;height:56px;background:#1e293b;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:20;border-bottom:2px solid #00D4FF}.m{padding:66px 10px;max-width:1050px;margin:auto}.c{background:rgba(255,255,255,.08);backdrop-filter:blur(14px);border:1px solid rgba(0,212,255,.35);border-radius:16px;padding:16px;margin:12px 0}.pt{text-align:right;font-weight:bold;font-size:19px;color:#00D4FF;margin-bottom:10px}button{background:linear-gradient(135deg,#00D4FF,#0090c8);border:0;padding:12px;width:100%;border-radius:12px;font-weight:bold;cursor:pointer;color:#021}input,select{width:100%;padding:11px;margin:6px 0;border-radius:12px;border:1px solid #334155;background:#0f172a;color:#fff}table{width:100%;border-collapse:collapse;margin-top:10px}td,th{padding:9px;border-bottom:1px solid #234;text-align:center}th{color:#00D4FF}.drawer{position:fixed;top:0;right:-285px;width:265px;height:100%;background:#1e293b;z-index:30;transition:.3s;padding:62px 12px}.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:25}.overlay.show{display:block}.drawer a{display:flex;gap:10px;color:#fff;text-decoration:none;padding:12px;border-radius:10px}.menuBtn{cursor:pointer;font-size:24px;color:#fff;background:#00D4FF;width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:10px}.foot{text-align:center;color:#00D4FF;margin:18px}"""
+CSS = """*{transition:all 0.4s cubic-bezier(0.4, 0, 0.2, 1);box-sizing:border-box}
+body{font-family:Arial,sans-serif;margin:0;background:#0b111e;color:#e2e8f0;overflow-x:hidden}
+.t{position:fixed;top:0;left:0;right:0;height:56px;background:rgba(17,24,39,0.8);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:20;border-bottom:1px solid rgba(0,212,255,0.25)}
+.m{padding:76px 12px 24px;max-width:1100px;margin:auto}
+.c{background:rgba(30,41,59,0.45);backdrop-filter:blur(12px);border:1px solid rgba(0,212,255,0.15);border-radius:16px;padding:16px;margin-bottom:16px;animation:slowUp 0.6s ease both}
+@keyframes slowUp{from{opacity:0;transform:translateY(25px)}to{opacity:1;transform:translateY(0)}}
+.fade-out{opacity:0;transform:translateY(-15px)}
+.pt{text-align:right;font-weight:bold;font-size:20px;color:#00D4FF;margin-bottom:12px}
+button{background:linear-gradient(135deg,#00D4FF,#0086b3);border:0;padding:11px;width:100%;border-radius:12px;font-weight:bold;cursor:pointer;color:#021}
+button:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,212,255,0.3)}
+input,select{width:100%;padding:11px;margin:6px 0;border-radius:12px;border:1px solid #334155;background:#0f172a;color:#fff}
+input:focus{border-color:#00D4FF;outline:none}
+table{width:100%;border-collapse:collapse;margin-top:10px}td,th{padding:10px;border-bottom:1px solid rgba(51,65,85,0.4);text-align:center}th{color:#00D4FF}
+.drawer{position:fixed;top:0;right:-285px;width:265px;height:100%;background:#0f172a;z-index:30;transition:0.4s;padding:62px 12px;box-shadow:-5px 0 25px rgba(0,0,0,0.5)}
+.drawer.open{right:0}.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;z-index:25}.overlay.show{display:block}
+.drawer a{display:flex;gap:10px;color:#fff;text-decoration:none;padding:11px;border-radius:10px;cursor:pointer}
+.drawer a:hover{background:rgba(0,212,255,0.15);color:#00D4FF;transform:translateX(-5px)}
+.menuBtn{cursor:pointer;font-size:22px;color:#fff;background:#00D4FF;width:38px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px}
+.btn-del{background:#ef4444;color:#fff;padding:5px 10px;border-radius:8px;text-decoration:none;font-size:12px;margin:2px}
+.btn-edit{background:#f59e0b;color:#fff;padding:5px 10px;border-radius:8px;text-decoration:none;font-size:12px;margin:2px}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+@media(max-width:700px){.stats-grid{grid-template-columns:1fr}}
+.stat-card{background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.2);padding:16px;border-radius:12px;text-align:center}
+.stat-card h3{margin:0;font-size:28px;color:#00D4FF}
+.stat-card p{margin:4px 0 0;color:#94a3b8}"""
 
-LAY = """<!DOCTYPE html><html dir=rtl><head><meta charset=UTF-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA</title><style>""" + CSS + """</style></head><body>
-<div class=t><div style=display:flex;gap:10px;align-items:center><div class=menuBtn onclick="document.getElementById('dr').classList.add('open');document.getElementById('ov').classList.add('show')">☰</div><b style=color:#00D4FF>✨ OMAIA ISP</b></div></div>
+LAY = """<!DOCTYPE html><html dir=rtl><head><meta charset=UTF-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMIA ISP</title><style>""" + CSS + """</style></head><body>
+<div class=t><div style=display:flex;gap:10px;align-items:center><div class=menuBtn onclick="document.getElementById('dr').classList.add('open');document.getElementById('ov').classList.add('show')">☰</div><b style=color:#00D4FF>✨ OMIA ISP</b></div></div>
 <div id=ov class=overlay onclick="document.getElementById('dr').classList.remove('open');this.classList.remove('show')"></div>
-<div id=dr class=drawer><a href=/>🏠 الرئيسية</a><a href=/?view=subs>👥 المشتركين</a><a href=/?view=dishes>📡 الصحون</a><a href=/?view=servers>🖥️ السيرفرات</a><a href=/?view=ledger>📒 الحسابات</a><a href=/logout>🚪 خروج</a></div>
-<div class=m>{{c|safe}}<div class=foot>💎 OMAIA ISP <br><a href='https://wa.me""" + WA_LINK + """' style=color:#00D4FF;text-decoration:none>📞 """ + WA_DISPLAY + """</a></div></div>
-<script>function fS(v){document.querySelectorAll('table tr').forEach((r,i)=>{if(i==0)return;r.style.display=r.innerText.includes(v)?'':'none'})}</script>
+<div id=dr class=drawer><a onclick="go('/')">🏠 الرئيسية</a><a onclick="go('/?view=subs')">👥 المشتركين</a><a onclick="go('/?view=dishes')">📡 الصحون</a><a onclick="go('/?view=ledger')">📒 الحسابات</a><a onclick="go('/?view=settings')">⚙️ الإعدادات</a><a href=/logout>🚪 خروج</a></div>
+<div class=m id=panel_content>{{c|safe}}</div>
+<script>
+function fS(v){document.querySelectorAll('table tr').forEach((r,i)=>{if(i==0)return;r.style.display=r.innerText.includes(v)?'':'none'})}
+async function go(url) {
+    document.getElementById('dr').classList.remove('open');
+    document.getElementById('ov').classList.remove('show');
+    let panel = document.getElementById('panel_content');
+    panel.classList.add('fade-out');
+    setTimeout(async () => {
+        let res = await fetch(url, { headers: {'X-Requested-With': 'Fetch'} });
+        panel.innerHTML = await res.text();
+        panel.classList.remove('fade-out');
+        window.history.pushState({}, '', url);
+    }, 250);
+}
+</script>
 </body></html>"""
 
-def R(h): return render_template_string(LAY, c=h)
-
-def render_view_page(view, c):
-    if view == 'subs':
-        if request.method == 'POST': ex(c, "INSERT INTO subs(name,phone,status) VALUES(?,?,?)", (request.form.get('name'), request.form.get('phone'), request.form.get('status')))
-        rows = ex(c, "SELECT * FROM subs").fetchall()
-        h = "<div class=pt>👥 المشتركين</div><div class=c><form method=post><input name=name placeholder='الاسم' required><input name=phone placeholder='الهاتف'><select name=status><option>نشط</option><option>منتهي</option></select><button>➕ إضافة</button></form></div><div class=c><input placeholder='🔍 بحث...' oninput='fS(this.value)'><table><tr><th>الاسم</th><th>الهاتف</th><th>الحالة</th></tr>"
-        for r in rows: rd = dict(r); h += f"<tr><td>{rd.get('name','')}</td><td>{rd.get('phone','')}</td><td>{rd.get('status','')}</td></tr>"
-        return R(h + "</table></div>")
-    if view == 'dishes':
-        if request.method == 'POST': ex(c, "INSERT INTO dish_ips(ip,name,network,tower) VALUES(?,?,?,?)", (request.form.get('ip'), request.form.get('name'), request.form.get('network'), request.form.get('tower')))
-        rows = ex(c, "SELECT * FROM dish_ips").fetchall()
-        h = "<div class=pt>📡 الصحون و IPs</div><div class=c><form method=post><input name=ip placeholder='IP Address' required><input name=name placeholder='الاسم'><input name=network placeholder='الشبكة'><input name=tower placeholder='البرج'><button>➕ إضافة</button></form></div><div class=c><table><tr><th>IP</th><th>الاسم</th><th>الشبكة</th></tr>"
-        for r in rows: rd = dict(r); h += f"<tr><td>{rd.get('ip','')}</td><td>{rd.get('name','')}</td><td>{rd.get('network','')}</td></tr>"
-        return R(h + "</table></div>")
-    if view == 'servers':
-        if request.method == 'POST': ex(c, "INSERT INTO servers(name,ip,location) VALUES(?,?,?)", (request.form.get('name'), request.form.get('ip'), request.form.get('location')))
-        rows = ex(c, "SELECT * FROM servers").fetchall()
-        h = "<div class=pt>🖥️ السيرفرات</div><div class=c><form method=post><input name=name placeholder='الاسم' required><input name=ip placeholder='IP'><button>➕ إضافة</button></form></div><div class=c><table><tr><th>السيرفر</th><th>IP</th></tr>"
-        for r in rows: rd = dict(r); h += f"<tr><td>{rd.get('name','')}</td><td>{rd.get('ip','')}</td></tr>"
-        return R(h + "</table></div>")
-    if view == 'ledger':
-        rows = ex(c, "SELECT * FROM ledger").fetchall()
-        h = "<div class=pt>📒 دفتر الحسابات</div><div class=c><table><tr><th>التاريخ</th><th>الحساب</th><th>المبلغ</th></tr>"
-        for r in rows: rd = dict(r); h += f"<tr><td>{rd.get('date','')}</td><td>{rd.get('sub','')}</td><td>{rd.get('amount','')}</td></tr>"
-        return R(h + "</table></div>")
-    return R("<div class=pt>🏠 الرئيسية</div><div class='c'><h3>أهلاً بك في نظام إدارة أوميا (OMAIA ISP)</h3><p>استخدم القائمة الجانبية للتنقل بين الأقسام بسلاسة.</p></div>")
+def R(h):
+    if request.headers.get('X-Requested-With') == 'Fetch': return h
+    return render_template_string(LAY, c=h)
 
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/dash', methods=['GET', 'POST'])
 def system_main_route():
-    if 'p' in session: return render_view_page(request.args.get('view', 'home'), db())
-    if request.method == 'POST':
-        i = request.form.get('phone', '').strip(); c = db()
-        u = ex(c, "SELECT * FROM users WHERE phone=? OR username=?", (i, i))
-        d = u.fetchone() if hasattr(u, 'fetchone') else (u if u else None)
-        if d:
-            d = dict(d)
-            if d['password'] == request.form.get('password'): session['p'] = d['phone']; return redirect('/')
-        return R("<div class='c' style='width:320px;text-align:center'><p style='color:red'>خطأ في البيانات</p><a href='/'>إعادة</a></div>")
-    return R("<div class='c' style='width:330px;text-align:center'><h2 style='color:#00D4FF'>OMAIA ISP</h2><form method='post'><input name='phone' placeholder='اسم المستخدم' required><input name='password' type='password' placeholder='كلمة المرور' required><button>دخول</button></form></div>")
+    if 'p' in session:
+        c = db(); view = request.args.get('view', 'home')
+        
+        # 1. الصفحة الرئيسية والعدادات الذكية
+        if view == 'home':
+            n_subs = ex(c, "SELECT COUNT(*) FROM subs").fetchone()
+            n_dishes = ex(c, "SELECT COUNT(*) FROM dish_ips").fetchone()
+            n_users = ex(c, "SELECT COUNT(*) FROM users").fetchone()
+            v_subs = list(dict(n_subs).values())[0] if n_subs else 0
+            v_dishes = list(dict(n_dishes).values())[0] if n_dishes else 0
+            v_users = list(dict(n_users).values())[0] if n_users else 0
+            
+            h = f"""<div class=pt>🏠 لوحة التحكم والإحصائيات</div>
+            <div class=stats-grid>
+                <div class=stat-card><h3>{v_subs}</h3><p>إجمالي المشتركين</p></div>
+                <div class=stat-card><h3>{v_dishes}</h3><p>إجمالي الصحون والـ IPs</p></div>
+                <div class=stat-card><h3>{v_users}</h3><p>الفنيين والمستخدمين</p></div>
+            </div>
+            <div class=c style='text-align:center'><h3>مرحباً بك في نظام إدارة OMIA ISP</h3><p style='color:#94a3b8'>نظام تصفح سريع بحركات ناعمة وسلاسة تحكم فائقة.</p></div>"""
+            return R(h)
 
-@app.route('/logout')
-def lo(): session.clear(); return redirect('/')
+        # 2. إدارة وتعديل المشتركين
+        if view == 'subs':
+            if request.method == 'POST':
+                if request.form.get('action') == 'add':
+                    ex(c, "INSERT INTO subs(name,phone,status) VALUES(?,?,?)", (request.form.get('name'), request.form.get('phone'), request.form.get('status')))
+                elif request.form.get('action') == 'edit':
+                    ex(c, "UPDATE subs SET name=?, phone=?, status=? WHERE id=?", (request.form.get('name'), request.form.get('phone'), request.form.get('status'), request.form.get('id')))
+            rows = ex(c, "SELECT * FROM subs").fetchall()
+            
+            edit_id = request.args.get('edit')
+            sub_row = {"id": "", "name": "", "phone": "", "status": "نشط", "action": "add"}
+            if edit_id:
+                curr = ex(c, "SELECT * FROM subs WHERE id=?", (edit_id,)).fetchone()
+                if curr: sub_row = dict(curr); sub_row['action'] = 'edit'
 
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+            h = f"""<div class=pt>👥 إدارة المشتركين</div>
+            <div class=c>
+                <form method=post action='/?view=subs'>
+                    <input type=hidden name=action value='{sub_row['action']}'>
+                    <input type=hidden name=id value='{sub_row['id']}'>
+                    <input name=name value='{sub_row['name']}' placeholder='اسم المشترك' required>
+                    <input name=phone value='{sub_row['phone']}' placeholder='رقم الهاتف'>
