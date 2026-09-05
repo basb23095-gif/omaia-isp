@@ -134,4 +134,6 @@ def gv(r):
 
 def title(t, icon): return f"<div class=pt>{icon} {t}</div>"
 
-# مسار الطوارئ الذكي: لو استدعى الكاش القديم بالمتصفح رابط /dash يتم تحويله هنا تلقائياً بدون خطأ
+def render_view_page(view, c):
+    if view == 'subs':
+        if request.method == 'POST':
