@@ -36,10 +36,16 @@ def init():
   for s in ss:cur.execute(s)
   cur.execute("SELECT * FROM users WHERE phone='05344851045'")
   if not cur.fetchone():cur.execute("INSERT INTO users(phone,username,password,role,active) VALUES('05344851045','admin','admin2024','super',1)")
+  for col in ["area TEXT","location TEXT","owner TEXT"]:
+   try:cur.execute(f"ALTER TABLE towers ADD COLUMN {col}")
+   except:pass
   c.commit();cur.close()
  else:
   for s in ss:c.execute(s)
   if not c.execute("SELECT * FROM users WHERE phone='05344851045'").fetchone():c.execute("INSERT INTO users(phone,username,password,role,active) VALUES('05344851045','admin','admin2024','super',1)")
+  for col in ["area TEXT","location TEXT","owner TEXT"]:
+   try:c.execute(f"ALTER TABLE towers ADD COLUMN {col}")
+   except:pass
   c.commit();cc(c)
 init()
 def ping(ip):
@@ -61,9 +67,9 @@ def get_view_html(v,c,role):
   ns=len(ex(c,"SELECT id FROM subs").fetchall());nd=len(ex(c,"SELECT id FROM dish_ips").fetchall());nt=len(ex(c,"SELECT id FROM towers").fetchall());nl=len(ex(c,"SELECT id FROM ledger").fetchall())
   today=datetime.date.today().isoformat()
   r1=ex(c,"SELECT SUM(usd) s1 FROM ledger WHERE date LIKE?",(today+"%",)).fetchone();inc=(dict(r1).get('s1') or 0) if r1 else 0
-  return f"""<div class="card glass eye" style="text-align:center"><img src="/static/logo.jpg" class="logo-sm"><h2>👋 أهلاً بك</h2><p>📅 {today} | 💰 دخل اليوم: <b>{inc}$</b></p></div><div class="row4"><div class="stat glass eye"><h2>{ns}</h2><p>👥 مشتركين</p></div><div class="stat glass eye"><h2>{nd}</h2><p>📡 صحون</p></div><div class="stat glass eye"><h2>{nt}</h2><p>🗼 أبراج</p></div><div class="stat glass eye"><h2>{nl}</h2><p>📒 قيود</p></div></div><div class="row2"><div class="card glass eye"><h3>⚡ سريع</h3><div class="row2"><button class="btn-soft" onclick="loadView('subs')">+ مشترك</button><button class="btn-soft" onclick="loadView('dishes')">+ صحن</button></div><div class="row2" style="margin-top:8px"><button class="btn-soft" onclick="loadView('ping')">📶 Ping</button><button class="btn-soft" onclick="loadView('map')">🗺️ خريطة</button></div></div><div class="card glass eye"><h3>🛠️ الدعم الفني</h3><p dir=ltr>{SUPPORT}</p><button class="btn-soft" onclick="window.open('https://wa.me/{SUPPORT}','_blank')">💬 واتساب</button></div></div>"""
+  return f"""<div class="card glass eye" style="text-align:center"><img src="/static/logo.jpg" onerror="this.style.display='none'" class="logo-sm"><h2>👋 أهلاً بك</h2><p>📅 {today} | 💰 دخل اليوم: <b>{inc}$</b></p></div><div class="row4"><div class="stat glass eye"><h2>{ns}</h2><p>👥 مشتركين</p></div><div class="stat glass eye"><h2>{nd}</h2><p>📡 صحون</p></div><div class="stat glass eye"><h2>{nt}</h2><p>🗼 أبراج</p></div><div class="stat glass eye"><h2>{nl}</h2><p>📒 قيود</p></div></div><div class="row2"><div class="card glass eye"><h3>⚡ سريع</h3><div class="row2"><button class="btn-soft" onclick="loadView('subs')">+ مشترك</button><button class="btn-soft" onclick="loadView('dishes')">+ صحن</button></div><div class="row2" style="margin-top:8px"><button class="btn-soft" onclick="loadView('ping')">📶 Ping</button><button class="btn-soft" onclick="loadView('map')">🗺️ خريطة</button></div></div><div class="card glass eye"><h3>🛠️ الدعم الفني</h3><p dir=ltr>{SUPPORT}</p><button class="btn-soft" onclick="window.open('https://wa.me/{SUPPORT}','_blank')">💬 واتساب</button></div></div>"""
  if v=='subs':
-  rs=ex(c,"SELECT * FROM subs ORDER BY id DESC").fetchall()
+  rs=ex(c,"SELECT * FROM subs ORDER BY id DESC LIMIT 100").fetchall()
   tr="".join([f"<tr><td>{r['name']}</td><td dir=ltr>{r['phone']}</td><td>{r['balance_usd']}$</td><td><a href='https://wa.me/{r['phone']}' target=_blank>💬</a></td><td><a href='/del_sub/{r['id']}' style='color:#ff8a8a'>✖</a></td></tr>" for r in rs])
   return f"<div class='card glass eye'><form method=post action=/add_sub><div class=row2><input name=name placeholder='الاسم' required><input name=phone placeholder='هاتف' required></div><button class='btn-soft'>إضافة مشترك</button></form></div><div class='card glass eye'><button class='btn-soft' onclick=\"location.href='/export_subs'\">📥 Excel</button></div><div class='card glass eye'><table><tr><th>اسم</th><th>هاتف</th><th>رصيد</th><th>واتساب</th><th></th></tr>{tr}</table></div>"
  if v=='dishes':
@@ -79,8 +85,8 @@ def get_view_html(v,c,role):
   return f"<div class='card glass eye'><h3>📶 Ping</h3><button class='btn-soft' onclick=\"loadView('ping',true)\">🔄 فحص</button></div><div class='card glass eye'><table><tr><th>حالة</th><th>IP</th><th>اسم</th></tr>{tr}</table></div>"
  if v=='towers':
   rs=ex(c,"SELECT * FROM towers ORDER BY id DESC").fetchall()
-  tr="".join([f"<tr><td>{r['name']}</td><td>{r['lat']},{r['lng']}</td><td><a href='/del_tower/{r['id']}' style='color:#ff8a8a'>✖</a></td></tr>" for r in rs])
-  return f"<div class='card glass eye'><h3>🗼 الأبراج</h3><form method=post action=/add_tower><input name=name placeholder='اسم البرج'><div class=row2><input name=lat type=number step=any placeholder='lat'><input name=lng type=number step=any placeholder='lng'></div><button class='btn-soft'>إضافة ويظهر بالخريطة</button></form></div><div class='card glass eye'><table><tr><th>اسم</th><th>إحداثيات</th><th></th></tr>{tr}</table></div>"
+  tr="".join([f"<tr><td>{dict(r).get('name','')}</td><td>{dict(r).get('area','') or ''}</td><td>{dict(r).get('location','') or ''}</td><td>{dict(r).get('owner','') or ''}</td><td><a href='/del_tower/{dict(r)['id']}' style='color:#ff8a8a'>✖</a></td></tr>" for r in rs])
+  return f"<div class='card glass eye'><h3>🗼 إضافة برج</h3><form method=post action=/add_tower><input name=name placeholder='اسم برج' required><div class=row2><input name=area placeholder='منطقه'><input name=owner placeholder='لمين برج'></div><input name=location placeholder='موقع برج'><button class='btn-soft'>حفظ البرج 📡</button></form></div><div class='card glass eye'><table><tr><th>اسم برج</th><th>منطقه</th><th>موقع برج</th><th>لمين</th><th></th></tr>{tr}</table></div>"
  if v=='map':
   dishes=ex(c,"SELECT location,lat,lng,ip FROM dish_ips WHERE lat!=0").fetchall();towers=ex(c,"SELECT name,lat,lng FROM towers").fetchall()
   pts=",".join([f"{{n:'📡 {r['location']} {r['ip']}',la:{r['lat']},ln:{r['lng']}}}" for r in dishes])
@@ -117,7 +123,7 @@ def get_view_html(v,c,role):
    tr+=f"<tr><td>{u['phone']}<br><small>{u['username']}</small></td><td>{u['role']}</td><td>{st}</td><td><a href='/toggle_user/{u['phone']}'>⏯️</a> <a href='/del_user/{u['phone']}' style='color:#ff8a8a'>✖</a></td></tr>"
   return f"<div class='card glass eye'><h3>⚙️ إضافة مستخدم</h3><form method=post action=/add_user><div class=row2><input name=phone placeholder='رقم الهاتف' required><input name=username placeholder='اسم المستخدم' required></div><div class=row2><input name=password placeholder='كلمة السر' required><select name=role><option value='tech'>فني</option><option value='admin'>مدير</option></select></div><button class='btn-soft'>إضافة</button></form></div><div class='card glass eye'><table><tr><th>هاتف / يوزر</th><th>دور</th><th>حالة</th><th>تحكم</th></tr>{tr}</table></div>"
  if v=='support':
-  return f"<div class='card glass eye' style='text-align:center'><img src='/static/logo.jpg' class='logo-sm'><h3>🛠️ الدعم الفني</h3><h2 dir=ltr>{SUPPORT}</h2><div class=row2><button class='btn-soft' onclick=\"window.open('https://wa.me/{SUPPORT}','_blank')\">💬 واتساب</button><button class='btn-soft' onclick=\"location.href='tel:{SUPPORT}'\">📞 اتصال</button></div></div>"
+  return f"<div class='card glass eye' style='text-align:center'><img src='/static/logo.jpg' onerror=\"this.style.display='none'\" class='logo-sm'><h3>🛠️ الدعم الفني</h3><h2 dir=ltr>{SUPPORT}</h2><div class=row2><button class='btn-soft' onclick=\"window.open('https://wa.me/{SUPPORT}','_blank')\">💬 واتساب</button><button class='btn-soft' onclick=\"location.href='tel:{SUPPORT}'\">📞 اتصال</button></div></div>"
  return "<div class='card glass eye'>...</div>"
 def base_html(content,curview):
  col=get_colors();con=db()
@@ -131,6 +137,7 @@ def base_html(content,curview):
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html{scroll-behavior:smooth}
 body{margin:0;font-family:'Segoe UI',Tahoma;__BG__;color:__TEXT__;min-height:100vh;overflow-x:hidden;line-height:1.7}
+td a{font-size:14px}
 .eye{background:rgba(255,255,255,0.055)!important;backdrop-filter:blur(26px) saturate(160%);-webkit-backdrop-filter:blur(26px) saturate(160%);border:1px solid rgba(255,255,255,0.09)!important;box-shadow:0 12px 40px rgba(0,0,0,0.35)!important}
 .glass{transition:transform.6s cubic-bezier(.22,1,.36,1),box-shadow.6s,opacity.6s}
 .top{position:fixed;top:0;right:0;left:0;height:64px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1002;background:rgba(15,20,32,0.72);backdrop-filter:blur(24px);border-bottom:1px solid rgba(255,255,255,0.07)}
@@ -162,7 +169,7 @@ input:focus,select:focus{outline:none;border-color:__MAIN__;box-shadow:0 0 0 3px
 @keyframes flt{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
 </style></head><body>
 <div id=loader></div><div id=ptr>⬇️ اسحب للتحديث</div>
-<div class="top"><button id="mb">☰ Menu</button><b style="margin:auto;display:flex;align-items:center;gap:9px"><img src="/static/logo.jpg" style="width:34px;height:34px;border-radius:10px;object-fit:cover"><span style="color:__MAIN__">OMAIA ISP</span></b><div>__NN__</div></div>
+<div class="top"><button id="mb">☰ Menu</button><b style="margin:auto;display:flex;align-items:center;gap:9px"><img src="/static/logo.jpg" onerror="this.style.display='none'" style="width:34px;height:34px;border-radius:10px;object-fit:cover"><span style="color:__MAIN__">OMAIA ISP</span></b><div>__NN__</div></div>
 <div class="sb eye hide" id="sb">
 <a href="#" data-v="home">🏠 الرئيسية</a><a href="#" data-v="subs">👥 المشتركين</a><a href="#" data-v="dishes">📡 الصحون</a><a href="#" data-v="map">🗺️ الخريطة</a><a href="#" data-v="ping">📶 فحص Ping</a>__LEDGER__<a href="#" data-v="towers">🗼 الأبراج</a><a href="#" data-v="report">📊 تقرير</a><a href="#" data-v="servers">🖥️ سيرفرات</a><a href="#" data-v="notifs">🔔 إشعارات</a><a href="#" data-v="logs">📝 سجل الدخول</a><a href="#" data-v="settings">⚙️ الإعدادات</a><a href="#" data-v="support">🛠️ دعم فني</a><a href="/logout">🚪 خروج</a></div>
 <div class="mn" id="mn">__CONTENT__</div>
@@ -184,6 +191,10 @@ setActive(curView);if(location.hash){let hv=location.hash.replace('#','');if(hv)
 </script></body></html>"""
  h=h.replace("__BG__",bg_css).replace("__TEXT__",text_col).replace("__MAIN__",main_col).replace("__NN__",str(nn) if nn else "").replace("__LEDGER__",ledger_link).replace("__CONTENT__",content).replace("__SUP__",SUPPORT).replace("__VIEW__",curview)
  return h
+@app.after_request
+def add_cache(r):
+ if request.path.startswith('/static/'): r.cache_control.max_age=86400
+ return r
 @app.route('/')
 def ix():return redirect('/dash') if session.get('phone') else redirect('/login')
 @app.route('/login',methods=['GET','POST'])
@@ -209,7 +220,7 @@ input{width:100%;padding:14px;margin:8px 0;border-radius:14px;border:1px solid r
 button{width:100%;padding:15px;border:none;border-radius:16px;font-weight:800;background:linear-gradient(135deg,__MAIN__,#7c3aed);color:#fff;transition:transform.5s,filter.5s}button:hover{filter:brightness(1.08)}button:active{transform:scale(.97)}
 .logo{width:132px;height:132px;object-fit:cover;border-radius:30px;box-shadow:0 16px 44px rgba(0,0,0,0.45);margin-bottom:10px;animation:flt 5.5s ease-in-out infinite}
 @keyframes flt{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-</style></head><body><div class="wrap"><div class="box"><img src="/static/logo.jpg" class="logo"><h1>OMAIA ISP</h1><div style="height:10px"></div>__M__<form method=post><input name=phone placeholder="رقم الهاتف / اسم المستخدم" required><input name=password type=password placeholder="كلمة السر" required><button>✨ دخول</button></form><p style="opacity:.75">الدعم الفني <a href="https://wa.me/__SUP__" style="color:__MAIN__" dir="ltr">__SUP__</a></p></div></div></body></html>""".replace("__MAIN__",col['main']).replace("__M__",m).replace("__SUP__",SUPPORT)
+</style></head><body><div class="wrap"><div class="box"><img src="/static/logo.jpg" onerror="this.style.display='none'" class="logo"><h1>OMAIA ISP</h1><div style="height:10px"></div>__M__<form method=post><input name=phone placeholder="رقم الهاتف / اسم المستخدم" required><input name=password type=password placeholder="كلمة السر" required><button>✨ دخول</button></form><p style="opacity:.75">الدعم الفني <a href="https://wa.me/__SUP__" style="color:__MAIN__" dir="ltr">__SUP__</a></p></div></div></body></html>""".replace("__MAIN__",col['main']).replace("__M__",m).replace("__SUP__",SUPPORT)
 @app.route('/logout')
 def lo():session.clear();return redirect('/login')
 @app.route('/dash')
@@ -248,7 +259,10 @@ def a2():
 @app.route('/del_dish/<int:i>')
 def d2(i):c=db();ex(c,"DELETE FROM dish_ips WHERE id=?",(i,));c.commit();cc(c);return redirect('/dash#dishes')
 @app.route('/add_tower',methods=['POST'])
-def at():c=db();ex(c,"INSERT INTO towers(name,lat,lng,note) VALUES(?,?,?,?)",(request.form.get('name') or '',float(request.form.get('lat') or 0),float(request.form.get('lng') or 0),''));c.commit();cc(c);return redirect('/dash#towers')
+def at():
+ c=db();f=request.form
+ ex(c,"INSERT INTO towers(name,area,location,owner,lat,lng,note) VALUES(?,?,?,?,0,0,'')",(f.get('name') or '',f.get('area') or '',f.get('location') or '',f.get('owner') or ''))
+ c.commit();cc(c);return redirect('/dash#towers')
 @app.route('/del_tower/<int:i>')
 def dt(i):c=db();ex(c,"DELETE FROM towers WHERE id=?",(i,));c.commit();cc(c);return redirect('/dash#towers')
 @app.route('/add_srv',methods=['POST'])
