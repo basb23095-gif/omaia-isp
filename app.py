@@ -9,7 +9,6 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "omia-sec-2026")
 DBURL = os.environ.get("DATABASE_URL", "")
 USE_PG = bool(DBURL and psycopg2)
-WA_DISPLAY, WA_LINK = "0095344851045", "963544851045"
 
 def get_db():
     if USE_PG:
@@ -64,7 +63,7 @@ def system_main_route():
             v_dishes = d_res[0]['c'] if d_res else 0
             v_users = u_res[0]['c'] if u_res else 0
             c.close()
-            return R(f"<div class=pt>🏠 الإحصائيات</div><div class=stats-grid><div class=stat-card><h3>{v_subs}</h3><p>المشتركين</p></div><div class=stat-card><h3>{v_dishes}</h3><p>الصحون والـ IPs</p></div><div class=stat-card><h3>{v_users}</h3><p>المستخدمين</p></div></div><div class=c style='text-align:center'><h3>مرحباً بك في نظام إدارة OMIA ISP</h3><p style='color:#94a3b8'>تصفح سريع وسلس بجودة عالية.</p></div>")
+            return R(f"<div class=pt>🏠 الإحصائيات</div><div class=stats-grid><div class=stat-card><h3>{v_subs}</h3><p>المشتركين</p></div><div class=stat-card><h3>{v_dishes}</h3><p>الصحون والـ IPs</p></div><div class=stat-card><h3>{v_users}</h3><p>المستخدمين</p></div></div><div class=c style='text-align:center'><h3>مرحباً بك في نظام OMIA ISP</h3><p style='color:#94a3b8'>تصفح سريع وسلس بجودة عالية.</p></div>")
         
         if view == 'subs':
             if request.method == 'POST':
