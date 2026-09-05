@@ -68,8 +68,8 @@ def R(h,bc=""):
  for k,v in co.items():s=s.replace("__"+k+"__",v)
  return render_template_string(s.replace("__BC__",bc),c=h)
 def gv(r):
- try:return list(dict(r).values())[0]
- except:return r[0] if r else 0
+ try:return list(dict(r).values())
+ except:return r if r else 0
 def title(t,icon): return f"<div class=pt>{icon} {t}</div>"
 @app.route('/',methods=['GET','POST'])
 def login():
@@ -116,7 +116,7 @@ def dash():
     if (datetime.now()-dd).days>30:late="class=late"
    except:pass
    tr+=f"<tr><td {late}>{d.get('date')}</td><td>{d.get('sub')}</td><td>{d.get('amount')} {'💵 $' if cur=='USD' else '💶 ل.س'}</td><td>{d.get('note','')}</td><td><a href=/edit_ledger/{d['id']}>✏️</a> <a href=/del_ledger/{d['id']}>🗑️</a></td></tr>"
-  return F(title("دفتر الحسابات","📒")+f"""<div class=c><form method=post action=/add_ledger><input name=sub placeholder='👤 الاسم' required><div style=display:flex;gap:6px><input name=amount type=number step=0.01 placeholder='💰 المبلغ' required><button type=button onclick=\"let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'\" style=width:110px>💵 $</button><input type=hidden name=currency id=cur value=USD></div><input name=note placeholder='📝 ملاحظة'><button>💾 حفظ - تاريخ تلقائي</button></form></div><input class=searchB placeholder='🔍 بحث فوري...' oninput=fS(this.value)><div class=c><table><tr><th>تاريخ تلقائي</th><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>تحكم</th></tr>{tr}</table></div>""")
+  return F(title("دفتر الحسابات","📒")+f"""<div class=c><form method=post action=/add_ledger><input name=sub placeholder='👤 الاسم' required><div style=display:flex;gap:6px><input name=amount type=number step=0.01 placeholder='💰 المبلغ' required><button type=button onclick="let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'" style=width:110px>💵 $</button><input type=hidden name=currency id=cur value=USD></div><input name=note placeholder='📝 ملاحظة'><button>💾 حفظ - تاريخ تلقائي</button></form></div><input class=searchB placeholder='🔍 بحث فوري...' oninput=fS(this.value)><div class=c><table><tr><th>تاريخ تلقائي</th><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>تحكم</th></tr>{tr}</table></div>""")
  if v=='settings':
   us=ex(c,"SELECT * FROM users LIMIT 100").fetchall()
   tr="".join(f"<tr><td dir=ltr>👤 {dict(x).get('username')}</td><td><a href=/edit_user/{dict(x)['phone']}>✏️</a> <a href=/toggle_user/{dict(x)['phone']}>🔄</a></td></tr>" for x in us)
@@ -129,7 +129,9 @@ def e1(i):
  c=db()
  if request.method=='POST':ex(c,"UPDATE subs SET name=?,phone=? WHERE id=?",(request.form.get('name'),request.form.get('phone'),i));c.commit();close(c);return redirect('/dash?view=subs')
  r=dict(ex(c,"SELECT * FROM subs WHERE id=?",(i,)).fetchone());close(c)
- return R(title("تعديل مشترك","✏️")+f"<div class=c><form method=post><input name=name value='{r['name']}'><input name=phone value='{r['phone']}'><button>💾 حفظ</button></form></div>")
+ name_val = r.get('name','')
+ phone_val = r.get('phone','')
+ return R(title("تعديل مشترك","✏️")+f"""<div class=c><form method=post><input name=name value="{name_val}"><input name=phone value="{phone_val}"><button>💾 حفظ</button></form></div>""")
 @app.route('/add_dish',methods=['POST'])
 def a2():c=db();ex(c,"INSERT INTO dish_ips(ip,name,network,tower)VALUES(?,?,?,?)",(request.form.get('ip'),request.form.get('name'),request.form.get('network'),request.form.get('tower')));c.commit();close(c);return redirect('/dash?view=dishes')
 @app.route('/del_dish/<int:i>')
@@ -141,7 +143,10 @@ def esv(i):
  c=db()
  if request.method=='POST':ex(c,"UPDATE servers SET name=?,ip=?,location=? WHERE id=?",(request.form.get('name'),request.form.get('ip'),request.form.get('location',''),i));c.commit();close(c);return redirect('/dash?view=servers')
  r=dict(ex(c,"SELECT * FROM servers WHERE id=?",(i,)).fetchone());close(c)
- return R(title("تعديل سيرفر","✏️")+f"<div class=c><form method=post><input name=name value='{r.get('name','')}' required><input name=ip value='{r.get('ip','')}' dir=ltr required><input name=location value='{r.get('location','')}'><button>💾 حفظ</button></form></div>")
+ name_val = r.get('name','')
+ ip_val = r.get('ip','')
+ loc_val = r.get('location','')
+ return R(title("تعديل سيرفر","✏️")+f"""<div class=c><form method=post><input name=name value="{name_val}" required><input name=ip value="{ip_val}" dir=ltr required><input name=location value="{loc_val}"><button>💾 حفظ</button></form></div>""")
 @app.route('/del_server/<int:i>')
 def dsv(i):c=db();ex(c,"DELETE FROM servers WHERE id=?",(i,));c.commit();close(c);return redirect('/dash?view=servers')
 @app.route('/add_ledger',methods=['POST'])
@@ -151,7 +156,10 @@ def el(i):
  c=db()
  if request.method=='POST':ex(c,"UPDATE ledger SET sub=?,amount=?,currency=?,note=? WHERE id=?",(request.form.get('sub'),float(request.form.get('amount') or 0),request.form.get('currency'),request.form.get('note'),i));c.commit();close(c);return redirect('/dash?view=ledger')
  r=dict(ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone());close(c);cur=r.get('currency','USD') or 'USD';lbl='💵 $' if cur=='USD' else '💶 ل.س'
- return R(f"<div class=c><form method=post><input name=sub value='{r.get('sub','')}'><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value='{r.get('amount') or 0}'><button type=button onclick="let s=document.getElementById('cur');s.value=s.value=='USD'?'SYR':'USD';this.textContent=s.value=='USD'?'💵 $':'💶 ل.س'" style=width:110px>{lbl}</button><input type=hidden name=currency id=cur value={cur}></div><input name=note value='{r.get('note','')}'><button>💾 حفظ</button></form></div>")
+ sub_val = r.get('sub','')
+ amount_val = r.get('amount') or 0
+ note_val = r.get('note','')
+ return R(f'<div class=c><form method=post><input name=sub value="{sub_val}"><div style=display:flex;gap:6px><input name=amount type=number step=0.01 value="{amount_val}"><button type=button onclick="let s=document.getElementById(\'cur\');s.value=s.value==\'USD\'?\'SYR\':\'USD\';this.textContent=s.value==\'USD\'?\'💵 $\':\'💶 ل.س'" style=width:110px>{lbl}</button><input type=hidden name=currency id=cur value="{cur}"></div><input name=note value="{note_val}"><button>💾 حفظ</button></form></div>')
 @app.route('/del_ledger/<int:i>')
 def d3(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));c.commit();close(c);return redirect('/dash?view=ledger')
 @app.route('/upload_ledger',methods=['POST'])
@@ -175,7 +183,9 @@ def e4(p):
  c=db()
  if request.method=='POST':ni=request.form.get('ident','').strip();ex(c,"UPDATE users SET phone=?,username=?,password=? WHERE phone=?",(ni,ni,request.form.get('password'),p));c.commit();close(c);return redirect('/dash?view=settings')
  u=dict(ex(c,"SELECT * FROM users WHERE phone=?",(p,)).fetchone());close(c)
- return R(f"<div class=c><form method=post><input name=ident value='{u['username']}' required><input name=password value='{u['password']}' required><button>💾 حفظ</button></form></div>")
+ username_val = u.get('username','')
+ password_val = u.get('password','')
+ return R(f"""<div class=c><form method=post><input name=ident value="{username_val}" required><input name=password value="{password_val}" required><button>💾 حفظ</button></form></div>""")
 @app.route('/toggle_user/<p>')
 def t4(p):c=db();u=dict(ex(c,"SELECT * FROM users WHERE phone=?",(p,)).fetchone());ex(c,"UPDATE users SET active=? WHERE phone=?",(0 if u['active'] else 1,p));c.commit();close(c);return redirect('/dash?view=settings')
 if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.environ.get('PORT',10000)))
