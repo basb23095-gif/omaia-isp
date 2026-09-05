@@ -5,7 +5,13 @@ try: import psycopg2,psycopg2.extras
 except: psycopg2=None
 try: import pandas as pd
 except: pd=None
-from colors import get_colors
+
+# حماية استدعاء ملف الألوان لمنع انهيار التطبيق بـ status 1 في حال عدم وجود الملف بالسيرفر
+try:
+ from colors import get_colors
+except:
+ def get_colors(): return {}
+
 app=Flask(__name__);app.secret_key=os.environ.get("SECRET_KEY","omaia-sec")
 DBURL=os.environ.get("DATABASE_URL","");USE_PG=bool(DBURL and psycopg2)
 WA_DISPLAY="0095344851045";WA_LINK="963544851045"
@@ -80,7 +86,6 @@ def title(t,icon): return f"<div class=pt>{icon} {t}</div>"
 
 @app.route('/',methods=['GET','POST'])
 def login():
- # التحقق إذا كان المستخدم مسجلاً دخوله مسبقاً لعرض لوحة التحكم مباشرة
  if 'p' in session:
   view = request.args.get('view', 'home')
   return R(title("لوحة تحكم أوميا", "✨") + f"<div class='c'>أهلاً بك في نظام الإدارة. القسم الحالي: {view}</div>")
@@ -92,7 +97,7 @@ def login():
   d = u.fetchone() if hasattr(u, 'fetchone') else (u if u else None)
   if d and d['password'] == request.form.get('password') and d['active']:
    session['p'] = d['phone']
-   return redirect('/') # تم التعديل للتوجيه لنفس المسار الرئيسي لمنع الـ 404
+   return redirect('/')
   return R("<div class='c' style='width:320px;text-align:center'><p style='color:red'>خطأ في اسم المستخدم أو كلمة المرور</p><a href='/'>إعادة المحاولة</a></div>", "lb")
  return R("<div class='c' style='width:330px;text-align:center'><h2 style='color:#00D4FF'>OMAIA ISP</h2><form method='post'><input name='phone' placeholder='اسم / رقم هاتف' required><input name='password' type='password' placeholder='كلمة المرور' required><button>دخول</button></form></div>", "lb")
 
@@ -108,4 +113,3 @@ def lt():
  session.modified = True
  return redirect(request.referrer or '/')
 
-if __name__ == '__main__':
