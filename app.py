@@ -43,6 +43,12 @@ def ex(con,q,args=()):
         cur.execute(q.replace("?","%s"),args);return cur
     return con.execute(q,args)
 
+def get_count(con,table):
+    try:
+        r=ex(con,f"SELECT COUNT(*) c FROM {table}").fetchone()
+        return r['c'] if isinstance(r,dict) else r[0]
+    except: return 0
+
 def init():
     con=db()
     if USE_PG:
@@ -54,18 +60,12 @@ def init():
         cur.execute("CREATE TABLE IF NOT EXISTS servers(id SERIAL PRIMARY KEY,name TEXT,host TEXT,username TEXT,password TEXT)")
         cur.execute("CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY,ip TEXT UNIQUE,location TEXT,sub_id INT)")
         cur.execute("CREATE TABLE IF NOT EXISTS notifications(id SERIAL PRIMARY KEY,msg TEXT,date TEXT,by_user TEXT)")
-        try:cur.execute("ALTER TABLE dish_ips ADD COLUMN IF NOT EXISTS site TEXT")
-        except:pass
-        try:cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT")
-        except:pass
-        try:cur.execute("ALTER TABLE servers ADD COLUMN IF NOT EXISTS sstp_host TEXT")
-        except:pass
-        try:cur.execute("ALTER TABLE servers ADD COLUMN IF NOT EXISTS sstp_user TEXT")
-        except:pass
-        try:cur.execute("ALTER TABLE servers ADD COLUMN IF NOT EXISTS sstp_pass TEXT")
-        except:pass
-        try:cur.execute("ALTER TABLE servers ADD COLUMN IF NOT EXISTS conn_type TEXT DEFAULT 'api'")
-        except:pass
+        for s in ["ALTER TABLE dish_ips ADD COLUMN IF NOT EXISTS site TEXT","ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT","ALTER TABLE servers ADD COLUMN IF NOT EXISTS sstp_host TEXT","ALTER TABLE servers ADD COLUMN IF NOT EXISTS sstp_user TEXT","ALTER TABLE servers ADD COLUMN IF NOT EXISTS sstp_pass TEXT","ALTER TABLE servers ADD COLUMN IF NOT EXISTS conn_type TEXT DEFAULT 'api'"]:
+            try:cur.execute(s)
+            except:pass
+        for s in ["CREATE INDEX IF NOT EXISTS idx_subs_name ON subs(name)","CREATE INDEX IF NOT EXISTS idx_ledger_sub ON ledger(sub_id)"]:
+            try:cur.execute(s)
+            except:pass
         cur.execute("SELECT * FROM users WHERE phone='05344851045'")
         if not cur.fetchone():cur.execute("INSERT INTO users(phone,password,role,active) VALUES('05344851045','admin2024','super',1)")
         con.commit();cur.close();return
@@ -76,18 +76,9 @@ def init():
     con.execute("CREATE TABLE IF NOT EXISTS servers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,host TEXT,username TEXT,password TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT UNIQUE,location TEXT,sub_id INT)")
     con.execute("CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,msg TEXT,date TEXT,by_user TEXT)")
-    try:con.execute("ALTER TABLE dish_ips ADD COLUMN site TEXT")
-    except:pass
-    try:con.execute("ALTER TABLE users ADD COLUMN username TEXT")
-    except:pass
-    try:con.execute("ALTER TABLE servers ADD COLUMN sstp_host TEXT")
-    except:pass
-    try:con.execute("ALTER TABLE servers ADD COLUMN sstp_user TEXT")
-    except:pass
-    try:con.execute("ALTER TABLE servers ADD COLUMN sstp_pass TEXT")
-    except:pass
-    try:con.execute("ALTER TABLE servers ADD COLUMN conn_type TEXT DEFAULT 'api'")
-    except:pass
+    for s in ["ALTER TABLE dish_ips ADD COLUMN site TEXT","ALTER TABLE users ADD COLUMN username TEXT","ALTER TABLE servers ADD COLUMN sstp_host TEXT","ALTER TABLE servers ADD COLUMN sstp_user TEXT","ALTER TABLE servers ADD COLUMN sstp_pass TEXT","ALTER TABLE servers ADD COLUMN conn_type TEXT DEFAULT 'api'","CREATE INDEX IF NOT EXISTS idx_subs_name ON subs(name)","CREATE INDEX IF NOT EXISTS idx_ledger_sub ON ledger(sub_id)"]:
+        try:con.execute(s)
+        except:pass
     try:con.execute("DELETE FROM users WHERE phone='0900000000'")
     except:pass
     if not con.execute("SELECT * FROM users WHERE phone='05344851045'").fetchone():
@@ -98,8 +89,7 @@ init()
 def notif_count_reuse(con=None):
     try:
         own=False
-        if con is None:
-            con=db();own=True
+        if con is None: con=db();own=True
         c=len(ex(con,"SELECT id FROM notifications ORDER BY id DESC LIMIT 5").fetchall())
         if own: close_con(con)
         return c
@@ -191,10 +181,7 @@ def dash():
     def done(html):
         r=render(html,con);close_con(con);return r
     if v=='home':
-        n_sub=len(ex(con,"SELECT id FROM subs").fetchall())
-        n_srv=len(ex(con,"SELECT id FROM servers").fetchall())
-        n_dish=len(ex(con,"SELECT id FROM dish_ips").fetchall())
-        n_led=len(ex(con,"SELECT id FROM ledger").fetchall())
+        n_sub=get_count(con,"subs");n_srv=get_count(con,"servers");n_dish=get_count(con,"dish_ips");n_led=get_count(con,"ledger")
         last_subs=ex(con,"SELECT * FROM subs ORDER BY id DESC LIMIT 5").fetchall()
         last_dish=ex(con,"SELECT * FROM dish_ips ORDER BY id DESC LIMIT 5").fetchall()
         tr_s="".join([f"<tr><td>{r['name']}</td><td>{r['phone']}</td><td>{r['status']}</td></tr>" for r in last_subs])
@@ -202,16 +189,17 @@ def dash():
         return done(f"<div class='stats'><div class='card'><b>{n_sub}</b><br>مشترك</div><div class='card'><b>{n_srv}</b><br>سيرفر</div><div class='card'><b>{n_dish}</b><br>صحن</div><div class='card'><b>{n_led}</b><br>حركة محاسبية</div></div><div class='card'><h4>آخر المشتركين</h4><table><tr><th>الاسم</th><th>هاتف</th><th>حالة</th></tr>{tr_s}</table></div><div class='card'><h4>آخر الصحون</h4><table><tr><th>شبكة</th><th>IP</th></tr>{tr_d}</table></div>")
     if v=='notifs':
         rows=ex(con,"SELECT * FROM notifications ORDER BY id DESC LIMIT 30").fetchall()
-        tr="".join([f"<div class='card'><small>{r['date']}</small><br>{r['msg']}<br><small>بواسطة {r['by_user']}</small></div>" for r in rows])
+        tr=""
+        for r in rows:
+            d=dict(r) if not isinstance(r,dict) else r
+            ctrl=f"<br><a href='/edit_notif/{d['id']}'>تعديل</a> | <a href='/del_notif/{d['id']}' style='color:#f87171' onclick=\"return confirm('حذف؟')\">حذف</a>" if session.get('role')=='super' else ""
+            tr+=f"<div class='card'><small>{d.get('date','')}</small><br>{d.get('msg','')}<br><small>بواسطة {d.get('by_user','')}</small>{ctrl}</div>"
         form="<div class='card'><h4>إرسال إشعار جديد</h4><form method='post' action='/add_notif'><input name='msg' required placeholder='نص الإشعار'><button>إرسال 🔔</button></form></div>" if session.get('role')=='super' else ""
         return done(form+"<h3>الاشعارات</h3>"+tr)
     if v=='settings' and session.get('role')=='super':
         users=ex(con,"SELECT * FROM users ORDER BY phone").fetchall()
-        def gd(u,k):
-            try: return u[k] if isinstance(u,dict) else ""
-            except: return ""
-        utr="".join([f"<tr><td>{u['phone']}<br><small>{gd(u,'username')}</small></td><td>{u['password'] if isinstance(u,dict) else u[1]}</td><td>{'مفعل' if u['active'] else 'معطل'}</td><td><a href='/toggle_user?ph={u['phone']}'>تعطيل/تفعيل</a><br><a href='/del_user?ph={u['phone']}' style='color:#f87171'>حذف</a></td></tr>" for u in users])
-        c=f"<div class='card' style='max-width:560px'><h4>الاعدادات - اليوزرات</h4><form method='post' action='/add_user'><div class='form2'><input name='phone' required placeholder='هاتف'><input name='username' placeholder='يوزر'><input name='password' required placeholder='باسورد'><select name='role'><option value='tech'>فني</option><option value='super'>super</option></select></div><button>إضافة</button></form><table><tr><th>اليوزر</th><th>الباسورد</th><th>الحالة</th><th>تحكم</th></tr>{utr}</table></div>"
+        utr="".join([f"<tr><td dir='ltr'>{u['phone']}</td><td>{u['password'] if isinstance(u,dict) else u[1]}</td><td>{'مفعل' if u['active'] else 'معطل'}</td><td><a href='/toggle_user?ph={u['phone']}'>تعطيل/تفعيل</a><br><a href='/del_user?ph={u['phone']}' style='color:#f87171'>حذف</a></td></tr>" for u in users])
+        c=f"<div class='card' style='max-width:560px'><h4>الاعدادات - اليوزرات</h4><form method='post' action='/add_user'><input name='ident' required placeholder='رقم الهاتف / اسم المستخدم'><input name='password' required placeholder='باسورد'><select name='role'><option value='tech'>فني</option><option value='super'>super</option></select><button>إضافة</button></form><table><tr><th>اليوزر</th><th>الباسورد</th><th>الحالة</th><th>تحكم</th></tr>{utr}</table></div>"
         c+=f"<div class='card'><h4>تواصل دعم فني</h4><a href='https://wa.me/{SUPPORT_WA}' target='_blank'><button>واتساب الدعم الفني {SUPPORT_WA}</button></a></div>"
         return done(c)
     if v=='subs':
@@ -262,6 +250,24 @@ def search():
 def add_notif():
     if session.get('role')!='super':return redirect('/dash?view=notifs')
     con=db();ex(con,"INSERT INTO notifications(msg,date,by_user) VALUES(?,?,?)",(request.form.get('msg',''),datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),session.get('phone')));con.commit();close_con(con)
+    return redirect('/dash?view=notifs')
+
+@app.route('/edit_notif/<int:i>',methods=['GET','POST'])
+def edit_notif(i):
+    if session.get('role')!='super':return redirect('/dash?view=notifs')
+    con=db()
+    if request.method=='POST':
+        ex(con,"UPDATE notifications SET msg=? WHERE id=?",(request.form.get('msg',''),i));con.commit();close_con(con)
+        return redirect('/dash?view=notifs')
+    r=ex(con,"SELECT * FROM notifications WHERE id=?",(i,)).fetchone()
+    d=dict(r) if r else {}
+    h=render(f"<div class='card'><h4>تعديل إشعار</h4><form method='post'><input name='msg' value='{d.get('msg','')}' required><button>حفظ</button></form></div>",con)
+    close_con(con);return h
+
+@app.route('/del_notif/<int:i>')
+def del_notif(i):
+    if session.get('role')!='super':return redirect('/dash?view=notifs')
+    con=db();ex(con,"DELETE FROM notifications WHERE id=?",(i,));con.commit();close_con(con)
     return redirect('/dash?view=notifs')
 
 @app.route('/add_sub',methods=['POST'])
@@ -399,12 +405,16 @@ def del_user_q():
 @app.route('/add_user',methods=['POST'])
 def add_user():
     if session.get('role')!='super':return redirect('/dash?view=settings')
-    phone=request.form.get('phone','').strip();username=request.form.get('username','').strip()
+    ident=(request.form.get('ident') or request.form.get('phone') or request.form.get('username') or '').strip()
+    pwd=request.form.get('password','')
+    role=request.form.get('role','tech')
+    if not ident:
+        return redirect('/dash?view=settings')
     con=db()
-    dup=ex(con,"SELECT phone FROM users WHERE phone=? OR username=?",(phone,username)).fetchone()
+    dup=ex(con,"SELECT phone FROM users WHERE phone=? OR username=?",(ident,ident)).fetchone()
     if dup:
         r=render("<div class='card'><p style='color:#f87171'>رقم الهاتف او اسم المستخدم موجود مسبقاً</p><a href='/dash?view=settings'>رجوع</a></div>",con);close_con(con);return r
-    try:ex(con,"INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",(phone,username,request.form.get('password',''),request.form.get('role','tech')));con.commit()
+    try:ex(con,"INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",(ident,ident,pwd,role));con.commit()
     except:pass
     close_con(con);return redirect('/dash?view=settings')
 
