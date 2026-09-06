@@ -135,22 +135,41 @@ def get_view_html(v,c,role,q=""):
             try:
                 la=float(dict(r)['lat']);ln=float(dict(r)['lng'])
                 nm=str(dict(r).get('name','')).replace("'","")
-                mk+=f"L.marker([{la},{ln}]).addTo(m).bindPopup('🗼 {nm}');\n"
+                mk+=f"L.circleMarker([{la},{ln}],{{color:'red',radius:8,fillOpacity:0.9}}).addTo(m).bindPopup('🗼 {nm}');\n"
             except:pass
         if not mk:
             mk="L.marker([35.1318,36.7578]).addTo(m).bindPopup('حماه');"
-        return f"""<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><div class="card"><h3>🗺️ الخريطة - حماه</h3><div id="mp" style="height:70vh;min-height:480px;border-radius:12px;background:#e5e7eb;z-index:1"></div><div style="margin-top:6px;font-size:11px;opacity:.8">📡 صحون: {len(ds)} | 🗼 أبراج: {len(ts)}</div></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
-(function(){{
+        return f"""<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<div class="card"><h3>🗺️ الخريطة - حماه - بحث + قمر صناعي</h3>
+<div style="display:flex;gap:6px;margin-bottom:6px"><input id="sqm" placeholder="🔍 ابحث عن مكان... حماه" style="flex:1"><button class="abtn abtn-edit" onclick="searchMap()">بحث</button></div>
+<div style="display:flex;gap:6px;margin-bottom:6px"><input id="nl" placeholder="اسم الدبوس الجديد" style="flex:1"><button class="abtn abtn-toggle" onclick="addPin()">📍 دبوس أحمر</button></div>
+<div id="mp" style="height:70vh;min-height:480px;border-radius:12px;z-index:1"></div>
+<div id="cd" style="margin-top:6px;font-size:12px;direction:ltr;text-align:center">اضغط على الخريطة لأخذ إحداثية</div>
+<div style="margin-top:6px;font-size:11px;opacity:.8">📡 صحون: {len(ds)} | 🗼 أبراج: {len(ts)}</div></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var m,lastLat=35.1318,lastLng=36.7578;
 function initMap(){{
 if(typeof L==='undefined'){{setTimeout(initMap,300);return;}}
-var el=document.getElementById('mp');if(!el)return;
-var m=L.map('mp').setView([35.1318,36.7578],12);
-L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19,attribution:'© OpenStreetMap'}}).addTo(m);
+if(document.getElementById('mp')._leaflet_id)return;
+m=L.map('mp').setView([35.1318,36.7578],12);
+var osm=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19,attribution:'© OpenStreetMap'}});
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19,attribution:'© Esri'}});
+sat.addTo(m);L.control.layers({{"قمر صناعي":sat,"عادية":osm}}).addTo(m);
 {mk}
+m.on('click',function(e){{lastLat=e.latlng.lat.toFixed(6);lastLng=e.latlng.lng.toFixed(6);document.getElementById('cd').innerHTML='📍 '+lastLat+', '+lastLng;}});
 setTimeout(function(){{m.invalidateSize();}},500);
 }}
+function searchMap(){{
+var q=document.getElementById('sqm').value;if(!q)return;
+fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{{if(d.length>0){{var la=d[0].lat,ln=d[0].lon;m.setView([la,ln],15);L.marker([la,ln]).addTo(m).bindPopup(d[0].display_name).openPopup();lastLat=la;lastLng=ln;}}else alert('ما لقيت');}});
+}}
+function addPin(){{
+var n=document.getElementById('nl').value||'موقع جديد';
+L.circleMarker([lastLat,lastLng],{{color:'red',radius:10,fillOpacity:1}}).addTo(m).bindPopup(n).openPopup();
+fetch('/add_tower',{{method:'POST',body:new URLSearchParams({{name:n,lat:lastLat,lng:lastLng}}),headers:{{'X-Requested-With':'fetch'}}}});
+}}
 setTimeout(initMap,300);
-}})();
 </script>"""
     if v=='ledger':
         if role not in ('super','admin'):return "<div class='card'>ممنوع</div>"
@@ -267,7 +286,6 @@ def apiv():
     if not session.get('phone'):return "no"
     v=request.args.get('v','home');q=request.args.get('q','')
     c=db();h=get_view_html(v,c,session.get('role','tech'),q);cc(c);return h
-
 def is_ajax():return request.headers.get('X-Requested-With')=='fetch'
 _last_add={}
 def allow_add(key, val):
@@ -277,7 +295,6 @@ def allow_add(key, val):
     if k in _last_add and now-_last_add[k]<3:return False
     _last_add[k]=now;return True
 def _resp_ok(v):return jsonify(ok=True) if is_ajax() else redirect('/dash#'+v)
-
 @app.route('/add_sub',methods=['POST'])
 def a1():
     ph=request.form.get('phone','')
@@ -285,17 +302,14 @@ def a1():
     c=db();ex(c,"INSERT INTO subs(name,phone,status) VALUES(?,?,?)",(request.form.get('name',''),ph,'نشط'));safe_commit(c);cc(c);return _resp_ok('subs')
 @app.route('/del_sub/<int:i>')
 def d1(i):c=db();ex(c,"DELETE FROM subs WHERE id=?",(i,));safe_commit(c);cc(c);return _resp_ok('subs')
-
 @app.route('/add_dish',methods=['POST'])
 def a2():
     f=request.form;ip=(f.get('ip') or '').strip()
     if not allow_add("dish", ip or f.get('location','')):return _resp_ok('dishes')
     c=db();ex(c,"INSERT INTO dish_ips(ip,location,area,tower,lat,lng) VALUES(?,?,?,?,?,?)",(f.get('ip') or '',f.get('location') or '',f.get('area') or '',f.get('tower') or '',fnum(f.get('lat')),fnum(f.get('lng'))));safe_commit(c);cc(c);return _resp_ok('dishes')
-
 def edit_page(title, fields_html, back_hash):
     col=get_colors();bg=get_bg_css()
     return f"<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{{margin:0;font-family:'Segoe UI';{bg};color:{col['text']};min-height:100vh;display:flex;align-items:center;justify-content:center}}input{{width:100%;padding:12px;margin:6px 0;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:{col['text']};box-sizing:border-box}}.card{{background:{col['card_bg']};border-radius:20px;padding:24px;width:92%;max-width:400px;text-align:center}}.abtn{{padding:12px 18px;border-radius:12px;font-weight:800;color:#fff;text-decoration:none;display:inline-block;border:none;cursor:pointer;width:100%}}.abtn-edit{{background:linear-gradient(135deg,#06b6d4,#3b82f6)}}.row2{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}</style></head><body><div class='card'><h3>{title}</h3><form method=post>{fields_html}<button class='abtn abtn-edit'>💾 حفظ التعديل</button></form><a href='/dash#{back_hash}' style='display:inline-block;margin-top:12px;color:{col['link']}'>رجوع</a></div></body></html>"
-
 @app.route('/edit_dish/<int:i>',methods=['GET','POST'])
 def edit_dish(i):
     c=db()
@@ -306,16 +320,13 @@ def edit_dish(i):
     r=dict(ex(c,"SELECT * FROM dish_ips WHERE id=?",(i,)).fetchone());cc(c)
     fh=f"<input name=ip value='{r.get('ip','')}' dir=ltr placeholder='IP'><input name=location value='{r.get('location','')}' placeholder='اسم الصحن'><input name=area value='{r.get('area','')}' placeholder='المنطقة'><input name=tower value='{r.get('tower','')}' placeholder='البرج'><div class=row2><input name=lat type=number step=any value='{r.get('lat',0)}' placeholder='Lat'><input name=lng type=number step=any value='{r.get('lng',0)}' placeholder='Lng'></div>"
     return edit_page("✏️ تعديل صحن / IP", fh, "dishes")
-
 @app.route('/del_dish/<int:i>')
 def d2(i):c=db();ex(c,"DELETE FROM dish_ips WHERE id=?",(i,));safe_commit(c);cc(c);return _resp_ok('dishes')
-
 @app.route('/add_tower',methods=['POST'])
 def at():
     f=request.form;nm=(f.get('name') or '').strip()
     if not allow_add("tower", nm):return _resp_ok('towers')
     c=db();ex(c,"INSERT INTO towers(name,area,location,owner,lat,lng) VALUES(?,?,?,?,?,?)",(f.get('name') or '',f.get('area') or '',f.get('location') or '',f.get('owner') or '',fnum(f.get('lat')),fnum(f.get('lng'))));safe_commit(c);cc(c);return _resp_ok('towers')
-
 @app.route('/edit_tower/<int:i>',methods=['GET','POST'])
 def edit_tower(i):
     c=db()
@@ -326,10 +337,8 @@ def edit_tower(i):
     r=dict(ex(c,"SELECT * FROM towers WHERE id=?",(i,)).fetchone());cc(c)
     fh=f"<input name=name value='{r.get('name','')}' placeholder='اسم البرج' required><div class=row2><input name=area value='{r.get('area','') or ''}' placeholder='المنطقة'><input name=owner value='{r.get('owner','') or ''}' placeholder='لمين البرج'></div><div class=row2><input name=lat type=number step=any value='{r.get('lat',0)}' required><input name=lng type=number step=any value='{r.get('lng',0)}' required></div><input name=location value='{r.get('location','') or ''}' placeholder='موقع البرج'>"
     return edit_page("🗼 تعديل برج", fh, "towers")
-
 @app.route('/del_tower/<int:i>')
 def dt(i):c=db();ex(c,"DELETE FROM towers WHERE id=?",(i,));safe_commit(c);cc(c);return _resp_ok('towers')
-
 @app.route('/add_user',methods=['POST'])
 def a4():
     c=db();ph=request.form['phone'].strip()
@@ -344,7 +353,6 @@ def du(ph):
     c=db();ex(c,"DELETE FROM users WHERE phone=?",(ph,));safe_commit(c);cc(c);return _resp_ok('settings')
 @app.route('/toggle_user/<ph>')
 def tu(ph):c=db();u=ex(c,"SELECT active FROM users WHERE phone=?",(ph,)).fetchone();na=0 if dict(u)['active']==1 else 1;ex(c,"UPDATE users SET active=? WHERE phone=?",(na,ph));safe_commit(c);cc(c);return _resp_ok('settings')
-
 @app.route('/charge',methods=['POST'])
 def ch():
     cn=request.form.get('cust_name','')+request.form.get('amount','')
@@ -353,7 +361,6 @@ def ch():
     usd=amt if cur=='usd' else 0;syr=amt if cur=='syr' else 0;c=db()
     ex(c,"INSERT INTO ledger(date,usd,syr,type,note,by_user) VALUES(?,?,?,?,?,?)",(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,syr,'قبض',cust_name,session.get('phone')))
     safe_commit(c);cc(c);return _resp_ok('ledger')
-
 @app.route('/edit_ledger/<int:i>',methods=['GET','POST'])
 def edit_ledger(i):
     c=db()
@@ -362,10 +369,8 @@ def edit_ledger(i):
     r=dict(ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone());cc(c)
     fh=f"<input name=note value='{r.get('note','')}' placeholder='البيان'><input name=usd value='{r.get('usd',0)}' type=number step=0.01><input name=syr value='{r.get('syr',0)}' type=number step=0.01>"
     return edit_page("✏️ تعديل قيد", fh, "ledger")
-
 @app.route('/del_ledger/<int:i>')
 def del_ledger(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));safe_commit(c);cc(c);return _resp_ok('ledger')
-
 @app.route('/export_subs')
 def es():
     c=db();rs=ex(c,"SELECT name,phone,balance_usd FROM subs").fetchall();cc(c)
