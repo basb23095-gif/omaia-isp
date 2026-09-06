@@ -1,5 +1,4 @@
-# colors.py - نظام الألوان المركزي OMAIA ISP - النسخة المصلحة النهائية
-
+# colors.py - OMAIA ISP - FINAL
 class Colors:
     GOLD = "#D4AF37"
     GOLD_HOVER = "#B8941F"
@@ -23,7 +22,6 @@ class Colors:
     ORANGE = "#f59e0b"
     PING_BG = "#000000"
     PING_TEXT = "#00ff00"
-
     @staticmethod
     def get_theme(is_dark=True):
         if is_dark:
@@ -31,7 +29,6 @@ class Colors:
         else:
             return {"bg": Colors.LIGHT_BG, "card": Colors.LIGHT_CARD, "input": Colors.LIGHT_INPUT, "border": Colors.LIGHT_BORDER, "text": Colors.LIGHT_TEXT, "muted": Colors.LIGHT_TEXT_MUTED}
 
-# هذا يلي ناقص وكان يسبب Internal Error
 COLORS = {
     "gold": Colors.GOLD,
     "gold_hover": Colors.GOLD_HOVER,
@@ -53,8 +50,6 @@ COLORS = {
     "red": Colors.RED,
     "green": Colors.GREEN,
 }
-
 def logo_html():
-    return f"<span style='color:{COLORS['gold']};font-weight:900'>OMAIA</span> <span style='color:#fff'>ISP</span> <small style='background:{COLORS['gold']};color:#000;padding:2px 6px;border-radius:8px;font-size:10px;margin-right:6px'>PRO</small>"
-
+    return f"<span style='color:{COLORS['gold']};font-weight:900;letter-spacing:1px'>OMAIA ISP</span>"
 THEME_COLORS = Colors()
