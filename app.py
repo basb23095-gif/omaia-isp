@@ -12,8 +12,8 @@ app = Flask(__name__, static_folder='static')
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 86400
 app.secret_key = os.environ.get("SECRET_KEY", "omia-sec-2026")
 _raw_db = os.environ.get("DATABASE_URL", "") or ""
-DATABASE_URL = _raw_db.strip().replace("\n","").replace("\r","").replace(" ","")
-USE_PG = bool(DATABASE_URL and psycopg2)
+DATABASE_URL = _raw_db.strip().replace("\n","").replace("\r","").replace(" ","").replace("postgresql://","postgres://")
+USE_PG = bool(DATABASE_URL.lower().startswith("postgres://") and psycopg2)
 _pg=None;_pt=0
 SUPPORT="905344851045"
 SUPPORT_DISPLAY="+905344851045"
@@ -122,54 +122,47 @@ def get_view_html(v,c,role,q=""):
         tr="".join([f"<tr><td>{dict(r).get('name','')}</td><td>{dict(r).get('area','') or ''}</td><td>{dict(r).get('owner','') or ''}</td><td>{dict(r).get('lat',0)},{dict(r).get('lng',0)}</td><td><a class='abtn abtn-edit' href='/edit_tower/{dict(r)['id']}'>تعديل</a> <a class='abtn abtn-del' href='#' onclick=\"return ajaxDel('/del_tower/{dict(r)['id']}','towers')\">حذف</a></td></tr>" for r in rs])
         return f"<div class='card'><h3>🗼 إضافة برج مع إحداثيات</h3><form onsubmit=\"return ajaxSubmit(this,'towers')\" method=post action=/add_tower><input name=name placeholder='اسم برج' required><div class=row2><input name=area placeholder='منطقه'><input name=owner placeholder='لمين برج'></div><div class=row2><input name=lat placeholder='Lat' type=number step=any required><input name=lng placeholder='Lng' type=number step=any required></div><input name=location placeholder='موقع برج'><button class='btn-soft' type='submit'>📍 حفظ البرج</button></form></div><div class='card'><table><tr><th>اسم</th><th>منطقه</th><th>لمين</th><th>إحداثيات</th><th>إجراءات</th></tr>{tr}</table></div>"
     if v=='map':
-        ds=list(ex(c,"SELECT location,lat,lng FROM dish_ips WHERE lat!=0 AND lng!=0 LIMIT 200").fetchall())
-        ts=list(ex(c,"SELECT name,lat,lng FROM towers WHERE lat!=0 AND lng!=0 LIMIT 200").fetchall())
-        mk=""
-        for r in ds:
-            try:
-                la=float(dict(r)['lat']);ln=float(dict(r)['lng'])
-                nm=str(dict(r).get('location','')).replace("'","")
-                mk+=f"L.marker([{la},{ln}]).addTo(m).bindPopup('📡 {nm}');\n"
-            except:pass
-        for r in ts:
-            try:
-                la=float(dict(r)['lat']);ln=float(dict(r)['lng'])
-                nm=str(dict(r).get('name','')).replace("'","")
-                mk+=f"L.circleMarker([{la},{ln}],{{color:'red',radius:8,fillOpacity:0.9}}).addTo(m).bindPopup('🗼 {nm}');\n"
-            except:pass
-        if not mk:
-            mk="L.marker([35.1318,36.7578]).addTo(m).bindPopup('حماه');"
-        return f"""<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<div class="card"><h3>🗺️ الخريطة - حماه - بحث + قمر صناعي</h3>
-<div style="display:flex;gap:6px;margin-bottom:6px"><input id="sqm" placeholder="🔍 ابحث عن مكان... حماه" style="flex:1"><button class="abtn abtn-edit" onclick="searchMap()">بحث</button></div>
-<div style="display:flex;gap:6px;margin-bottom:6px"><input id="nl" placeholder="اسم الدبوس الجديد" style="flex:1"><button class="abtn abtn-toggle" onclick="addPin()">📍 دبوس أحمر</button></div>
+        ds=[dict(r) for r in ex(c,"SELECT id,location,lat,lng FROM dish_ips WHERE lat!=0 AND lng!=0 LIMIT 500").fetchall()]
+        ts=[dict(r) for r in ex(c,"SELECT id,name,lat,lng FROM towers WHERE lat!=0 AND lng!=0 LIMIT 500").fetchall()]
+        import json as _js
+        ds_j=_js.dumps([{"id":d.get("id"),"n":str(d.get("location","")).replace('"',''),"la":float(d.get("lat") or 0),"ln":float(d.get("lng") or 0)} for d in ds if d.get("lat")])
+        ts_j=_js.dumps([{"id":t.get("id"),"n":str(t.get("name","")).replace('"',''),"la":float(t.get("lat") or 0),"ln":float(t.get("lng") or 0)} for t in ts if t.get("lat")])
+        return f"""<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/><link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<div class="card"><h3>🗺️ الخريطة السريعة - حذف وتعديل مباشر</h3>
+<div style="display:flex;gap:6px;margin-bottom:6px"><input id="sqm" placeholder="🔍 ابحث..." style="flex:1"><button class="abtn abtn-edit" onclick="searchMap()">بحث</button><button class="abtn abtn-toggle" onclick="myLoc()">📍 موقعي</button></div>
 <div id="mp" style="height:70vh;min-height:480px;border-radius:12px;z-index:1"></div>
-<div id="cd" style="margin-top:6px;font-size:12px;direction:ltr;text-align:center">اضغط على الخريطة لأخذ إحداثية</div>
-<div style="margin-top:6px;font-size:11px;opacity:.8">📡 صحون: {len(ds)} | 🗼 أبراج: {len(ts)}</div></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div id="cd" style="margin-top:6px;font-size:12px;direction:ltr;text-align:center">اضغط على الخريطة لأخذ إحداثية بدقة عالية</div>
+<div style="margin-top:6px;font-size:11px;opacity:.8">📡 {len(ds)} | 🗼 {len(ts)} | اضغط على أي نقطة للتعديل والحذف</div></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
-var m,lastLat=35.1318,lastLng=36.7578;
+var m,lastLat=35.1318,lastLng=36.7578,accCircle=null;
+var dishes={ds_j};var towers={ts_j};
 function initMap(){{
 if(typeof L==='undefined'){{setTimeout(initMap,300);return;}}
 if(document.getElementById('mp')._leaflet_id)return;
-m=L.map('mp').setView([35.1318,36.7578],12);
-var osm=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19,attribution:'© OpenStreetMap'}});
-var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19,attribution:'© Esri'}});
-sat.addTo(m);L.control.layers({{"قمر صناعي":sat,"عادية":osm}}).addTo(m);
-{mk}
-m.on('click',function(e){{lastLat=e.latlng.lat.toFixed(6);lastLng=e.latlng.lng.toFixed(6);document.getElementById('cd').innerHTML='📍 '+lastLat+', '+lastLng;}});
-setTimeout(function(){{m.invalidateSize();}},500);
+m=L.map('mp',{{preferCanvas:true}}).setView([35.1318,36.7578],12);
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19}});sat.addTo(m);
+var osm=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19}});
+L.control.layers({{"🛰️ قمر":sat,"🗺️ عادية":osm}}).addTo(m);
+var cl=L.markerClusterGroup({{chunkedLoading:true,maxClusterRadius:40}});
+dishes.forEach(d=>{{
+var mk=L.marker([d.la,d.ln]);
+mk.bindPopup(`📡 <b>${{d.n}}</b><br><button onclick="editDish(${{d.id}})">✏️ تعديل</button> <button onclick="delPoint('/del_dish/${{d.id}}')">🗑️ حذف</button>`);
+cl.addLayer(mk);}});
+towers.forEach(t=>{{
+var mk=L.circleMarker([t.la,t.ln],{{color:'red',radius:9,fillOpacity:0.95}});
+mk.bindPopup(`🗼 <b>${{t.n}}</b><br><button onclick="editTower(${{t.id}})">✏️ تعديل</button> <button onclick="delPoint('/del_tower/${{t.id}}')">🗑️ حذف</button>`);
+cl.addLayer(mk);}});
+m.addLayer(cl);
+m.on('click',function(e){{lastLat=e.latlng.lat.toFixed(6);lastLng=e.latlng.lng.toFixed(6);document.getElementById('cd').innerHTML='📍 '+lastLat+', '+lastLng+' بدقة ±5م';}});
+setTimeout(()=>m.invalidateSize(),400);
 }}
-function searchMap(){{
-var q=document.getElementById('sqm').value;if(!q)return;
-fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{{if(d.length>0){{var la=d[0].lat,ln=d[0].lon;m.setView([la,ln],15);L.marker([la,ln]).addTo(m).bindPopup(d[0].display_name).openPopup();lastLat=la;lastLng=ln;}}else alert('ما لقيت');}});
-}}
-function addPin(){{
-var n=document.getElementById('nl').value||'موقع جديد';
-L.circleMarker([lastLat,lastLng],{{color:'red',radius:10,fillOpacity:1}}).addTo(m).bindPopup(n).openPopup();
-fetch('/add_tower',{{method:'POST',body:new URLSearchParams({{name:n,lat:lastLat,lng:lastLng}}),headers:{{'X-Requested-With':'fetch'}}}});
-}}
-setTimeout(initMap,300);
+function delPoint(u){{if(!confirm('حذف هالنقطة؟'))return;fetch(u,{{headers:{{'X-Requested-With':'fetch'}}}}).then(()=>loadView('map',true));}}
+function editDish(id){{var n=prompt('اسم جديد:');if(n==null)return;fetch('/api/edit_point',{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{t:'dish',id:id,name:n}})}).then(()=>loadView('map',true));}}
+function editTower(id){{var n=prompt('اسم جديد للبرج:');if(n==null)return;fetch('/api/edit_point',{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{t:'tower',id:id,name:n}})}).then(()=>loadView('map',true));}}
+function searchMap(){{var q=document.getElementById('sqm').value;if(!q)return;fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q)).then(r=>r.json()).then(d=>{{if(d[0]){{m.setView([d[0].lat,d[0].lon],16);}}}});}}
+function myLoc(){{if(!navigator.geolocation){{alert('لا يدعم');return;}}navigator.geolocation.getCurrentPosition(p=>{{var la=p.coords.latitude,ln=p.coords.longitude,ac=p.coords.accuracy;lastLat=la;lastLng=ln;m.setView([la,ln],17);if(accCircle)m.removeLayer(accCircle);accCircle=L.circle([la,ln],{{radius:ac,color:'blue',fillOpacity:0.2}}).addTo(m);L.marker([la,ln]).addTo(m).bindPopup(`📍 أنت هنا<br>الدقة: ±${{Math.round(ac)}} متر`).openPopup();document.getElementById('cd').innerHTML='📍 '+la.toFixed(6)+', '+ln.toFixed(6)+' بدقة ±'+Math.round(ac)+'م';}},e=>alert('فعل GPS'),{{enableHighAccuracy:true,timeout:10000}});}}
+setTimeout(initMap,200);
 </script>"""
     if v=='ledger':
         if role not in ('super','admin'):return "<div class='card'>ممنوع</div>"
@@ -286,6 +279,16 @@ def apiv():
     if not session.get('phone'):return "no"
     v=request.args.get('v','home');q=request.args.get('q','')
     c=db();h=get_view_html(v,c,session.get('role','tech'),q);cc(c);return h
+@app.route('/api/edit_point',methods=['POST'])
+def edit_point():
+    if not session.get('phone'):return jsonify(ok=False)
+    d=request.get_json(force=True);c=db()
+    try:
+        if d.get('t')=='dish':ex(c,"UPDATE dish_ips SET location=? WHERE id=?",(d.get('name',''),int(d.get('id'))))
+        else:ex(c,"UPDATE towers SET name=? WHERE id=?",(d.get('name',''),int(d.get('id'))))
+        safe_commit(c)
+    except:pass
+    cc(c);return jsonify(ok=True)
 def is_ajax():return request.headers.get('X-Requested-With')=='fetch'
 _last_add={}
 def allow_add(key, val):
@@ -378,5 +381,5 @@ def es():
     for r in rs:w.writerow([r['name'],r['phone'],r['balance_usd']])
     return Response(o.getvalue().encode('utf-8-sig'),mimetype='text/csv',headers={'Content-Disposition':'attachment;filename=subs.csv'})
 @app.route('/debug_db')
-def debug_db():return f"USE_PG={USE_PG} LEN={len(DATABASE_URL)}"
+def debug_db():return f"USE_PG={USE_PG} LEN={len(DATABASE_URL)} PG_OK={bool(psycopg2)}"
 if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.environ.get("PORT",10000)))
