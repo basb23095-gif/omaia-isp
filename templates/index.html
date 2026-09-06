@@ -3,65 +3,55 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OMAIA ISP - لوحة التحكم</title>
+<title>OMAIA ISP</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
-* {margin:0; padding:0; box-sizing:border-box; font-family:'Cairo', sans-serif}
-body {background:#0f172a; color:#e2e8f0; transition:0.3s}
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Cairo',sans-serif}
+body{background:#0f172a;color:#e2e8f0}
 
 /* شاشة التحميل */
-.loader {position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:9999; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:10px}
-.loader i {font-size:40px; color:#D4AF37; animation:spin 1s linear infinite}
-@keyframes spin {100%{transform:rotate(360deg)}}
+.loader{position:fixed;top:0;left:0;width:100%;height:100%;background:#0f172a;z-index:9999;display:flex;align-items:center;justify-content:center;gap:10px;font-size:18px}
+.loader i{color:#D4AF37;animation:spin 1s linear infinite}
+@keyframes spin{100%{transform:rotate(360deg)}}
 
 /* الهيدر */
-.top {position:fixed; top:0; left:0; right:0; background:#1e293b; padding:12px 20px; z-index:101; display:flex; align-items:center; justify-content:space-between; box-shadow:0 2px 10px rgba(0,0,0,0.3)}
-.logo {font-size:20px; font-weight:800; color:#D4AF37}
-.menu-btn {font-size:24px; cursor:pointer; color:#fff}
-.top-btns button {background:rgba(255,255,255,.1); border:0; color:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; margin-right:5px}
+.top{position:fixed;top:0;left:0;right:0;background:#1e293b;padding:12px 20px;z-index:101;display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:20px;font-weight:800;color:#D4AF37}
+.menu-btn{font-size:24px;cursor:pointer;color:#fff}
 
-/* القائمة الجانبية */
-.sidebar {position:fixed; top:0; right:-280px; width:280px; height:100%; background:#1e293b; transition:0.3s ease; z-index:1000; padding-top:70px; box-shadow:-5px 0 20px rgba(0,0,0,0.4)}
-.sidebar.active {right:0}
-.sidebar a {display:flex; align-items:center; gap:12px; color:#cbd5e1; text-decoration:none; padding:14px 20px; font-weight:600; transition:0.2s}
-.sidebar a:hover {background:#334155; color:#D4AF37}
-.overlay {position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; z-index:999}
-.overlay.active {display:block}
+/* القائمة */
+.sidebar{position:fixed;top:0;right:-280px;width:280px;height:100%;background:#1e293b;transition:0.3s ease;z-index:1000;padding-top:70px}
+.sidebar.active{right:0}
+.sidebar a{display:flex;align-items:center;gap:12px;color:#cbd5e1;text-decoration:none;padding:14px 20px;font-weight:600}
+.sidebar a:hover{background:#334155;color:#D4AF37}
+.overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;z-index:999}
+.overlay.active{display:block}
 
 /* المحتوى */
-.main {padding:20px; margin-top:70px}
-.cards {display:grid; grid-template-columns:repeat(3,1fr); gap:15px; margin-bottom:20px}
-.card {background:#1e293b; padding:20px; border-radius:12px; text-align:center; animation:slideUp 0.5s ease}
-.card h3 {font-size:14px; color:#94a3b8; margin-bottom:8px}
-.card h2 {font-size:32px; color:#D4AF37}
-@keyframes slideUp {from{opacity:0; transform:translateY(20px)} to{opacity:1; transform:translateY(0)}}
+.main{padding:20px;margin-top:70px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:20px}
+.card{background:#1e293b;padding:20px;border-radius:12px;text-align:center;animation:slideUp 0.5s}
+.card h3{font-size:14px;color:#94a3b8;margin-bottom:8px}
+.card h2{font-size:32px;color:#D4AF37}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 
-.section {background:#1e293b; padding:20px; border-radius:12px; margin-bottom:15px}
-.section h3 {color:#D4AF37; margin-bottom:15px; border-bottom:2px solid #334155; padding-bottom:10px}
+.section{background:#1e293b;padding:20px;border-radius:12px;margin-bottom:15px}
+.section h3{color:#D4AF37;margin-bottom:15px;border-bottom:2px solid #334155;padding-bottom:10px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.item-box{background:#334155;padding:12px;border-radius:8px}
+.btn{background:#3b82f6;border:none;color:#fff;padding:8px 15px;border-radius:6px;cursor:pointer;margin:3px;font-weight:600}
+.btn-danger{background:#ef4444}
+input{width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#fff;margin:5px 0}
 
-.grid-2 {display:grid; grid-template-columns:1fr 1fr; gap:12px}
-.item-box {background:#334155; padding:12px; border-radius:8px; margin-bottom:10px}
-.btn {background:#3b82f6; border:none; color:#fff; padding:8px 15px; border-radius:6px; cursor:pointer; font-weight:600; margin:3px}
-.btn-danger {background:#ef4444}
-.btn-success {background:#16a34a}
-input, select {width:100%; padding:10px; background:#0f172a; border:1px solid #334155; border-radius:8px; color:#fff; margin:5px 0}
-
-@media(max-width:768px){
-  .cards {grid-template-columns:1fr}
-  .grid-2 {grid-template-columns:1fr}
+@media(max-width:768px){.cards{grid-template-columns:1fr}.grid-2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 
-<!-- شاشة التحميل -->
-<div class="loader" id="loader">
-  <i class="fa fa-spinner"></i>
-  <span>جاري التحميل...</span>
-</div>
-
-<!-- القائمة -->
+<div class="loader" id="loader"><i class="fa fa-spinner"></i> جاري التحميل...</div>
 <div class="overlay" id="overlay" onclick="toggleMenu()"></div>
+
 <div class="sidebar" id="sidebar">
   <a href="javascript:loadPage('home')"><i class="fa fa-home"></i> الرئيسية</a>
   <a href="javascript:loadPage('subs')"><i class="fa fa-users"></i> المشتركين</a>
@@ -69,102 +59,43 @@ input, select {width:100%; padding:10px; background:#0f172a; border:1px solid #3
   <a href="javascript:loadPage('towers')"><i class="fa fa-broadcast-tower"></i> الأبراج</a>
   <a href="javascript:loadPage('map')"><i class="fa fa-ruler"></i> قياس المسافة</a>
   <a href="javascript:loadPage('logs')"><i class="fa fa-history"></i> سجل النشاطات</a>
-  <a href="javascript:loadPage('notifications')"><i class="fa fa-bell"></i> الإشعارات</a>
   <a href="javascript:loadPage('support')"><i class="fa fa-headset"></i> الدعم الفني</a>
   <a href="javascript:loadPage('settings')"><i class="fa fa-cog"></i> الإعدادات</a>
   <a href="/logout"><i class="fa fa-sign-out"></i> خروج</a>
 </div>
 
-<!-- الهيدر -->
 <div class="top">
-  <div style="display:flex; gap:15px; align-items:center">
+  <div style="display:flex;gap:15px;align-items:center">
     <i class="fa fa-bars menu-btn" onclick="toggleMenu()"></i>
     <span class="logo">OMAIA ISP</span>
   </div>
-  <div class="top-btns">
-    <button onclick="fetch('/toggle_lang').then(()=>location.reload())">EN/AR</button>
-    <button onclick="fetch('/toggle_theme_ajax').then(()=>location.reload())">◐</button>
+  <div>
+    <button class="btn" onclick="fetch('/toggle_lang').then(()=>location.reload())">EN/AR</button>
   </div>
 </div>
 
-<!-- المحتوى -->
 <div class="main" id="main">
   <!-- الكروت -->
   <div class="cards">
-    <div class="card">
-      <h3>عدد الصحون</h3>
-      <h2 id="dishCount">0</h2>
-    </div>
-    <div class="card">
-      <h3>عدد الأبراج</h3>
-      <h2 id="towerCount">0</h2>
-    </div>
-    <div class="card">
-      <h3>عدد الحسابات</h3>
-      <h2 id="userCount">0</h2>
-    </div>
-  </div>
-
-  <!-- الصحون -->
-  <div class="section">
-    <h3><i class="fa fa-satellite-dish"></i> الصحون</h3>
-    <div class="grid-2" id="dishesList">
-      <!-- بينضافو بالجافا -->
-    </div>
-  </div>
-
-  <!-- الأبراج -->
-  <div class="section">
-    <h3><i class="fa fa-broadcast-tower"></i> الأبراج</h3>
-    <div id="towersList"></div>
-  </div>
-
-  <!-- قياس المسافة -->
-  <div class="section">
-    <h3><i class="fa fa-ruler"></i> قياس المسافة</h3>
-    <div class="grid-2">
-      <input id="lat1" placeholder="خط العرض الأول">
-      <input id="lng1" placeholder="خط الطول الأول">
-      <input id="lat2" placeholder="خط العرض الثاني">
-      <input id="lng2" placeholder="خط الطول الثاني">
-    </div>
-    <button class="btn btn-success" onclick="calcDistance()">احسب المسافة</button>
-    <h2 id="distResult" style="margin-top:10px; color:#D4AF37"></h2>
+    <div class="card"><h3>عدد الصحون</h3><h2>{{stats.dishes}}</h2></div>
+    <div class="card"><h3>عدد الأبراج</h3><h2>{{stats.towers}}</h2></div>
+    <div class="card"><h3>عدد الحسابات</h3><h2>{{stats.users}}</h2></div>
   </div>
 </div>
 
 <script>
-// فتح وسكر القائمة
 function toggleMenu(){
   document.getElementById('sidebar').classList.toggle('active');
   document.getElementById('overlay').classList.toggle('active');
 }
-
-// اخفاء شاشة التحميل
-window.onload = () => {
-  setTimeout(()=>{ document.getElementById('loader').style.display='none' }, 800);
+window.onload=()=>{setTimeout(()=>{document.getElementById('loader').style.display='none'},800)}
+function loadPage(v){
+  document.getElementById('loader').style.display='flex';
+  fetch('/api/page?v='+v).then(r=>r.text()).then(d=>{
+    document.getElementById('main').innerHTML=d;
+    document.getElementById('loader').style.display='none';
+  })
 }
-
-// تحميل البيانات
-async function loadData(){
-  // هون بتحط fetch للبيانات من السيرفر تبعك
-  document.getElementById('dishCount').innerText = 12;
-  document.getElementById('towerCount').innerText = 5;
-  document.getElementById('userCount').innerText = 240;
-}
-
-// حساب المسافة
-function calcDistance(){
-  let d1 = parseFloat(document.getElementById('lat1').value);
-  let d2 = parseFloat(document.getElementById('lat2').value);
-  let d3 = parseFloat(document.getElementById('lng1').value);
-  let d4 = parseFloat(document.getElementById('lng2').value);
-  let dist = Math.sqrt((d2-d1)**2 + (d4-d3)**2) * 111;
-  document.getElementById('distResult').innerText = "المسافة: " + dist.toFixed(2) + " كم";
-}
-
-loadData();
 </script>
-
 </body>
 </html>
