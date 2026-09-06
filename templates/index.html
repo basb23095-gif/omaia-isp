@@ -1,39 +1,19 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OMAIA ISP</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{font-family:'Segoe UI',Arial;background:#0f172a;color:#fff;text-align:center}
-header{padding:70px 20px;background:linear-gradient(135deg,#2563eb,#7c3aed)}
-h1{font-size:52px;font-weight:900}
-p.sub{font-size:19px;opacity:.9;margin:12px 0}
-.btn{display:inline-block;margin:10px 8px 0;padding:14px 36px;background:#fff;color:#2563eb;border-radius:50px;text-decoration:none;font-weight:800}
-.btn.out{background:transparent;color:#fff;border:2px solid #fff}
-.btn:hover{transform:translateY(-2px)}
-.cards{display:flex;gap:18px;justify-content:center;padding:45px 15px;flex-wrap:wrap;max-width:1100px;margin:0 auto}
-.card{background:#1e293b;padding:28px;border-radius:16px;width:270px;border:1px solid #2d3a52}
-.card:hover{border-color:#3b82f6;transform:translateY(-5px)}
-.whatsapp{position:fixed;bottom:20px;left:20px;background:#25D366;color:#fff;width:55px;height:55px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;text-decoration:none;z-index:1000}
-footer{padding:20px;opacity:.6;font-size:13px}
-</style>
+    <meta charset="UTF-8"><title>تسجيل الدخول</title>
+    <link rel="stylesheet" href="https://jsdelivr.net">
 </head>
-<body>
-<header>
-<h1>OMAIA ISP</h1>
-<p class="sub">إنترنت سريع وموثوق لمنزلك وعملك</p>
-<a class="btn" href="https://wa.me/905344851045" target="_blank">اشترك الآن 🔥</a>
-<a class="btn out" href="/login">دخول الموظفين</a>
-</header>
-<div class="cards">
-<div class="card"><h3>⚡ سرعة عالية</h3><p>حتى 1000 ميغا</p></div>
-<div class="card"><h3>🛡️ دعم 24/7</h3><p>فريق جاهز دائماً</p></div>
-<div class="card"><h3>💰 أسعار منافسة</h3><p>باقات تناسب الجميع</p></div>
-</div>
-<footer>تصميم م. عبدو عباس - <a href="https://wa.me/905344851045" style="color:#60a5fa">تواصل واتساب</a></footer>
-<a class="whatsapp" href="https://wa.me/905344851045" target="_blank">💬</a>
+<body style="background:#0f172a; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+    <article style="background:#1e293b; width:100%; max-width:360px; border:none; padding:25px;">
+        <h3 style="color:#38bdf8; text-align:center;">دخول لوحة التحكم</h3>
+        {% if error %}<p style="color:#f87171; text-align:center;">{{ error }}</p>{% endif %}
+        <form method="POST">
+            <input type="text" name="username" placeholder="اسم المستخدم (User)" required style="background:#0f172a; color:white;">
+            <input type="text" name="phone" placeholder="رقم الهاتف (Phone)" required style="background:#0f172a; color:white;">
+            <input type="password" name="password" placeholder="كلمة المرور" required style="background:#0f172a; color:white;">
+            <button type="submit" style="background:#2563eb; border:none; width:100%;">دخول</button>
+        </form>
+    </article>
 </body>
 </html>
