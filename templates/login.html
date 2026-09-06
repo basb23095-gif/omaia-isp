@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8"><title>تسجيل الدخول</title>
+    <link rel="stylesheet" href="https://jsdelivr.net">
+</head>
+<body style="background:#0f172a; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+    <article style="background:#1e293b; width:100%; max-width:360px; border:none; padding:25px;">
+        <h3 style="color:#38bdf8; text-align:center;">دخول لوحة التحكم</h3>
+        {% if error %}<p style="color:#f87171; text-align:center;">{{ error }}</p>{% endif %}
+        <form method="POST">
+            <input type="text" name="username" placeholder="اسم المستخدم (User)" required style="background:#0f172a; color:white;">
+            <input type="text" name="phone" placeholder="رقم الهاتف (Phone)" required style="background:#0f172a; color:white;">
+            <input type="password" name="password" placeholder="كلمة المرور" required style="background:#0f172a; color:white;">
+            <button type="submit" style="background:#2563eb; border:none; width:100%;">دخول</button>
+        </form>
+    </article>
+</body>
+</html>
