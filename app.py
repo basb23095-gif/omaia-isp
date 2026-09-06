@@ -1,28 +1,38 @@
 from flask import Flask, request, redirect, session, jsonify, render_template_string
-import os, datetime, html, subprocess, platform, ipaddress, psycopg2, psycopg2.extras
+import os, datetime, html, subprocess, platform, ipaddress
+try:
+    import psycopg2
+    import psycopg2.extras
+    HAS_PG = True
+except Exception as e:
+    HAS_PG = False
 
 app = Flask(__name__)
-# مفتاح الأمان يُجلب من إعدادات البيئة في Render أو يستخدم الافتراضي آمن
+# مفتاح أمان للموقع الإلكتروني مستقر
 app.secret_key = os.environ.get("SECRET_KEY", "omia-website-secure-key-2026")
 
-# جلب رابط قاعدة البيانات الخاص بـ Supabase من متغيرات البيئة في Render
+# جلب رابط الاتصال بقاعدة بيانات Supabase من إعدادات Render
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip().replace("postgresql://", "postgres://")
 
 def esc(s): 
     return html.escape(str(s or ''), quote=True)
 
-# الاتصال الآمن والمستقر بـ Supabase PostgreSQL
+# دالة الاتصال المرن والآمن بالسحابة
 def db_connect():
     if not DATABASE_URL:
-        raise ValueError("خطأ: لم يتم ضبط متغير البيئة DATABASE_URL الخاص بـ Supabase في موقع Render!")
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
-    conn.autocommit = True
-    return conn
+        return None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
+        conn.autocommit = True
+        return conn
+    except Exception as e:
+        print(f"Supabase Connection Error: {e}")
+        return None
 
 def qall(q, a=()):
     conn = db_connect()
+    if not conn: return []
     try:
-        # تحويل صيغة ? الخاصة بـ SQLite إلى صيغة %s المتوافقة مع PostgreSQL
         q_pos = q.replace("?", "%s")
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(q_pos, a)
@@ -31,7 +41,7 @@ def qall(q, a=()):
         conn.close()
         return rs
     except Exception as e:
-        print(f"Supabase Error: {e}")
+        print(f"Supabase Query Error: {e}")
         try: conn.close()
         except: pass
         return []
@@ -42,6 +52,7 @@ def qone(q, a=()):
 
 def qexec(q, a=()):
     conn = db_connect()
+    if not conn: return
     try:
         q_pos = q.replace("?", "%s")
         cur = conn.cursor()
@@ -53,33 +64,31 @@ def qexec(q, a=()):
         try: conn.close()
         except: pass
 
-# سجل الحركات والدخول الحية إلى السيرفر
+# دالة تسجيل سجل حركات دخول المستخدمين إلى السيرفر المباشر
 def log_activity(action):
     u = session.get('username', 'زائر مجهول')
     p = session.get('phone', 'بدون هاتف')
     dt = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     qexec("INSERT INTO activity_logs (username, phone, action, dt) VALUES (?,?,?,?)", (u, p, action, dt))
 
-# تهيئة الجداول وبنائها داخل قاعدة بيانات Supabase بشكل متوافق تماماً
+# تهيئة الجداول وبنائها بشكل آمن يمنع توقف وانهيار البناء (Build) على Render
 def init_supabase_tables():
-    # استخدام SERIAL PRIMARY KEY عوضاً عن AUTOINCREMENT لأنها مخصصة لـ PostgreSQL
-    qexec("CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY, password TEXT, role TEXT, username TEXT, active INT DEFAULT 1)")
-    qexec("CREATE TABLE IF NOT EXISTS subs(id SERIAL PRIMARY KEY, name TEXT, phone TEXT, active INT DEFAULT 1)")
-    qexec("CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY, ip TEXT, location TEXT, lat REAL DEFAULT 0, lng REAL DEFAULT 0, dish_name TEXT, tower_name TEXT)")
-    qexec("CREATE TABLE IF NOT EXISTS towers(id SERIAL PRIMARY KEY, name TEXT, lat REAL, lng REAL, location TEXT, is_fixed INT DEFAULT 0)")
-    qexec("CREATE TABLE IF NOT EXISTS activity_logs(id SERIAL PRIMARY KEY, username TEXT, phone TEXT, action TEXT, dt TEXT)")
-    
-    # حساب المدير الافتراضي للموقع
-    if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
-        qexec("INSERT INTO users(phone, password, role, username, active) VALUES(?,?,?,?,?)", ('05344851045', 'admin2024', 'manager', 'admin', 1))
-    
-    # نقطة البرج الثابتة المحمية (لا يمكن حذفها وتظهر افتراضياً)
-    if not qone("SELECT * FROM towers WHERE is_fixed=1"):
-        qexec("INSERT INTO towers(name, lat, lng, location, is_fixed) VALUES(?,?,?,?,?)", ('البرج الرئيسي الثابت للموقع', 35.1318, 36.7578, 'حماة', 1))
-
-# تشغيل التهيئة تلقائياً عند إقلاع السيرفر على Render
-if DATABASE_URL:
-    init_supabase_tables()
+    if not DATABASE_URL:
+        return
+    try:
+        qexec("CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY, password TEXT, role TEXT, username TEXT, active INT DEFAULT 1)")
+        qexec("CREATE TABLE IF NOT EXISTS subs(id SERIAL PRIMARY KEY, name TEXT, phone TEXT, active INT DEFAULT 1)")
+        qexec("CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY, ip TEXT, location TEXT, lat REAL DEFAULT 0, lng REAL DEFAULT 0, dish_name TEXT, tower_name TEXT)")
+        qexec("CREATE TABLE IF NOT EXISTS towers(id SERIAL PRIMARY KEY, name TEXT, lat REAL, lng REAL, location TEXT, is_fixed INT DEFAULT 0)")
+        qexec("CREATE TABLE IF NOT EXISTS activity_logs(id SERIAL PRIMARY KEY, username TEXT, phone TEXT, action TEXT, dt TEXT)")
+        
+        if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
+            qexec("INSERT INTO users(phone, password, role, username, active) VALUES(?,?,?,?,?)", ('05344851045', 'admin2024', 'manager', 'admin', 1))
+        
+        if not qone("SELECT * FROM towers WHERE is_fixed=1"):
+            qexec("INSERT INTO towers(name, lat, lng, location, is_fixed) VALUES(?,?,?,?,?)", ('البرج الرئيسي الثابت للموقع', 35.1318, 36.7578, 'حماة', 1))
+    except Exception as e:
+        print(f"Table Initialization Error: {e}")
 
 def is_valid_ip(ip):
     try:
@@ -88,7 +97,14 @@ def is_valid_ip(ip):
     except: 
         return False
 
-# ---- مسارات السيرفر والموقع (Routing) ----
+# فحص بناء قاعدة البيانات السحابية عند أول طلب فعلي للموقع الإلكتروني
+@app.before_request
+def setup_tables():
+    if not hasattr(app, '_tables_initialized'):
+        init_supabase_tables()
+        app._tables_initialized = True
+
+# ---- مسارات السيرفر والموقع الإلكتروني (Routing) ----
 
 @app.route('/')
 def index():
@@ -103,6 +119,9 @@ def login():
         p = request.form.get('phone', '').strip()
         pwd = request.form.get('password', '')
         
+        if not DATABASE_URL:
+            return render_template_string(LOGIN_HTML, error="لم يتم ضبط متغير البيئة DATABASE_URL الخاص بـ Supabase في Render!")
+            
         user = qone("SELECT * FROM users WHERE username=? AND phone=? AND password=?", (u, p, pwd))
         if user:
             session['phone'] = user['phone']
@@ -118,7 +137,7 @@ def logout():
     session.clear()
     return redirect('/login')
 
-# ---- واجهات البيانات السريعة (AJAX APIs) المستقرة لتغذية واجهة المستخدم ----
+# ---- واجهات البيانات الفورية الذكية (AJAX APIs) تمنع ثقل المتصفح ----
 
 @app.route('/api/data')
 def get_site_data():
@@ -158,7 +177,7 @@ def add_dish():
     name = request.form.get('dish_name', '').strip()
     ip = request.form.get('ip', '').strip()
     if not is_valid_ip(ip):
-        return jsonify(ok=False, msg="خطأ: عنوان IP غير صالح! يرجى التحقق منه.")
+        return jsonify(ok=False, msg="خطأ: عنوان IP غير صالح! يرجى التحقق وإعادة الإدخال.")
     qexec("INSERT INTO dish_ips (dish_name, ip) VALUES (?,?)", (name, ip))
     log_activity(f"أضاف صحن جديد: {name} بالآي بي: {ip}")
     return jsonify(ok=True)
@@ -205,7 +224,7 @@ def api_ping():
     except Exception as e: 
         return jsonify(ok=False, out=str(e))
 
-# ---- كود تصميم واجهة المستخدم الأمامية للهواتف والمتصفحات ----
+# ---- كود تصميم واجهة المستخدم الأمامية للهواتف والمتصفحات (HTML & CSS) ----
 
 LOGIN_HTML = """
 <!DOCTYPE html>
@@ -219,13 +238,4 @@ LOGIN_HTML = """
         .login-card { background: #1e293b; padding: 35px; border-radius: 16px; width: 90%; max-width: 400px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); text-align: center; }
         h2 { margin-bottom: 25px; color: #38bdf8; font-size: 24px; }
         input { width: 100%; padding: 14px; margin: 12px 0; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; box-sizing: border-box; font-size: 16px; }
-        button { width: 100%; padding: 14px; background: #2563eb; border: none; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 16px; }
-        button:hover { background: #1d4ed8; }
-        .error { background: rgba(248,113,113,0.2); padding: 10px; border-radius: 6px; color: #f87171; font-size: 14px; margin-bottom: 15px; border: 1px solid #f87171; }
-    </style>
-</head>
-<body>
-    <div class="login-card">
-        <h2>لوحة تحكم الموقع (Supabase Cloud)</h2>
-        {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form method="POST">
+        button { width: 100%; padding: 14px; background: #2563eb; border: none; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; font-size: 16px; }
