@@ -1,10 +1,10 @@
-from flask import Flask, request, redirect, session, jsonify, render_template_string
+from flask import Flask, request, redirect, session, jsonify, render_template
 import os, datetime, html, subprocess, platform, ipaddress
 try:
-    import psycopg2, psycopg2.extras
-    HAS_PG = True
+    import psycopg2
+    import psycopg2.extras
 except:
-    HAS_PG = False
+    pass
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "omia-secure-key-2026")
@@ -24,14 +24,17 @@ def qall(q, a=()):
     if not conn: return []
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(q.replace("?", "%s"), a); rs = [dict(r) for r in cur.fetchall()]
+        cur.execute(q.replace("?", "%s"), a)
+        rs = [dict(r) for r in cur.fetchall()]
         cur.close(); conn.close(); return rs
     except:
         if conn: conn.close()
         return []
 
+# تم الإصلاح الحتمي والنهائي: إرجاع أول عنصر مستقل Dict فقط أو None
 def qone(q, a=()):
-    r = qall(q, a); return r if r else None
+    r = qall(q, a)
+    return r[0] if r else None
 
 def qexec(q, a=()):
     conn = db_connect()
@@ -49,13 +52,13 @@ def log_activity(action):
 
 def init_supabase_tables():
     if not DATABASE_URL: return
-    qexec("CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY, password TEXT, role TEXT, username TEXT, active INT DEFAULT 1)")
-    qexec("CREATE TABLE IF NOT EXISTS subs(id SERIAL PRIMARY KEY, name TEXT, phone TEXT, active INT DEFAULT 1)")
+    qexec("CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY, password TEXT, role TEXT, username TEXT)")
+    qexec("CREATE TABLE IF NOT EXISTS subs(id SERIAL PRIMARY KEY, name TEXT, phone TEXT)")
     qexec("CREATE TABLE IF NOT EXISTS dish_ips(id SERIAL PRIMARY KEY, ip TEXT, dish_name TEXT)")
     qexec("CREATE TABLE IF NOT EXISTS towers(id SERIAL PRIMARY KEY, name TEXT, lat REAL, lng REAL, location TEXT, is_fixed INT DEFAULT 0)")
     qexec("CREATE TABLE IF NOT EXISTS activity_logs(id SERIAL PRIMARY KEY, username TEXT, phone TEXT, action TEXT, dt TEXT)")
     if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
-        qexec("INSERT INTO users(phone, password, role, username, active) VALUES(?,?,?,?,?)", ('05344851045', 'admin2024', 'manager', 'admin', 1))
+        qexec("INSERT INTO users(phone, password, role, username) VALUES(?,?,?,?)", ('05344851045', 'admin2024', 'manager', 'admin'))
     if not qone("SELECT * FROM towers WHERE is_fixed=1"):
         qexec("INSERT INTO towers(name, lat, lng, location, is_fixed) VALUES(?,?,?,?,?)", ('البرج الرئيسي الثابت', 35.1318, 36.7578, 'حماة', 1))
 
@@ -67,7 +70,11 @@ def setup_tables():
 @app.route('/')
 def index():
     if not session.get('phone'): return redirect('/login')
-    return render_template_string(BASE_HTML)
+    ns = (qone("SELECT COUNT(*) as c FROM subs") or {}).get('c', 0)
+    nd = (qone("SELECT COUNT(*) as c FROM dish_ips") or {}).get('c', 0)
+    nt = (qone("SELECT COUNT(*) as c FROM towers") or {}).get('c', 0)
+    # تم تصحيح أسماء المتغيرات كلياً بشرطة سفلية kpi_towers وتمريرها للقالب
+    return render_template('index.html', kpi_dishes=nd, kpi_towers=nt, kpi_subs=ns, username=esc(session.get('username')), phone=esc(session.get('phone')))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -75,17 +82,21 @@ def login():
         u = request.form.get('username', '').strip()
         p = request.form.get('phone', '').strip()
         pwd = request.form.get('password', '')
-        if not DATABASE_URL: return render_template_string(LOGIN_HTML, error="لم يتم ضبط DATABASE_URL")
+        if not DATABASE_URL: return render_template('login.html', error="DATABASE_URL مفقود في Render!")
         user = qone("SELECT * FROM users WHERE username=? AND phone=? AND password=?", (u, p, pwd))
         if user:
-            session['phone'], session['username'] = user['phone'], user['username']
-            log_activity("سجل دخوله للموقع"); return redirect('/')
-        return render_template_string(LOGIN_HTML, error="بيانات الدخول غير صحيحة")
-    return render_template_string(LOGIN_HTML, error=None)
+            session['phone'] = user['phone']
+            session['username'] = user['username']
+            log_activity("سجل دخوله للموقع")
+            return redirect('/')
+        return render_template('login.html', error="بيانات الدخول غير صحيحة")
+    return render_template('login.html', error=None)
 
 @app.route('/logout')
 def logout():
-    log_activity("سجل خروجه من الموقع"); session.clear(); return redirect('/login')
+    log_activity("سجل خروجه من الموقع")
+    session.clear()
+    return redirect('/login')
 
 @app.route('/api/data')
 def get_site_data():
@@ -114,7 +125,8 @@ def add_dish():
         ipaddress.ip_address(ip)
         qexec("INSERT INTO dish_ips (dish_name, ip) VALUES (?,?)", (n, ip)); log_activity(f"أضاف صحن: {n}")
         return jsonify(ok=True)
-    except: return jsonify(ok=False, msg="عنوان IP غير صالح!")
+    except:
+        return jsonify(ok=False, msg="عنوان IP غير صالح!")
 
 @app.route('/api/dishes/delete/<int:id>', methods=['POST'])
 def del_dish(id):
@@ -141,55 +153,13 @@ def del_tower(id):
 def api_ping():
     ip = request.args.get('ip', '').strip()
     try:
-        ipaddress.ip_address(ip)
-        w = platform.system().lower() == 'windows'
+        ipaddress.ip_address(ip); w = platform.system().lower() == 'windows'
         cmd = ['ping', '-n', '2', ip] if w else ['ping', '-c', '2', '-W', '2', ip]
         o = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         return jsonify(ok=True, out=((o.stdout or '') + (o.stderr or ''))[:1000])
-    except: return jsonify(ok=False, out='IP غير صحيح')
+    except:
+        return jsonify(ok=False, out='IP غير صحيح')
 
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head><meta charset="UTF-8"><title>Login</title><link rel="stylesheet" href="https://jsdelivr.net"></head>
-<body style="background:#0f172a; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
-    <article style="background:#1e293b; width:100%; max-width:360px; border:none; padding:25px;">
-        <h3 style="color:#38bdf8; text-align:center;">دخول لوحة التحكم</h3>
-        {% if error %} <p style="color:#f87171; text-align:center;">{{ error }}</p> {% endif %}
-        <form method="POST">
-            <input type="text" name="username" placeholder="User" required style="background:#0f172a; color:white;">
-            <input type="text" name="phone" placeholder="Phone" required style="background:#0f172a; color:white;">
-            <input type="password" name="password" placeholder="Password" required style="background:#0f172a; color:white;">
-            <button type="submit" style="background:#2563eb; border:none;">دخول</button>
-        </form>
-    </article>
-</body>
-</html>
-"""
-
-BASE_HTML = """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8"><title>لوحة التحكم</title>
-    <link rel="stylesheet" href="https://jsdelivr.net">
-    <link rel="stylesheet" href="https://unpkg.com" />
-    <style>
-        body { background:#0f172a; color:#f8fafc; } header, article { background:#1e293b !important; border:none !important; }
-        .sidebar { position:fixed; top:0; right:-280px; width:280px; height:100%; background:#1e293b; z-index:1000; transition:0.3s; padding-top:60px; }
-        .sidebar.open { right:0; } .sidebar a { display:block; padding:15px; color:white; cursor:pointer; border-bottom:1px solid #334155; }
-        .overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); display:none; z-index:999; }
-        .overlay.active { display:block; } .page-section { display:none; } .page-section.active { display:block; }
-        #map { height:380px; border-radius:12px; margin-top:15px; }
-    </style>
-</head>
-<body>
-    <div id="overlay" onclick="toggleMenu()" class="overlay"></div>
-    <header class="container-fluid" style="display:flex; justify-content:space-between; align-items:center;">
-        <button onclick="toggleMenu()" style="background:none; border:none; color:white; font-size:24px; width:auto; margin:0;">☰ القائمة</button>
-        <h3 style="margin:0; color:#38bdf8;">لوحة تحكم الموقع</h3>
-        <a href="/logout" style="color:#f87171; background:#334155; padding:8px 16px; border-radius:6px; text-decoration:none;">خروج</a>
-    </header>
-    <div class="sidebar" id="sidebar">
-        <a onclick="showPage('home')">🏠 الرئيسية</a> <a onclick="showPage('subs')">👥 المشتركين</a>
-        <a onclick="showPage('dishes')">📡 الصحون</a> <a onclick="showPage('towers')">🗼 الأبراج والخرائط</a>
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
