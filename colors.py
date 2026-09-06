@@ -1,8 +1,31 @@
 def get_colors():
-    return {'main':'#2b2f5e','accent':'#3b407a','card_bg':'#2a2e5a','text':'#e6e9f5','link':'#5aa9ff','icon_ip':'#2a2e5a','icon_disabled':'#2a2e5a','icon_online':'#2a2e5a','icon_active':'#2a2e5a','icon_monqatein':'#2a2e5a','icon_modirin':'#2a2e5a','icon_no_expire':'#2a2e5a','icon_expired':'#2a2e5a','icon_blocked':'#2a2e5a'}
+    return {
+        'bg1': '#0a1930',
+        'bg2': '#1e3a8a',
+        'bg3': '#1e40af',
+        'text': '#ffffff',
+        'text2': '#7dd3fc',
+        'link': '#7dd3fc',
+        'main': '#3b82f6',
+        'accent': '#06b6d4',
+        'card_bg': 'linear-gradient(135deg,rgba(30,58,138,.9),rgba(30,64,175,.7))',
+        'card_border': 'rgba(255,255,255,.12)',
+        'top_bg': 'rgba(10,25,47,.95)',
+        'logo_bg': '#ef4444',
+        'icon_ip': 'linear-gradient(135deg,#3b82f6,#06b6d4)',
+        'icon_active': 'linear-gradient(135deg,#8b5cf6,#ec4899)',
+        'btn': 'linear-gradient(135deg,#3b82f6,#06b6d4)',
+        'del': '#ef4444',
+        'input_bg': 'rgba(255,255,255,.08)',
+    }
+
 def get_bg_css():
-    return "background:#1e2142;"
+    c = get_colors()
+    return f"background:linear-gradient(135deg,{c['bg1']} 0%,{c['bg2']} 50%,{c['bg3']} 100%);min-height:100vh;"
+
 def get_menu_css():
-    return ".top{background:#23264d;}.sb{background:#23264d;}.sb a{color:#9aa0c3;}"
-def get_logo_html(size=32):
-    return f"<div style='width:{size}px;height:{size}px;background:#ff6b1a;border-radius:8px'></div>"
+    return ".top{display:flex;align-items:center;justify-content:space-between}"
+
+def get_logo_html():
+    c = get_colors()
+    return f"<span style='display:inline-block;width:28px;height:28px;background:{c['logo_bg']};border-radius:8px;vertical-align:middle'></span>"
