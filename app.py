@@ -1,5 +1,5 @@
 from flask import Flask, request, redirect, session, jsonify, render_template_string
-import os, datetime, json, html, subprocess, platform, ipaddress
+import os, datetime, json, html, subprocess, platform, ipaddress, math
 try:
     import psycopg2, psycopg2.extras
 except: psycopg2=None
@@ -15,7 +15,7 @@ ACTIVITY_LOG = []
 
 def add_log(action):
     ACTIVITY_LOG.insert(0, {"time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "action": action})
-    if len(ACTIVITY_LOG) > 50: ACTIVITY_LOG.pop()
+    if len(ACTIVITY_LOG) > 100: ACTIVITY_LOG.pop()
 
 def esc(s): return html.escape(str(s or ''), quote=True)
 def db():
@@ -54,13 +54,14 @@ def fnum(v):
     try:return float(v or 0)
     except:return 0
 def init():
-    ss=["CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,active INT DEFAULT 1)","CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,active INT DEFAULT 1)","CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,sub_id INT,amount REAL,typ TEXT,dt TEXT,note TEXT,currency TEXT DEFAULT 'SYP',name TEXT)","CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,lat REAL DEFAULT 0,lng REAL DEFAULT 0,dish_name TEXT,tower_name TEXT)","CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,lat REAL,lng REAL,location TEXT,fixed INT DEFAULT 0)"]
+    ss=["CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,active INT DEFAULT 1,username TEXT)","CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,active INT DEFAULT 1)","CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,sub_id INT,amount REAL,typ TEXT,dt TEXT,note TEXT,currency TEXT DEFAULT 'SYP',name TEXT)","CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,lat REAL DEFAULT 0,lng REAL DEFAULT 0,dish_name TEXT,tower_name TEXT)","CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,lat REAL,lng REAL,location TEXT,fixed INT DEFAULT 0)"]
     if USE_PG: ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
     try: qexec("ALTER TABLE towers ADD COLUMN fixed INT DEFAULT 0")
     except: pass
     if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username,active) VALUES(?,?,?,?,?)",('05344851045','admin2024','manager','admin',1))
+        add_log("تم انشاء مستخدم افتراضي: admin")
     # نقطة ثابتة افتراضية
     if not qone("SELECT * FROM towers WHERE fixed=1"):
         qexec("INSERT INTO towers(name,lat,lng,location,fixed) VALUES(?,?,?,?,1)",('برج الحصن الرئيسي',34.73,36.71,'حمص',1))
@@ -83,6 +84,13 @@ TR = {
 def T(k):
     lang=session.get('lang','ar')
     return TR.get(lang,TR['ar']).get(k,k)
+
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
 @app.route('/api/ping')
 def api_ping():
@@ -117,35 +125,46 @@ def page_content(v):
         return h
 
     if v=='subs':
-        rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 100")
+        rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
         h="<div class=card><h3>المشتركين</h3><form data-ajax method=post action=/add_sub><input name=name required placeholder='الاسم'><input name=phone placeholder='رقم الهاتف'><button>اضافة</button></form></div>"
-        for r in rs: h+="<div class=card grid-2><span>"+esc(r['name'])+" - "+esc(r['phone'])+"</span><div><button class=btn>تعديل</button> <a href=/del_sub/"+str(r['id'])+" data-del "+dis+" class='btn btn-danger'>حذف</a></div></div>"
+        for r in rs: h+="<div class=card grid-2><div><b>"+esc(r['name'])+"</b><br><small>"+esc(r['phone'])+"</small></div><div><button class=btn onclick='editSub("+str(r['id'])+")'>تعديل</button> <a href=/del_sub/"+str(r['id'])+" data-del "+dis+" class='btn btn-danger'>حذف</a></div></div>"
+        h+="<script>function editSub(id){alert('تعديل المشترك رقم: '+id)}</script>"
         return h
 
     if v=='dishes':
         rs=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 200")
-        h="<div class=card><h3>الصحون</h3><form data-ajax method=post action=/add_dish><input name=dish_name required placeholder='اسم الطبق'><button>اضافة</button></form></div><div class=grid-2>"
+        h="<div class=card><h3>الصحون</h3><form data-ajax method=post action=/add_dish><input name=dish_name required placeholder='اسم الطبق'><input name=location placeholder='الموقع'><button>اضافة</button></form></div><div class=grid-2>"
         for r in rs:
-            h+="<div class='card small'><b>"+esc(r.get('dish_name') or '')+"</b><br><button class=btn onclick='pingDish(\""+esc(r['ip'])+"\")'>بينغ</button> <a href=/del_dish/"+str(r['id'])+" data-del "+dis+" class='btn btn-danger'>حذف</a></div>"
+            h+="<div class='card small'><b>"+esc(r.get('dish_name') or '')+"</b><br><small>"+esc(r.get('location') or '')+"</small><br><button class=btn onclick='pingDish(\""+esc(r['ip'])+"\")'>بينغ</button> <a href=/del_dish/"+str(r['id'])+" data-del "+dis+" class='btn btn-danger'>حذف</a></div>"
         return h+"</div>"
 
     if v=='towers':
         rs=qall("SELECT * FROM towers ORDER BY id DESC LIMIT 100")
         h="<div class=card><h3>الأبراج</h3><form data-ajax method=post action=/add_tower><input name=name required placeholder='اسم البرج'><input name=location placeholder='الموقع'><input name=lat placeholder='خط العرض'><input name=lng placeholder='خط الطول'><button>اضافة</button></form></div>"
         for r in rs:
-            fixed = "<span style='color:orange'>[نقطة ثابتة]</span>" if r.get('fixed') else ""
+            fixed = "<span style='color:orange;font-weight:bold'>[نقطة ثابتة]</span>" if r.get('fixed') else ""
             delbtn = "" if r.get('fixed') else f"<a href=/del_tower/{r['id']} data-del {dis} class='btn btn-danger'>حذف</a>"
-            h+=f"<div class=card><b>{esc(r['name'])}</b> {fixed}<br>{esc(r.get('location',''))} - {r.get('lat',0)},{r.get('lng',0)}<br><button class=btn>تعديل</button> {delbtn}</div>"
+            h+=f"<div class=card><b>{esc(r['name'])}</b> {fixed}<br><small>{esc(r.get('location',''))}</small><br>احداثيات: {r.get('lat',0)},{r.get('lng',0)}<br><button class=btn onclick='editTower({r['id']})'>تعديل</button> {delbtn}</div>"
+        h+="<script>function editTower(id){alert('تعديل البرج رقم: '+id)}</script>"
         return h
 
     if v=='map':
-        h="<div class=card><h3>قياس المسافة</h3><div class=grid-2><input id=lat1 placeholder='خط العرض 1'><input id=lng1 placeholder='خط الطول 1'><input id=lat2 placeholder='خط العرض 2'><input id=lng2 placeholder='خط الطول 2'></div><button class=btn onclick='calcDist()'>احسب المسافة</button><p id=distResult style='font-weight:bold;color:#3b82f6'></p></div>"
+        h="<div class=card><h3>قياس المسافة بين نقطتين</h3><div class=grid-2><input id=lat1 placeholder='خط العرض 1'><input id=lng1 placeholder='خط الطول 1'><input id=lat2 placeholder='خط العرض 2'><input id=lng2 placeholder='خط الطول 2'></div><button class=btn onclick='calcDist()'>احسب المسافة</button><p id=distResult style='font-weight:bold;color:#3b82f6;font-size:18px;margin-top:10px'></p></div>"
+        h+="<div class=card><h3>نقاط ثابتة</h3>"
+        fixed_towers = qall("SELECT * FROM towers WHERE fixed=1")
+        for t in fixed_towers:
+            h+=f"<p><b>{esc(t['name'])}</b> - {esc(t['location'])} - {t['lat']},{t['lng']}</p>"
+        h+="</div>"
         return h
 
     if v=='logs':
         h="<div class=card><h3>سجل النشاطات</h3>"
-        for log in ACTIVITY_LOG: h+=f"<p>{log['time']} - {log['action']}</p>"
+        for log in ACTIVITY_LOG: h+=f"<div style='border-bottom:1px solid #334155;padding:8px'><small>{log['time']}</small><br>{log['action']}</div>"
         return h+"</div>"
+
+    if v=='notifications':
+        h="<div class=card><h3>الإشعارات</h3><p>لا يوجد اشعارات جديدة</p></div>"
+        return h
 
     if v=='settings':
         us=qall("SELECT phone,username FROM users ORDER BY phone");uh=""
@@ -162,22 +181,25 @@ def layout(c,v='home'):
     <style>
     *{{margin:0;padding:0;box-sizing:border-box;font-family:'Cairo',sans-serif}}
     body{{background:{bg};color:{txt};overflow-x:hidden}}
-   .loader{{position:fixed;top:0;left:0;width:100%;height:100%;background:{bg};z-index:9999;display:flex;align-items:center;justify-content:center;font-size:20px}}
-   .sidebar{{position:fixed;right:-280px;top:0;width:280px;height:100%;background:{card};transition:0.3s;z-index:1000;padding-top:60px;box-shadow:-5px 0 15px rgba(0,0,0,0.3)}}
+   .loader{{position:fixed;top:0;left:0;width:100%;height:100%;background:{bg};z-index:9999;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:bold}}
+   .sidebar{{position:fixed;right:-280px;top:0;width:280px;height:100%;background:{card};transition:0.3s ease;z-index:1000;padding-top:60px;box-shadow:-5px 0 15px rgba(0,0,0,0.3)}}
    .sidebar.active{{right:0}}
-   .sidebar a{{display:block;padding:15px 20px;color:{txt};text-decoration:none;transition:0.2s}}
-   .sidebar a:hover{{background:#334155}}
+   .sidebar a{{display:block;padding:15px 20px;color:{txt};text-decoration:none;transition:0.2s;border-right:3px solid transparent}}
+   .sidebar a:hover{{background:#334155;border-right:3px solid #D4AF37}}
    .overlay{{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;z-index:999}}
    .overlay.active{{display:block}}
-   .top{{position:fixed;top:0;left:0;right:0;background:{card};padding:15px;z-index:101;display:flex;align-items:center;justify-content:space-between}}
+   .top{{position:fixed;top:0;left:0;right:0;background:{card};padding:15px;z-index:101;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 10px rgba(0,0,0,0.1)}}
    .cards{{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;padding:20px;margin-top:60px}}
-   .card{{background:{card};padding:20px;border-radius:12px;animation:slideUp 0.5s}}
+   .card{{background:{card};padding:20px;border-radius:12px;animation:slideUp 0.5s;box-shadow:0 2px 8px rgba(0,0,0,0.1)}}
     @keyframes slideUp{{from{{opacity:0;transform:translateY(20px)}}to{{opacity:1;transform:translateY(0)}}}}
    .grid-2{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
-   .btn{{background:#3b82f6;border:none;color:#fff;padding:8px 15px;border-radius:6px;cursor:pointer;margin:3px}}
+   .btn{{background:#3b82f6;border:none;color:#fff;padding:8px 15px;border-radius:6px;cursor:pointer;margin:3px;font-weight:bold}}
    .btn-danger{{background:#ef4444}}
     input,select{{width:100%;padding:8px;background:#334155;border:1px solid #475569;border-radius:6px;color:#fff;margin:5px 0}}
    .main{{padding:20px;margin-top:60px}}
+   .user-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}}
+   .user-card{{display:flex;align-items:center;gap:10px}}
+   .avatar{{width:40px;height:40px;border-radius:50%;background:#D4AF37;display:flex;align-items:center;justify-content:center;font-weight:bold}}
     </style></head><body>
     <div class=loader id=loader>جاري التحميل...</div>
     <div class=overlay id=overlay onclick='toggleMenu()'></div>
@@ -188,6 +210,7 @@ def layout(c,v='home'):
       <a href="javascript:loadPage('towers')">⬣ {T('towers')}</a>
       <a href="javascript:loadPage('map')">◎ قياس المسافة</a>
       <a href="javascript:loadPage('logs')">📜 {T('logs')}</a>
+      <a href="javascript:loadPage('notifications')">🔔 {T('notifications')}</a>
       <a href="javascript:loadPage('settings')">⚙ {T('settings')}</a>
       <a href=/logout>⎋ {T('logout')}</a>
     </div>
@@ -200,10 +223,10 @@ def layout(c,v='home'):
     <script>
     function toggleMenu(){{document.getElementById('sidebar').classList.toggle('active');document.getElementById('overlay').classList.toggle('active')}}
     window.onload=()=>{{setTimeout(()=>{{document.getElementById('loader').style.display='none'}},800)}}
-    window.loadPage=async function(v){{document.getElementById('loader').style.display='flex';var r=await fetch('/api/page?v='+v);document.getElementById('main').innerHTML=await r.text();document.getElementById('loader').style.display='none';bindAjax()}}
-    function bindAjax(){{document.querySelectorAll('form[data-ajax]').forEach(f=>{{f.onsubmit=async e=>{{e.preventDefault();await fetch(f.action,{{method:'POST',body:new FormData(f)}});loadPage('home')}}}});document.querySelectorAll('a[data-del]').forEach(a=>{{a.onclick=async e=>{{e.preventDefault();if(confirm('تأكيد الحذف؟')){{await fetch(a.href);loadPage('home')}}}}}})}}
-    function calcDist(){{let d1=parseFloat(lat1.value),d2=parseFloat(lat2.value),d3=parseFloat(lng1.value),d4=parseFloat(lng2.value);let dist=Math.sqrt((d2-d1)**2+(d4-d3)**2)*111;distResult.innerText="المسافة: "+dist.toFixed(2)+" كم"}}
-    function pingDish(ip){{fetch('/api/ping?ip='+ip).then(r=>r.json()).then(j=>alert(j.out.slice(0,300)))}}
+    window.loadPage=async function(v){{toggleMenu();document.getElementById('loader').style.display='flex';var r=await fetch('/api/page?v='+v);document.getElementById('main').innerHTML=await r.text();document.getElementById('loader').style.display='none';bindAjax()}}
+    function bindAjax(){{document.querySelectorAll('form[data-ajax]').forEach(f=>{{f.onsubmit=async e=>{{e.preventDefault();await fetch(f.action,{{method:'POST',body:new FormData(f)}});var currentPage=new URLSearchParams(window.location.search).get('v')||'home';loadPage(currentPage)}}}});document.querySelectorAll('a[data-del]').forEach(a=>{{a.onclick=async e=>{{e.preventDefault();if(confirm('تأكيد الحذف؟')){{await fetch(a.href);var currentPage=new URLSearchParams(window.location.search).get('v')||'home';loadPage(currentPage)}}}}}})}}
+    function calcDist(){{let d1=parseFloat(lat1.value),d2=parseFloat(lat2.value),d3=parseFloat(lng1.value),d4=parseFloat(lng2.value);if(isNaN(d1)||isNaN(d2)||isNaN(d3)||isNaN(d4)){{distResult.innerText="ادخل الاحداثيات كاملة";return}}let dist=({haversine.__code__.co_name})(d1,d3,d2,d4);distResult.innerText="المسافة: "+dist.toFixed(2)+" كم"}}
+    function pingDish(ip){{if(!ip){{alert('لا يوجد IP'));return}}fetch('/api/ping?ip='+ip).then(r=>r.json()).then(j=>alert(j.out.slice(0,300)))}}
     bindAjax();
     </script></body></html>"""
     return p
@@ -216,7 +239,7 @@ def login():
         uin=request.form.get('userin','').strip();pw=request.form.get('password','');u=qone("SELECT * FROM users WHERE phone=? OR username=?",(uin,uin))
         if u and u['password']==pw:
             session['phone']=u['phone'];add_log(f"تسجيل دخول: {u.get('username')}");return redirect('/dash')
-    return """<html dir=rtl><head><meta charset=utf-8><style>body{background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif}.box{background:#1e293b;padding:30px;border-radius:15px;width:350px}</style></head><body><div class=box><h2 style='text-align:center'>تسجيل الدخول</h2><form method=post><input name=userin placeholder='اسم المستخدم' required><input name=password type=password placeholder='كلمة السر' required><button class=btn style='width:100%'>دخول</button></form></div></body></html>"""
+    return """<html dir=rtl><head><meta charset=utf-8><style>body{background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:'Cairo',sans-serif}.box{background:#1e293b;padding:30px;border-radius:15px;width:350px;box-shadow:0 10px 30px rgba(0,0,0,0.3)}input{width:100%;padding:10px;margin:8px 0;border-radius:6px;border:1px solid #475569;background:#334155;color:#fff}.btn{width:100%;padding:10px;background:#D4AF37;border:none;color:#000;font-weight:bold;border-radius:6px;cursor:pointer}</style></head><body><div class=box><h2 style='text-align:center;margin-bottom:20px'>تسجيل الدخول</h2><form method=post><input name=userin placeholder='اسم المستخدم او الرقم' required><input name=password type=password placeholder='كلمة السر' required><button class=btn>دخول</button></form></div></body></html>"""
 @app.route('/logout')
 def lo(): add_log("تسجيل خروج");session.clear();return redirect('/login')
 @app.route('/dash')
@@ -234,7 +257,7 @@ def a4(i):
     if not can_edit(): return "no"
     name=qone("SELECT name FROM subs WHERE id=?",(i,));qexec("DELETE FROM subs WHERE id=?",(i,));add_log(f"حذف مشترك: {name['name'] if name else ''}");return "ok"
 @app.route('/add_dish',methods=['POST'])
-def c1(): name=request.form.get('dish_name','');qexec("INSERT INTO dish_ips(dish_name) VALUES(?)",(name,));add_log(f"اضافة طبق: {name}");return "ok"
+def c1(): name=request.form.get('dish_name','');loc=request.form.get('location','');qexec("INSERT INTO dish_ips(dish_name,location) VALUES(?,?)",(name,loc));add_log(f"اضافة طبق: {name}");return "ok"
 @app.route('/del_dish/<int:i>')
 def c2(i):
     if not can_edit(): return "no"
