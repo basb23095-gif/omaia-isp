@@ -2,7 +2,7 @@ from flask import Flask, request, redirect, session, jsonify
 from colors import COLORS, logo_html
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import os, datetime, json, html, subprocess, platform, ipaddress, math
+import os, datetime, json, html, subprocess, platform, ipaddress, math, socket
 try: import psycopg2, psycopg2.extras
 except: psycopg2=None
 import sqlite3
@@ -14,6 +14,7 @@ USE_PG = bool(DATABASE_URL.startswith("postgres://") and psycopg2)
 _pg = None
 
 def esc(s): return html.escape(str(s or ''), quote=True)
+def js_esc(s): return json.dumps(str(s or ''), ensure_ascii=False)  # يحل مشكلة علامات التنصيص
 
 def db():
     global _pg
@@ -64,11 +65,25 @@ def qexec(q,a=()):
             cur=c.cursor();cur.execute(q.replace("?","%s"),a);cur.close()
         else:
             c.execute(q,a);c.commit();cc(c)
-    except Exception as e: print(e);cc(c)
+    except Exception as e: print(f"qexec error: {e}");cc(c)
 
 def fnum(v):
     try:return float(v or 0)
     except:return 0
+
+# 4- إصلاح ترقية الجداول - يفحص العمود قبل الإضافة
+def safe_alter(table, column, definition):
+    try:
+        if USE_PG:
+            # في بوستغرس نتأكد
+            qexec(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+        else:
+            # في sqlite نفحص
+            cols = qall(f"PRAGMA table_info({table})")
+            if not any(c['name']==column for c in cols):
+                qexec(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except Exception as e:
+        print(f"alter {table}.{column} : {e}")
 
 def init():
     ss=[
@@ -82,16 +97,13 @@ def init():
     ]
     if USE_PG: ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
-    try: qexec("ALTER TABLE towers ADD COLUMN location TEXT")
-    except: pass
-    try: qexec("ALTER TABLE towers ADD COLUMN fixed INT DEFAULT 0")
-    except: pass
-    try: qexec("ALTER TABLE dish_ips ADD COLUMN dish_name TEXT")
-    except: pass
-    try: qexec("ALTER TABLE dish_ips ADD COLUMN tower_name TEXT")
-    except: pass
-    try: qexec("ALTER TABLE users ADD COLUMN username TEXT")
-    except: pass
+    # ترقية آمنة
+    safe_alter("towers","location","TEXT")
+    safe_alter("towers","fixed","INT DEFAULT 0")
+    safe_alter("dish_ips","dish_name","TEXT")
+    safe_alter("dish_ips","tower_name","TEXT")
+    safe_alter("users","username","TEXT")
+    safe_alter("ledger","note","TEXT")
     if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username,active) VALUES(?,?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin',1))
     if not qone("SELECT * FROM towers WHERE fixed=1"):
@@ -137,7 +149,9 @@ def is_internal_ip(ip):
         return True
     except: return False
 
-def dark(): return session.get('theme','light')
+# 5- إصلاح الوضع الليلي - افتراضي غامق وثابت
+def dark():
+    return session.get('theme','dark')
 
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
@@ -146,18 +160,41 @@ def haversine(lat1, lon1, lat2, lon2):
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
+# 6- إصلاح البينغ على الاستضافة - يمنع انهيار السيرفر
 @app.route('/api/ping')
 @login_required
 def api_ping():
     ip=request.args.get('ip','').strip()
-    if not ip: return jsonify(ok=False,out='no ip')
+    if not ip: return jsonify(ok=False,out='لا يوجد IP')
     if not is_internal_ip(ip): return jsonify(ok=False,out='⛔ خارج الشبكة الداخلية - يجب 192.168.x.x')
+    # على الاستضافة البينغ ممنوع - نجرب سوكت بدلا من بينغ
+    try:
+        # محاولة اتصال TCP سريعة للمنافذ الشائعة للصحون
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        # منافذ الميكروتك الشائعة
+        for port in [80, 8291, 22]:
+            try:
+                result = sock.connect_ex((ip, port))
+                sock.close()
+                if result == 0:
+                    return jsonify(ok=True,out=f'✅ {ip}:{port} متصل (TCP) - البينغ ممنوع على الاستضافة لكن الجهاز يرد')
+            except: pass
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+        sock.close()
+    except: pass
+
     try:
         w=platform.system().lower()=='windows'
         cmd=['ping','-n','2',ip] if w else ['ping','-c','2','-W','2',ip]
-        o=subprocess.run(cmd,capture_output=True,text=True,timeout=8)
-        return jsonify(ok=True,out=((o.stdout or '')+(o.stderr or ''))[:2000])
-    except Exception as e: return jsonify(ok=False,out=str(e))
+        o=subprocess.run(cmd,capture_output=True,text=True,timeout=5)
+        out = (o.stdout or '')+(o.stderr or '')
+        if not out.strip():
+            out = "⚠️ البينغ معطل على هذه الاستضافة (Render/Railway تمنع ICMP). استخدم فحص TCP أعلاه أو جرب من شبكتك المحلية."
+        return jsonify(ok=True,out=out[:2000])
+    except Exception as e: 
+        return jsonify(ok=False,out=f'البينغ غير متاح على الاستضافة: {str(e)[:200]} - استخدم جهازك المحلي للفحص')
 
 def page_content(v):
     h=""; can = can_edit(); dis_attr = "" if can else "disabled style='opacity:.4;pointer-events:none'"
@@ -173,7 +210,7 @@ def page_content(v):
           <div class="card stat-card"><div class=stat-icon>🗼</div><div><h3>عدد الأبراج</h3><h2>{nt}</h2></div></div>
           <div class="card stat-card"><div class=stat-icon>👥</div><div><h3>عدد الحسابات</h3><h2>{ns}</h2></div></div>
         </div>
-        <div class="card"><h3>⚡ فحص الشبكة السريع</h3><div class=ping-box><input id=ping_ip placeholder="192.168.1.1"><button class=btn-blue onclick="doPing()">بينغ</button></div><pre id=ping_out>جاهز...</pre></div>
+        <div class="card"><h3>⚡ فحص الشبكة السريع</h3><div class=ping-box><input id=ping_ip placeholder="192.168.1.1"><button class=btn-blue onclick="doPing()">بينغ</button></div><pre id=ping_out>جاهز...</pre><small style='color:#94a3b8'>على الاستضافة سيتم فحص TCP لأن ICMP ممنوع</small></div>
         <div class="card"><h3>📜 آخر النشاطات - مين داخل الموقع</h3>{logs_html}<button class=btn onclick="loadPage('logs')">عرض الكل</button></div>
         <script>async function doPing(){{let i=document.getElementById("ping_ip").value;let o=document.getElementById("ping_out");if(!i){{o.textContent="ادخل IP";return}} o.textContent="⏳ جاري الفحص...";let r=await fetch("/api/ping?ip="+encodeURIComponent(i));let j=await r.json();o.textContent=j.out}}</script>
         """
@@ -182,7 +219,10 @@ def page_content(v):
         rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
         rows=""
         for r in rs:
-            rows+=f"<div class='card sub-card'><div><b>{esc(r['name'])}</b><br><small>📞 {esc(r['phone'])}</small></div><div class=actions><button class=btn-blue onclick='editSub({r['id']},\"{esc(r['name'])}\",\"{esc(r['phone'])}\")'>تعديل</button><a href=/del_sub/{r['id']} data-del class=btn-red {dis_attr}>حذف</a></div></div>"
+            # 3- إصلاح علامات التنصيص - استخدام js_esc
+            name_js = js_esc(r['name'])
+            phone_js = js_esc(r['phone'])
+            rows+=f"<div class='card sub-card'><div><b>{esc(r['name'])}</b><br><small>📞 {esc(r['phone'])}</small></div><div class=actions><button class=btn-blue onclick='editSub({r['id']}, {name_js}, {phone_js})'>تعديل</button><a href=/del_sub/{r['id']} data-del class=btn-red {dis_attr}>حذف</a></div></div>"
         h=f"<div class=card><h3>👥 المشتركين - عربي</h3><form data-ajax method=post action=/add_sub class=form-row><input name=name required placeholder='الاسم الكامل'><input name=phone placeholder='رقم الهاتف'><button class=btn-gold>اضافة</button></form></div><div class=subs-list>{rows}</div>"
         h+="""
         <div id=editModal class=modal><div class=modal-content><h3>تعديل مشترك</h3><form id=editForm method=post><input type=hidden name=id id=edit_id><input name=name id=edit_name required><input name=phone id=edit_phone><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="closeModal()">الغاء</button></div></form></div></div>
@@ -198,7 +238,12 @@ def page_content(v):
         cards=""
         for r in rs:
             ip=esc(r.get('ip') or '')
-            cards+=f"<div class='card dish-card'><div class=dish-head><b>📡 {esc(r.get('dish_name') or 'بدون اسم')}</b><span class=ip-badge>{ip}</span></div><small>📍 {esc(r.get('location') or '')}</small><div class=actions style='margin-top:8px'><button class=btn-blue onclick='pingDish(\"{ip}\")'>بينغ</button><button class=btn-blue onclick='editDish({r['id']},\"{esc(r.get('dish_name') or '')}\",\"{ip}\",\"{esc(r.get('location') or '')}\")'>تعديل</button><a href=/del_dish/{r['id']} data-del class=btn-red {dis_attr}>حذف</a></div></div>"
+            dname = esc(r.get('dish_name') or 'بدون اسم')
+            dname_js = js_esc(r.get('dish_name') or '')
+            loc = esc(r.get('location') or '')
+            loc_js = js_esc(r.get('location') or '')
+            # إصلاح التنصيص
+            cards+=f"<div class='card dish-card'><div class=dish-head><b>📡 {dname}</b><span class=ip-badge>{ip}</span></div><small>📍 {loc}</small><div class=actions style='margin-top:8px'><button class=btn-blue onclick='pingDish(\"{ip}\")'>بينغ</button><button class=btn-blue onclick='editDish({r['id']}, {dname_js}, \"{ip}\", {loc_js})'>تعديل</button><a href=/del_dish/{r['id']} data-del class=btn-red {dis_attr}>حذف</a></div></div>"
         h=f"<div class=card><h3>📡 الصحون - سطرين قبال بعض (نص شاشة)</h3><form data-ajax method=post action=/add_dish class=form-row><input name=dish_name required placeholder='اسم الصحن'><input name=ip required placeholder='IP داخلي 192.168.x.x'><input name=location placeholder='الموقع'><button class=btn-gold>اضافة</button></form><small style='color:#94a3b8'>* يتم التأكد من الـ IP تلقائياً</small></div><div class=dishes-grid>{cards}</div>"
         h+="""
         <div id=editDishModal class=modal><div class=modal-content><h3>تعديل صحن</h3><form id=editDishForm method=post><input name=dish_name id=edit_dish_name required><input name=ip id=edit_dish_ip required><input name=location id=edit_dish_loc><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editDishModal').style.display='none'">الغاء</button></div></form></div></div>
@@ -212,7 +257,9 @@ def page_content(v):
             is_fixed = r.get('fixed')
             badge = "<span class=fixed-badge>🔒 نقطة ثابتة</span>" if is_fixed else ""
             delbtn = "" if is_fixed else f"<a href=/del_tower/{r['id']} data-del class=btn-red {dis_attr}>حذف</a>"
-            cards+=f"<div class='card tower-card'><div><b>🗼 {esc(r['name'])} {badge}</b><br><small>📍 موقع البرج: {esc(r.get('location') or '')}</small><br><small>🌐 احداثية: {r.get('lat',0)}, {r.get('lng',0)}</small></div><div class=actions>{delbtn}<button class=btn-blue onclick='editTower({r['id']},\"{esc(r['name'])}\",\"{esc(r.get('location') or '')}\",\"{r.get('lat',0)}\",\"{r.get('lng',0)}\")'>تعديل</button></div></div>"
+            tname_js = js_esc(r['name'])
+            tloc_js = js_esc(r.get('location') or '')
+            cards+=f"<div class='card tower-card'><div><b>🗼 {esc(r['name'])} {badge}</b><br><small>📍 موقع البرج: {esc(r.get('location') or '')}</small><br><small>🌐 احداثية: {r.get('lat',0)}, {r.get('lng',0)}</small></div><div class=actions>{delbtn}<button class=btn-blue onclick='editTower({r['id']}, {tname_js}, {tloc_js}, \"{r.get('lat',0)}\", \"{r.get('lng',0)}\")'>تعديل</button></div></div>"
         h=f"<div class=card><h3>🗼 الأبراج - اسم + موقع + احداثية</h3><form data-ajax method=post action=/add_tower class=form-row><input name=name required placeholder='اسم البرج'><input name=location placeholder='موقع البرج'><input name=lat placeholder='خط العرض'><input name=lng placeholder='خط الطول'><label style='display:flex;align-items:center;gap:6px'><input type=checkbox name=fixed value=1> نقطة ثابتة</label><button class=btn-gold>اضافة</button></form></div><div class=towers-list>{cards}</div>"
         h+="""
         <div id=editTowerModal class=modal><div class=modal-content><h3>تعديل برج</h3><form id=editTowerForm method=post><input name=name id=edit_tower_name required><input name=location id=edit_tower_loc><input name=lat id=edit_tower_lat><input name=lng id=edit_tower_lng><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editTowerModal').style.display='none'">الغاء</button></div></form></div></div>
@@ -226,7 +273,7 @@ def page_content(v):
         return h
     elif v=='map':
         towers = qall("SELECT * FROM towers")
-        towers_js = str([{"name": t['name'], "lat": t.get('lat',0), "lng": t.get('lng',0), "loc": t.get('location',''), "fixed": bool(t.get('fixed'))} for t in towers])
+        towers_js = json.dumps([{"name": t['name'], "lat": float(t.get('lat') or 0), "lng": float(t.get('lng') or 0), "loc": str(t.get('location') or ''), "fixed": bool(t.get('fixed'))} for t in towers], ensure_ascii=False)
         h=f"""
         <div class=card>
           <h3>📏 قياس المسافة - يطلع الرقم بدون ما تتحرك الصفحة</h3>
@@ -240,7 +287,7 @@ def page_content(v):
           <div id=distResult class=dist-result>ادخل الاحداثيات واضغط احسب</div>
         </div>
         <div class=card>
-          <h3>🗺️ الخريطة - دقة عالية - عربي كامل</h3>
+          <h3>🗺 الخريطة - دقة عالية - عربي كامل</h3>
           <div id=map style='height:420px;border-radius:12px'></div>
           <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
           <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -263,7 +310,7 @@ def page_content(v):
               let lat2=parseFloat(document.getElementById('lat2').value);
               let lng2=parseFloat(document.getElementById('lng2').value);
               let out=document.getElementById('distResult');
-              if([lat1,lng1,lat2,lng2].some(isNaN)){{out.innerHTML="<span style='color:red'>⚠️ ادخل الاحداثيات الأربعة</span>";return}}
+              if([lat1,lng1,lat2,lng2].some(isNaN)){{out.innerHTML="<span style='color:red'>⚠ ادخل الاحداثيات الأربعة</span>";return}}
               let d=haversine(lat1,lng1,lat2,lng2);
               out.innerHTML=`<div style='font-size:22px'>📍 المسافة: <b style='color:{COLORS['gold']}'>${{d.toFixed(3)}} كم</b></div><small>${{ (d*1000).toFixed(0) }} متر</small>`;
             }}
@@ -301,7 +348,7 @@ def page_content(v):
         us=qall("SELECT phone,username,role FROM users ORDER BY phone");uh=""
         for u in us: ph=esc(u['phone']);un=esc(u.get('username') or u['phone']);role=esc(u.get('role') or '');uh+=f"<div class='card user-card'><div class=avatar>{un[:1]}</div><div><b>{un}</b><br><small>📞 {ph} - {role}</small></div><div><a href=/del_user/{ph} data-del class=btn-red>حذف</a></div></div>"
         h=f"""
-        <div class=card style='max-width:600px;margin:10px auto'><h3>⚙️ إعدادات - User / Phone</h3><p>الحالي: <b>{esc(session.get('phone'))}</b></p><form data-ajax method=post action=/change_pass><input name=newpass type=password required placeholder='كلمة السر الجديدة'><button class=btn-gold style='width:100%'>تغيير كلمة السر</button></form></div>
+        <div class=card style='max-width:600px;margin:10px auto'><h3>⚙ إعدادات - User / Phone</h3><p>الحالي: <b>{esc(session.get('phone'))}</b></p><form data-ajax method=post action=/change_pass><input name=newpass type=password required placeholder='كلمة السر الجديدة'><button class=btn-gold style='width:100%'>تغيير كلمة السر</button></form><form data-ajax method=post action=/toggle_theme style='margin-top:10px'><button class=btn style='width:100%'>🌙/☀ تبديل الثيم</button></form></div>
         <div class=card style='max-width:600px;margin:10px auto'><h3>➕ اضافة مستخدم - User / Phone</h3><form data-ajax method=post action=/add_user class=form-row><input name=phone required placeholder='يوزر / رقم'><input name=password type=password required placeholder='كلمة السر'><select name=role><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>اضافة</button></form></div>
         <div style='max-width:600px;margin:10px auto'><h3>المستخدمين</h3>{uh}</div>
         """
@@ -314,7 +361,7 @@ def layout(c,v='home'):
     card=COLORS['card_dark'] if th=='dark' else COLORS['card_light']
     txt='#fff' if th=='dark' else '#000'
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
-<link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 :root{{--gold:{COLORS['gold']};--bg:{bg};--card:{card};--text:{txt};--border:{COLORS['border_dark']};--input:{COLORS['input_dark']};--blue:{COLORS['btn_blue']};--red:{COLORS['btn_red']}}}
 *{{box-sizing:border-box;font-family:'Cairo',sans-serif}}body{{margin:0;background:var(--bg);color:var(--text);overflow-x:hidden}}
@@ -322,6 +369,7 @@ def layout(c,v='home'):
 .loader.hidden{{opacity:0;visibility:hidden}}
 .loader .spinner{{width:48px;height:48px;border:4px solid var(--border);border-top:4px solid var(--gold);border-radius:50%;animation:spin 1s linear infinite}}
 @keyframes spin{{to{{transform:rotate(360deg)}}}}
+/* 2- إصلاح مقاس القائمة الجانبية */
 .sidebar{{position:fixed;right:-320px;top:0;width:300px;height:100%;background:{COLORS['menu_bg']};transition:all .4s cubic-bezier(0.4,0,0.2,1);z-index:1000;padding-top:70px;box-shadow:-10px 0 30px rgba(0,0,0,0.5);overflow-y:auto}}
 .sidebar.active{{right:0}}
 .sidebar a{{display:flex;align-items:center;gap:12px;padding:15px 18px;color:#fff;text-decoration:none;transition:all .25s;border-right:4px solid transparent;margin:3px 8px;border-radius:10px}}
@@ -332,7 +380,7 @@ def layout(c,v='home'):
 .top{{position:fixed;top:0;left:0;right:0;background:{COLORS['top_bg']};backdrop-filter:blur(10px);padding:12px 18px;z-index:101;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 20px rgba(0,0,0,0.3);border-bottom:1px solid var(--border)}}
 .menu-btn{{font-size:24px;cursor:pointer;background:var(--input);width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:10px;transition:.2s}}
 .menu-btn:hover{{background:var(--gold);color:#000;transform:scale(1.05)}}
-.main{{margin-right:210px;margin-top:65px;padding:14px;min-height:100vh}}
+.main{{margin-right:300px;margin-top:65px;padding:14px;min-height:100vh;transition:margin .4s}}
 .stats-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}}
 .stat-card{{display:flex;align-items:center;gap:10px;padding:14px !important}}
 .stat-card h3{{font-size:12px;color:#94a3b8;margin:0}} .stat-card h2{{font-size:24px;color:var(--gold);margin:2px 0 0}} .stat-icon{{font-size:28px;background:var(--input);width:46px;height:46px;display:flex;align-items:center;justify-content:center;border-radius:10px}}
@@ -346,7 +394,7 @@ def layout(c,v='home'):
 input,select{{width:100%;padding:11px;background:var(--input);border:1px solid var(--border);border-radius:10px;color:var(--text);margin:4px 0}}
 input:focus{{outline:none;border-color:var(--gold)}}
 .form-row{{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end}}
-@media(max-width:700px){{.main{{margin-right:0}}.form-row{{grid-template-columns:1fr}}.dishes-grid{{grid-template-columns:1fr !important}}}}
+@media(max-width:900px){{.main{{margin-right:0}}.form-row{{grid-template-columns:1fr}}.dishes-grid{{grid-template-columns:1fr !important}}.sidebar{{width:280px}}}}
 .dishes-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
 .dish-card{{border-right:4px solid var(--gold)}} .ip-badge{{background:var(--input);padding:2px 8px;border-radius:10px;font-size:11px;color:var(--gold);font-family:monospace}}
 .fixed-badge{{background:var(--gold);color:#000;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold}} .fixed-item{{background:var(--input);padding:10px;border-radius:8px;margin:6px 0;border-right:3px solid var(--gold)}}
@@ -368,11 +416,11 @@ pre{{background:#000;color:#0f0;padding:12px;border-radius:10px;min-height:50px;
 <a href="javascript:loadPage('dishes')" id=nav-dishes>📡 الصحون</a>
 <a href="javascript:loadPage('towers')" id=nav-towers>🗼 الأبراج</a>
 <a href="javascript:loadPage('ledger')" id=nav-ledger>📒 دفتر الحسابات</a>
-<a href="javascript:loadPage('map')" id=nav-map>🗺️ الخريطة وقياس المسافة</a>
+<a href="javascript:loadPage('map')" id=nav-map>🗺 الخريطة وقياس المسافة</a>
 <a href="javascript:loadPage('logs')" id=nav-logs>📜 سجل النشاطات</a>
 <a href="javascript:loadPage('notifications')" id=nav-notifications>🔔 الإشعارات</a>
 <a href="javascript:loadPage('support')" id=nav-support>🎧 الدعم الفني</a>
-<a href="javascript:loadPage('settings')" id=nav-settings>⚙️ الإعدادات User/Phone</a>
+<a href="javascript:loadPage('settings')" id=nav-settings>⚙ الإعدادات User/Phone</a>
 <a href=/logout style='color:var(--red);margin-top:18px;border-top:1px solid var(--border)'>🚪 خروج</a>
 </div>
 <div class=top><div class=menu-btn onclick='toggleMenu()'>☰</div><div>{logo_html()}</div><div style='background:var(--gold);color:#000;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:bold'>PRO</div></div>
@@ -395,7 +443,6 @@ window.loadPage=async function(v){{
     let html=await r.text();
     document.getElementById('main').innerHTML=html;
     bindAjax();
-    // تنفيذ سكربتات الخريطة
     document.getElementById('main').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});
   }}catch(e){{document.getElementById('main').innerHTML='<div class=card style=color:red>خطأ: '+e+'</div>'}}
   setTimeout(hideLoader, 350);
@@ -406,7 +453,7 @@ function bindAjax(){{
     f.onsubmit=async e=>{{e.preventDefault();showLoader();try{{let res=await fetch(f.action,{{method:'POST',body:new FormData(f)}});if(res.status==401){{location.href='/login';return}}if(!res.ok){{let t=await res.text();alert('خطأ: '+t);hideLoader();return}}loadPage(currentPage);}}catch(e){{alert('خطأ: '+e);hideLoader()}}}};
   }});
   document.querySelectorAll('a[data-del]').forEach(a=>{{
-    a.onclick=async e=>{{e.preventDefault();if(!confirm('⚠️ تأكيد الحذف؟'))return;showLoader();let res=await fetch(a.href);if(res.status==401){{location.href='/login';return}}loadPage(currentPage);}};
+    a.onclick=async e=>{{e.preventDefault();if(!confirm('⚠ تأكيد الحذف؟'))return;showLoader();let res=await fetch(a.href);if(res.status==401){{location.href='/login';return}}loadPage(currentPage);}};
   }});
   document.querySelectorAll('a[data-ajax]').forEach(a=>{{
     a.onclick=async e=>{{e.preventDefault();await fetch(a.href);loadPage(currentPage)}};
@@ -433,10 +480,17 @@ def login():
             add_log(f"تسجيل دخول User/Phone: {uin}")
             return redirect('/dash')
         return f"<script>alert('بيانات خاطئة User/Phone');location.href='/login'</script>",401
-    return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Login</title>
-<style>body{{display:flex;align-items:center;justify-content:center;background:{COLORS['bg_dark']};min-height:100vh;margin:0;font-family:sans-serif}} .box{{background:#fff;padding:24px;border-radius:14px;width:92%;max-width:360px;box-shadow:0 20px 40px rgba(0,0,0,0.4)}} input{{width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #ccc}} button{{width:100%;background:{COLORS['btn']};color:#000;padding:12px;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:10px}}</style>
+    # 1- إصلاح لون زر الدخول
+    return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Login OMAIA</title>
+<style>
+body{{display:flex;align-items:center;justify-content:center;background:{COLORS['bg_dark']};min-height:100vh;margin:0;font-family:'Cairo',sans-serif}}
+.box{{background:#fff;padding:28px;border-radius:16px;width:92%;max-width:360px;box-shadow:0 20px 40px rgba(0,0,0,0.4)}}
+input{{width:100%;padding:12px;margin:8px 0;border-radius:10px;border:1px solid #ccc;font-size:14px}}
+button.login-btn{{width:100%;background:{COLORS['gold']};color:#000;padding:13px;border:0;border-radius:10px;font-weight:900;font-size:16px;cursor:pointer;margin-top:12px;transition:all .2s}}
+button.login-btn:hover{{background:{COLORS['gold_hover']};transform:scale(1.02)}}
+</style>
 </head><body><div class=box><h3 style='text-align:center'>{logo_html()}</h3><p style='text-align:center;color:#64748b;font-size:12px'>تسجيل دخول User / Phone</p>
-<form method=post><input name=userin placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='كلمة السر' required><button>دخول</button></form></div></body></html>"""
+<form method=post><input name=userin placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='كلمة السر' required><button class=login-btn>دخول للنظام</button></form></div></body></html>"""
 
 @app.route('/logout')
 def lo():
@@ -452,6 +506,12 @@ def dash():
 def ap():
     if not session.get('phone'): return "login"
     return page_content(request.args.get('v','home'))
+
+@app.route('/toggle_theme',methods=['POST','GET'])
+def toggle_theme():
+    cur = session.get('theme','dark')
+    session['theme'] = 'light' if cur=='dark' else 'dark'
+    return "ok"
 
 @app.route('/add_sub',methods=['POST'])
 @login_required
