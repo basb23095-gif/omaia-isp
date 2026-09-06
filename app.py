@@ -1,6 +1,6 @@
-from flask import Flask, request, redirect, session
+from flask import Flask, request, redirect, session, jsonify
 from colors import COLORS, logo_html
-import os, datetime, json, html
+import os, datetime, json, html, subprocess, platform
 try: import psycopg2, psycopg2.extras
 except: psycopg2=None
 import sqlite3
@@ -61,7 +61,7 @@ def init():
     ]
     if USE_PG: ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
-    for col in ["ALTER TABLE users ADD COLUMN username TEXT","ALTER TABLE dish_ips ADD COLUMN dish_name TEXT","ALTER TABLE dish_ips ADD COLUMN tower_name TEXT","ALTER TABLE ledger ADD COLUMN sub_id INT","ALTER TABLE ledger ADD COLUMN note TEXT"]:
+    for col in ["ALTER TABLE users ADD COLUMN username TEXT","ALTER TABLE dish_ips ADD COLUMN dish_name TEXT","ALTER TABLE dish_ips ADD COLUMN tower_name TEXT"]:
         try: qexec(col)
         except: pass
     if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
@@ -73,14 +73,28 @@ def is_tech(): m=me(); return m and m.get('role')=='tech'
 def can_edit(): return not is_tech()
 def dark(): return session.get('theme','light')
 
+# ping حقيقي
+@app.route('/api/ping')
+def api_ping():
+    ip=request.args.get('ip','').strip()
+    if not ip: return jsonify(ok=False)
+    param='-n' if platform.system().lower()=='windows' else '-c'
+    try:
+        out=subprocess.run(['ping',param,'4','-W','2',ip] if param=='-c' else ['ping',param,'4',ip],
+            capture_output=True,text=True,timeout=10)
+        txt=out.stdout+out.stderr
+        return jsonify(ok=out.returncode==0, out=txt[:2000])
+    except Exception as e:
+        return jsonify(ok=False,out=str(e))
+
 def page_content(v):
     h=""; dis="" if can_edit() else "style='opacity:.35;pointer-events:none'"
-    # 3 - dishes grid 2 columns CSS injected via layout
     if v=='home':
         ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0)
         nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0)
         nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0)
-        h=f"<div class=grid><div class=kpi style='background:#2563eb'>👥<br>{ns}</div><div class=kpi style='background:#16a34a'>📡<br>{nd}</div><div class=kpi style='background:#dc2626'>🗼<br>{nt}</div></div><div class=card>مرحبا {esc(session.get('phone'))} - {esc(me().get('role',''))}</div>"
+        h=f"<div class=grid><div class=kpi style='background:#2563eb'>👥<br>{ns}</div><div class=kpi style='background:#16a34a'>📡<br>{nd}</div><div class=kpi style='background:#dc2626'>🗼<br>{nt}</div></div><div class=card>مرحبا {esc(session.get('phone'))}</div>"
+        h+="<div class=card><h3>📶 فحص Ping حقيقي</h3><div style='display:flex;gap:6px'><input id=ping_ip placeholder='اكتب IP مثلا 8.8.8.8'><button onclick='doPing()'>Ping</button></div><pre id=ping_out style='background:#000;color:#0f0;padding:8px;border-radius:8px;max-height:200px;overflow:auto'></pre></div><script>async function doPing(){let ip=document.getElementById('ping_ip').value;document.getElementById('ping_out').textContent='جاري الفحص...';let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));let j=await r.json();document.getElementById('ping_out').textContent=j.out||'فشل'}</script>"
     elif v=='subs':
         rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 100")
         h="<div class=card><h3>👥 مشتركين</h3><form data-ajax method=post action=/add_sub><input name=name required placeholder=الاسم><input name=phone placeholder=هاتف><button>اضافة</button></form></div>"
@@ -93,15 +107,15 @@ def page_content(v):
         h=f"<div class=card><form data-ajax method=post action=/upd_sub/{r['id']}><input name=name value='{esc(r['name'])}'><input name=phone value='{esc(r['phone'])}'><button>💾 حفظ</button></form></div>"
     elif v=='dishes':
         rs=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 200")
-        h="<div class=card><h3>📡 صحون</h3><form data-ajax method=post action=/add_dish><input name=dish_name required placeholder='📛 اسم صحن'><input name=ip required placeholder='🌐 IP'><input name=tower_name placeholder='🗼 اسم برج'><input name=location placeholder='📍 احداثيات وصف'><div style='display:grid;grid-template-columns:1fr 1fr;gap:6px'><input name=lat placeholder='lat'><input name=lng placeholder='lng'></div><button>اضافة</button></form></div><div class=grid2>"
+        h="<div class=card><h3>📡 صحون</h3><form data-ajax method=post action=/add_dish><input name=dish_name required placeholder='📛 اسم صحن'><input name=ip required placeholder='🌐 IP'><input name=tower_name placeholder='🗼 برج'><div style='display:grid;grid-template-columns:1fr 1fr;gap:6px'><input name=lat placeholder='lat'><input name=lng placeholder='lng'></div><button>اضافة</button></form></div><div class=grid2>"
         for r in rs:
-            e=f"<a href=\"javascript:loadPage('edit_dish_{r['id']}')\" {dis}>✏️ تعديل</a>" if can_edit() else ""
-            h+=f"<div class=card>📛 <b>{esc(r.get('dish_name') or r.get('location',''))}</b><br>🌐 <a href='http://{esc(r['ip'])}' target=_blank>{esc(r['ip'])}</a><br>🗼 {esc(r.get('tower_name',''))}<br>📍 {r.get('lat',0)},{r.get('lng',0)}<br>{e} <a href=/del_dish/{r['id']} data-del {dis} style='color:red'>🗑️ حذف</a></div>"
-        h+="</div>"
+            e=f"<a href=\"javascript:loadPage('edit_dish_{r['id']}')\" {dis}>✏️</a>" if can_edit() else ""
+            h+=f"<div class='card small'>📛<b>{esc(r.get('dish_name') or '')}</b> <span style='font-size:11px'>{esc(r['ip'])}</span><br><div style='display:flex;gap:4px;margin-top:4px'><button style='padding:4px 6px;font-size:11px' onclick=\"pingOne('{esc(r['ip'])}')\">Ping</button>{e}<a href=/del_dish/{r['id']} data-del {dis} style='color:red;font-size:12px'>🗑️</a></div></div>"
+        h+="</div><pre id=ping_out2 style='background:#000;color:#0f0;padding:8px;border-radius:8px'></pre><script>async function pingOne(ip){document.getElementById('ping_out2').textContent='يفحص '+ip+'...';let r=await fetch('/api/ping?ip='+ip);let j=await r.json();document.getElementById('ping_out2').textContent=j.out}</script>"
     elif v.startswith('edit_dish_'):
         if not can_edit(): return "ممنوع"
         r=qone("SELECT * FROM dish_ips WHERE id=?", (v.split('_')[-1],))
-        h=f"<div class=card><form data-ajax method=post action=/upd_dish/{r['id']}><input name=dish_name value='{esc(r.get('dish_name',''))}' placeholder='اسم صحن'><input name=ip value='{esc(r['ip'])}'><input name=tower_name value='{esc(r.get('tower_name',''))}'><input name=lat value='{r.get('lat',0)}'><input name=lng value='{r.get('lng',0)}'><button>💾 حفظ</button></form></div>"
+        h=f"<div class=card><form data-ajax method=post action=/upd_dish/{r['id']}><input name=dish_name value='{esc(r.get('dish_name',''))}'><input name=ip value='{esc(r['ip'])}'><input name=tower_name value='{esc(r.get('tower_name',''))}'><input name=lat value='{r.get('lat',0)}'><input name=lng value='{r.get('lng',0)}'><button>💾 حفظ</button></form></div>"
     elif v=='towers':
         rs=qall("SELECT * FROM towers ORDER BY id DESC LIMIT 100")
         h="<div class=card><h3>🗼 ابراج</h3><form data-ajax method=post action=/add_tower><input name=name required placeholder=اسم><input name=lat placeholder=lat><input name=lng placeholder=lng><button>اضافة</button></form></div>"
@@ -111,28 +125,29 @@ def page_content(v):
     elif v.startswith('edit_tower_'):
         if not can_edit(): return "ممنوع"
         r=qone("SELECT * FROM towers WHERE id=?", (v.split('_')[-1],))
-        h=f"<div class=card><form data-ajax method=post action=/upd_tower/{r['id']}><input name=name value='{esc(r['name'])}'><input name=lat value='{r.get('lat',0)}'><input name=lng value='{r.get('lng',0)}'><button>حفظ</button></form></div>"
+        h=f"<div class=card><form data-ajax method=post action=/upd_tower/{r['id']}><input name=name value='{esc(r['name'])}'><button>حفظ</button></form></div>"
     elif v=='ledger':
-        try: rs=qall("SELECT l.*,s.name sname FROM ledger l LEFT JOIN subs s ON s.id=l.sub_id ORDER BY l.id DESC LIMIT 200")
-        except: rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 200")
+        rs=qall("SELECT l.*,s.name sname FROM ledger l LEFT JOIN subs s ON s.id=l.sub_id ORDER BY l.id DESC LIMIT 200")
         ss=qall("SELECT id,name FROM subs LIMIT 200")
         o="".join([f"<option value='{x['id']}'>{esc(x['name'])}</option>" for x in ss])
-        h=f"<div class=card><h3>📒 دفتر حسابات</h3><form data-ajax method=post action=/add_ledger><select name=sub_id><option value='0'>اختر مشترك</option>{o}</select><input name=amount type=number step=0.01 required placeholder=مبلغ><select name=typ><option>دين</option><option>دفع</option></select><input name=note placeholder=ملاحظة><button>اضافة</button></form><button onclick='window.print()'>🖨️ PDF</button> <a href=/export_ledger>📊 Excel</a></div>"
+        h=f"<div class=card><h3>📒 دفتر</h3><form data-ajax method=post action=/add_ledger><select name=sub_id>{o}</select><input name=amount type=number step=0.01 required placeholder=مبلغ><select name=typ><option>دين</option><option>دفع</option></select><input name=note placeholder=ملاحظة><button>اضافة</button></form></div>"
         for r in rs:
-            e=f"<a href=\"javascript:loadPage('edit_ledger_{r['id']}')\" {dis}>✏️ تعديل</a>" if can_edit() else ""
-            h+=f"<div class=card>👤 {esc(r.get('sname',''))} 💰 {r.get('amount',0)} {esc(r.get('typ',''))} 📝 {esc(r.get('note',''))} {e} <a href=/del_ledger/{r['id']} data-del {dis} style='color:red'>🗑️ حذف</a></div>"
-    elif v.startswith('edit_ledger_'):
-        if not can_edit(): return "ممنوع"
-        r=qone("SELECT * FROM ledger WHERE id=?", (v.split('_')[-1],))
-        h=f"<div class=card><form data-ajax method=post action=/upd_ledger/{r['id']}><input name=amount type=number step=0.01 value='{r.get('amount',0)}'><select name=typ><option>{esc(r.get('typ',''))}</option><option>دين</option><option>دفع</option></select><input name=note value='{esc(r.get('note',''))}'><button>💾 حفظ</button></form></div>"
+            h+=f"<div class=card>👤 {esc(r.get('sname',''))} 💰 {r.get('amount',0)} {esc(r.get('typ',''))}</div>"
     elif v=='map':
-        ds=qall("SELECT lat,lng,dish_name,ip,tower_name FROM dish_ips WHERE lat!=0 LIMIT 300")
-        dj=json.dumps([{"la":float(d.get("lat") or 0),"ln":float(d.get("lng") or 0),"n":str(d.get("dish_name","")),"ip":str(d.get("ip","")),"t":str(d.get("tower_name",""))} for d in ds if d.get("lat")]).replace("</","<\\/")
-        h=f"<div class=card><h3>🗺️ خريطة</h3><div id=mp style='height:70vh;border-radius:10px'></div></div><script>var DS={dj};initMap();</script>"
+        ds=qall("SELECT id,lat,lng,dish_name,ip FROM dish_ips WHERE lat!=0 LIMIT 500")
+        dj=json.dumps([{"id":d["id"],"la":float(d.get("lat") or 0),"ln":float(d.get("lng") or 0),"n":str(d.get("dish_name","")),"ip":str(d.get("ip",""))} for d in ds if d.get("lat")]).replace("</","<\\/")
+        h=f"""<div class=card><h3>🗺️ خريطة + قمر صناعي دقة عالية</h3>
+        <div style='margin-bottom:6px'><button onclick="setSat()">🛰️ قمر صناعي</button><button onclick="setNorm()">🗺️ عادي</button><button onclick="toggleMeasure()">📏 قياس مسافة</button></div>
+        <div id=mp style='height:70vh;border-radius:10px'></div><div style='font-size:12px'>كلك يمين على الخريطة لتثبيت دبوس جديد</div></div>
+        <script>var DS={dj};initMap();</script>"""
     elif v=='settings':
         us=qall("SELECT phone,username,role FROM users ORDER BY phone")
-        uh="".join([f"<div class=card>👤 {esc(u.get('username') or u['phone'])} ({esc(u['phone'])}) - {esc(u.get('role',''))} {'<a href=/del_user/'+esc(u['phone'])+' data-del style=color:red>🗑️</a>' if u['phone']!='05344851045' else ''}</div>" for u in us])
-        h=f"<div class=card><h3>⚙️ اعدادات</h3><form data-ajax method=post action=/change_user><input name=newphone required placeholder='يوزر جديد رقم/اسم'><button>تغيير اليوزر</button></form><form data-ajax method=post action=/change_pass><input name=newpass type=password required placeholder='كلمة جديدة'><button>تغيير كلمة السر</button></form><a href=/toggle_theme data-ajax>🌙/☀️ تبديل الثيم</a></div><div class=card><h3>➕ اضافة يوزر</h3><form data-ajax method=post action=/add_user><input name=phone required placeholder='📱 رقم هاتف / اسم مستخدم'><input name=password type=password required placeholder='🔑 كلمة سر'><select name=role><option value=tech>🧑‍🔧 فني (يضيف فقط)</option><option value=manager>👑 مدير (كل الصلاحيات)</option></select><button>اضافة</button></form></div>{uh}"
+        uh="".join([f"<div class='card user-card {esc(u.get('role',''))}'><div class=avatar>{esc((u.get('username') or u['phone'])[:1])}</div><div><b>{esc(u.get('username') or u['phone'])}</b><br><small>{esc(u['phone'])} - {esc(u.get('role',''))}</small></div>{'<a href=/del_user/'+esc(u['phone'])+' data-del style=color:red>🗑️</a>' if u['phone']!='05344851045' else ''}</div>" for u in us])
+        h=f"""<div class=card><h3>⚙️ اعدادات</h3>
+        <form data-ajax method=post action=/change_pass><input name=newpass type=password required placeholder='كلمة جديدة'><button>💾 حفظ كلمة السر</button></form>
+        <a href=/toggle_theme data-ajax>🌙/☀️ تبديل ليل نهار</a></div>
+        <div class=card><h3>➕ اضافة يوزر</h3><form data-ajax method=post action=/add_user><input name=phone required placeholder='يوزر'><input name=password type=password required placeholder='كلمة سر'><select name=role><option value=tech>🧑‍🔧 فني</option><option value=manager>👑 مدير</option></select><button>اضافة</button></form></div>
+        <div class=user-grid>{uh}</div>"""
     return h
 
 def layout(c,v='home'):
@@ -143,26 +158,26 @@ def layout(c,v='home'):
 <link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
 <style>
 *{{box-sizing:border-box}}body{{margin:0;font-family:sans-serif;background:{bg};color:{txt}}}
-.top{{position:fixed;top:0;left:0;right:0;background:{COLORS['top_bg']};color:#fff;padding:12px;z-index:101;display:flex;align-items:center;gap:12px}}
-.burger{{font-size:24px;cursor:pointer}}
-.menu{{position:fixed;top:48px;bottom:0;right:0;width:210px;background:{COLORS['menu_bg']};padding:10px;z-index:100;transition:.25s;transform:translateX(0)}}
+.top{{position:fixed;top:0;left:0;right:0;background:{COLORS['top_bg']};color:#fff;padding:12px;z-index:101;display:flex;gap:12px;align-items:center}}
+.menu{{position:fixed;top:48px;bottom:0;right:0;width:210px;background:{COLORS['menu_bg']};padding:10px;z-index:100;transition:.25s}}
 .menu.hide{{transform:translateX(100%)}}
 .menu a{{display:block;color:#fff;text-decoration:none;padding:11px;border-radius:8px;margin:2px 0}}
-.overlay{{position:fixed;inset:48px 0 0 0;background:rgba(0,0,0,.4);display:none;z-index:99}}
-.overlay.show{{display:block}}
-.main{{margin-right:220px;margin-top:60px;padding:10px;transition:.25s}}
-.main.full{{margin-right:0}}
+.main{{margin-right:220px;margin-top:60px;padding:10px}}.main.full{{margin-right:0}}
 .card{{background:{card};padding:10px;border-radius:10px;margin:8px 0}}
+.card.small{{padding:8px;font-size:13px;line-height:1.4}}
 .grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
-.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}
-.kpi{{padding:12px;border-radius:10px;color:#fff;text-align:center;font-weight:bold}}
+.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:6px}}
+.user-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}
+.user-card{{display:flex;gap:10px;align-items:center;border-right:4px solid #888}}
+.user-card.manager{{border-color:#f59e0b}}.user-card.tech{{border-color:#2563eb}}
+.avatar{{width:36px;height:36px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold}}
+.kpi{{padding:12px;border-radius:10px;color:#fff;text-align:center}}
 input,select{{width:100%;padding:8px;margin:4px 0;border-radius:7px;border:1px solid #ccc}}
 button{{background:{COLORS['btn']};color:#fff;border:0;padding:8px 12px;border-radius:7px;cursor:pointer}}
-#ld{{position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#000;padding:4px 14px;border-radius:20px;display:none;z-index:200;font-size:13px}}
-@media(max-width:700px){{.menu{{width:200px}}.main{{margin-right:0}}.grid2{{grid-template-columns:1fr 1fr}} }}
+#ld{{position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#f59e0b;padding:4px 14px;border-radius:20px;display:none;z-index:200}}
+@media(max-width:700px){{.main{{margin-right:0}}.user-grid{{grid-template-columns:1fr}}}}
 </style></head><body>
-<div class=top><span class=burger onclick="toggleMenu()">☰</span><div>{logo_html()}</div></div>
-<div class=overlay id=ov onclick="toggleMenu(true)"></div>
+<div class=top><span style='font-size:24px;cursor:pointer' onclick="toggleMenu()">☰</span><div>{logo_html()}</div></div>
 <div class=menu id=mn>
 <a href="javascript:loadPage('home')">🏠 الرئيسية</a>
 <a href="javascript:loadPage('subs')">👥 مشتركين</a>
@@ -171,34 +186,48 @@ button{{background:{COLORS['btn']};color:#fff;border:0;padding:8px 12px;border-r
 <a href="javascript:loadPage('towers')">🗼 ابراج</a>
 <a href="javascript:loadPage('map')">🗺️ خريطة</a>
 <a href="javascript:loadPage('settings')">⚙️ اعدادات</a>
-<a href=/logout>🚪 خروج</a>
-</div>
-<div class=main id=main>{c}</div>
-<div id=ld>⏳ جاري التحميل...</div>
+<a href=/logout>🚪 خروج</a></div>
+<div class=main id=main>{c}</div><div id=ld>⏳ جاري التحميل...</div>
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
-var curV='{v}';
-function toggleMenu(forceClose){{let m=document.getElementById('mn'),o=document.getElementById('ov');let hide=m.classList.contains('hide');let shouldHide=forceClose?true:!hide;m.classList.toggle('hide',shouldHide);o.classList.toggle('show',!shouldHide);document.getElementById('main').classList.toggle('full',shouldHide)}}
-if(window.innerWidth<700)toggleMenu(true);
-window.loadPage=async function(v){{
-curV=v;toggleMenu(true);
-let l=document.getElementById('ld');l.style.display='block';
-try{{let r=await fetch('/api/page?v='+v);document.getElementById('main').innerHTML=await r.text();bindAjax();}}catch(e){{}}
-l.style.display='none';window.scrollTo({{top:0}});
-}};
+var curV='{v}';var mapObj=null;var satLayer=null;var normLayer=null;var measureMode=false;var measurePts=[];
+function toggleMenu(){{document.getElementById('mn').classList.toggle('hide');document.getElementById('main').classList.toggle('full')}}
+if(window.innerWidth<700)toggleMenu();
+window.loadPage=async function(v){{curV=v;toggleMenu();if(!document.getElementById('mn').classList.contains('hide')&&window.innerWidth<700)toggleMenu();
+let l=document.getElementById('ld');l.style.display='block';await new Promise(r=>setTimeout(r,350));
+try{{let r=await fetch('/api/page?v='+v);let t=await r.text();document.getElementById('main').innerHTML=t;bindAjax();
+let sc=document.getElementById('main').querySelector('script');if(sc)eval(sc.innerHTML);}}catch(e){{}}l.style.display='none';}};
+function setSat(){{if(mapObj&&satLayer){{mapObj.removeLayer(normLayer);satLayer.addTo(mapObj)}}}}
+function setNorm(){{if(mapObj&&normLayer){{mapObj.removeLayer(satLayer);normLayer.addTo(mapObj)}}}}
+function toggleMeasure(){{measureMode=!measureMode;alert(measureMode?'اضغط على نقطتين للقياس':'تم ايقاف القياس')}}
 function initMap(){{
 if(typeof L=='undefined'){{setTimeout(initMap,300);return}}
-var m=L.map('mp').setView([35.13,36.75],12);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:18}}).addTo(m);
-if(typeof DS!='undefined')DS.forEach(d=>L.marker([d.la,d.ln]).addTo(m).bindPopup(d.n+'<br>'+d.ip+'<br>'+d.t));
-setTimeout(()=>m.invalidateSize(),300);
+if(!document.getElementById('mp'))return;
+mapObj=L.map('mp').setView([35.13,36.75],12);
+satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19}});
+normLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19}});
+satLayer.addTo(mapObj);
+if(typeof DS!='undefined')DS.forEach(d=>{{
+let mk=L.marker([d.la,d.ln]).addTo(mapObj);
+mk.bindPopup(`<b>${{d.n}}</b><br>${{d.ip}}<br><a href="javascript:loadPage('edit_dish_${{d.id}}')">✏️ تعديل</a> <a href="/del_dish/${{d.id}}">🗑️ حذف</a>`)
+}});
+mapObj.on('contextmenu',async e=>{{
+let name=prompt('اسم النقطة:');if(!name)return;
+let fd=new FormData();fd.append('dish_name',name);fd.append('ip','0.0.0.0');fd.append('lat',e.latlng.lat);fd.append('lng',e.latlng.lng);
+await fetch('/add_dish',{{method:'POST',body:fd}});loadPage('map');
+}});
+mapObj.on('click',e=>{{
+if(!measureMode)return;measurePts.push(e.latlng);L.marker(e.latlng).addTo(mapObj);
+if(measurePts.length==2){{let d=mapObj.distance(measurePts[0],measurePts[1]);alert('المسافة: '+Math.round(d)+' متر');measurePts=[];}}
+}});
+setTimeout(()=>mapObj.invalidateSize(),400);
 }};
 function bindAjax(){{
-document.querySelectorAll('form[data-ajax]').forEach(f=>{{f.onsubmit=async e=>{{e.preventDefault();await fetch(f.action,{{method:'POST',body:new FormData(f)}});loadPage(curV)}};}});
+document.querySelectorAll('form[data-ajax]').forEach(f=>{{f.onsubmit=async e=>{{e.preventDefault();await fetch(f.action,{{method:'POST',body:new FormData(f)}});alert('💾 تم الحفظ');loadPage(curV)}};}});
 document.querySelectorAll('a[data-ajax]').forEach(a=>{{a.onclick=async e=>{{e.preventDefault();await fetch(a.href);loadPage(curV)}};}});
 document.querySelectorAll('a[data-del]').forEach(a=>{{a.onclick=async e=>{{e.preventDefault();if(confirm('حذف؟')){{await fetch(a.href);loadPage(curV)}}}}}});
 }};
-bindAjax();
+bindAjax();if(typeof DS!='undefined')initMap();
 </script></body></html>"""
 
 @app.route('/')
@@ -211,10 +240,26 @@ def login():
         if u and u['password']==pw:
             session['phone']=u['phone'];return redirect('/dash')
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
-<style>body{{display:flex;align-items:center;justify-content:center;background:{COLORS['bg_dark']};min-height:100vh;margin:0;font-family:sans-serif}}.box{{background:#fff;padding:20px;border-radius:12px;width:92%;max-width:340px}}input{{width:100%;padding:10px;margin:6px 0;border-radius:8px;border:1px solid #ccc}}button{{width:100%;background:{COLORS['btn']};color:#fff;padding:10px;border:0;border-radius:8px}}</style>
-</head><body><div class=box><h3 style='text-align:center'>{logo_html()}</h3>
-<form method=post><input name=userin placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='كلمة السر' required><button>دخول</button></form>
+<style>
+@keyframes bgMove{{0%{{background-position:0% 50%}}50%{{background-position:100% 50%}}100%{{background-position:0% 50%}}}}
+@keyframes fadeUp{{from{{opacity:0;transform:translateY(20px)}}to{{opacity:1;transform:translateY(0)}}}}
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;
+background:linear-gradient(135deg,#0f172a,#2563eb,#06b6d4,#0f172a);background-size:300% 300%;animation:bgMove 12s ease infinite}}
+.box{{background:rgba(255,255,255,.95);backdrop-filter:blur(12px);padding:28px;border-radius:20px;width:92%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,.3);animation:fadeUp.8s ease;text-align:center}}
+.logo{{font-size:42px;animation:fadeUp 1s ease}}
+input{{width:100%;padding:12px;margin:8px 0;border-radius:12px;border:1px solid #ddd;transition:.2s}}
+input:focus{{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.2);outline:none}}
+button{{width:100%;background:linear-gradient(90deg,#2563eb,#06b6d4);color:#fff;padding:12px;border:0;border-radius:12px;font-size:16px;cursor:pointer;transition:.2s}}
+button:hover{{transform:scale(1.03)}}
+.design{{margin-top:16px;font-size:13px;color:#555}}
+.wa{{display:inline-flex;align-items:center;gap:6px;margin-top:8px;background:#25D366;color:#fff;padding:8px 14px;border-radius:20px;text-decoration:none;font-size:14px}}
+</style></head><body>
+<div class=box><div class=logo>📡</div><h2>{logo_html()}</h2>
+<form method=post><input name=userin placeholder='رقم هاتف / اسم مستخدم' required><input name=password type=password placeholder='كلمة السر' required><button>دخول 🚀</button></form>
+<div class=design>تصميم عبدو عباس<br><span dir=ltr>+905344851045</span></div>
+<a class=wa href='https://wa.me/905344851045' target=_blank>💬 واتساب</a>
 </div></body></html>"""
+
 @app.route('/logout')
 def lo(): session.clear();return redirect('/login')
 @app.route('/dash')
@@ -242,19 +287,6 @@ def b1():
     f=request.form
     qexec("INSERT INTO ledger(sub_id,amount,typ,dt,note) VALUES(?,?,?,?,?)",(int(f.get('sub_id') or 0),fnum(f.get('amount')),f.get('typ','دين'),datetime.datetime.now().isoformat(),f.get('note','')))
     return "ok"
-@app.route('/upd_ledger/<int:i>',methods=['POST'])
-def bu(i):
-    if not can_edit(): return "no"
-    f=request.form;qexec("UPDATE ledger SET amount=?,typ=?,note=? WHERE id=?",(fnum(f.get('amount')),f.get('typ'),f.get('note',''),i));return "ok"
-@app.route('/del_ledger/<int:i>')
-def b2(i):
-    if not can_edit(): return "no"
-    qexec("DELETE FROM ledger WHERE id=?",(i,));return "ok"
-@app.route('/export_ledger')
-def ex():
-    rs=qall("SELECT * FROM ledger ORDER BY id DESC")
-    csv="id,amount,typ,note\n"+"\n".join([f"{r['id']},{r.get('amount',0)},{r.get('typ','')},{r.get('note','')}" for r in rs])
-    return (csv,200,{'Content-Type':'text/csv','Content-Disposition':'attachment;filename=ledger.csv'})
 @app.route('/add_dish',methods=['POST'])
 def c1():
     f=request.form
@@ -289,12 +321,6 @@ def addu():
 def delu(ph):
     if not can_edit(): return "no"
     if ph!='05344851045': qexec("DELETE FROM users WHERE phone=?",(ph,))
-    return "ok"
-@app.route('/change_user',methods=['POST'])
-def e1():
-    o=session.get('phone');n=request.form.get('newphone','').strip()
-    if n.isdigit(): qexec("UPDATE users SET phone=? WHERE phone=?",(n,o));session['phone']=n
-    else: qexec("UPDATE users SET username=? WHERE phone=?",(n,o))
     return "ok"
 @app.route('/change_pass',methods=['POST'])
 def e2(): qexec("UPDATE users SET password=? WHERE phone=?",(request.form.get('newpass',''),session.get('phone')));return "ok"
