@@ -8,7 +8,6 @@ from colors import get_colors, get_bg_css, get_menu_css, get_logo_html
 app = Flask(__name__, static_folder='static')
 app.config['SEND_FILE_MAX_AGE_DEFAULT']=86400
 app.secret_key=os.environ.get("SECRET_KEY","omia-sec-2026")
-# تنظيف DATABASE_URL من السطور الجديدة والمسافات
 _raw_db = os.environ.get("DATABASE_URL","") or ""
 DATABASE_URL = _raw_db.strip().replace("\n","").replace("\r","").replace(" ","")
 USE_PG=bool(DATABASE_URL and psycopg2)
@@ -22,9 +21,11 @@ def db():
  global _pg,_pt
  if USE_PG:
   if _pg and time.time()-_pt<300:
-   try:_pg.cursor().execute("SELECT 1");return _pg
-   except:pass
-  _pg=psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=5);_pg.autocommit=True;_pt=time.time();return _pg
+   try:
+    _pg.cursor().execute("SELECT 1");return _pg
+   except: pass
+  _pg=psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=5)
+  _pg.autocommit=True;_pt=time.time();return _pg
  c=sqlite3.connect("omia.db");c.row_factory=sqlite3.Row;return c
 def cc(c):
  if not USE_PG:
@@ -34,6 +35,9 @@ def ex(c,q,a=()):
  if USE_PG:
   cur=c.cursor(cursor_factory=psycopg2.extras.RealDictCursor);cur.execute(q.replace("?","%s"),a);return cur
  return c.execute(q,a)
+def safe_commit(c):
+ try: c.commit()
+ except: pass
 def init():
  c=db()
  ss=["CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,username TEXT,password TEXT,role TEXT,active INT DEFAULT 1)","CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,status TEXT,balance_usd REAL DEFAULT 0,balance_syr REAL DEFAULT 0)","CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,site TEXT,area TEXT,tower TEXT,lat REAL DEFAULT 0,lng REAL DEFAULT 0)","CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,lat REAL,lng REAL,note TEXT)","CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,sub_id INT,date TEXT,usd REAL,syr REAL,type TEXT,note TEXT,by_user TEXT)","CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,msg TEXT,date TEXT,seen INT DEFAULT 0)","CREATE TABLE IF NOT EXISTS login_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,phone TEXT,date TEXT,ip TEXT)"]
@@ -49,14 +53,14 @@ def init():
   for idx in ["CREATE INDEX IF NOT EXISTS ix_subs_name ON subs(name)","CREATE INDEX IF NOT EXISTS ix_ledger_date ON ledger(date)","CREATE INDEX IF NOT EXISTS ix_dish_ip ON dish_ips(ip)"]:
    try:cur.execute(idx)
    except:pass
-  c.commit();cur.close()
+  cur.close()
  else:
   for s in ss:c.execute(s)
   if not c.execute("SELECT * FROM users WHERE phone='05344851045'").fetchone():c.execute("INSERT INTO users(phone,username,password,role,active) VALUES('05344851045','05344851045','admin2024','super',1)")
   for col in ["area TEXT","location TEXT","owner TEXT"]:
    try:c.execute(f"ALTER TABLE towers ADD COLUMN {col}")
    except:pass
-  c.commit();cc(c)
+  safe_commit(c);cc(c)
 init()
 def ping_one(ip):
  ip=(ip or '').strip()
@@ -124,7 +128,7 @@ def get_view_html(v,c,role,q=""):
   r1=ex(c,"SELECT SUM(usd) s1,SUM(syr) s2 FROM ledger WHERE date LIKE?",(today+"%",)).fetchone();a=dict(r1) if r1 else {}
   return f"<div class='card'><h3>📊 تقرير اليوم</h3><p>💵 $: {a.get('s1') or 0} | 💴 ل.س: {a.get('s2') or 0}</p></div>"
  if v=='notifs':
-  rs=ex(c,"SELECT * FROM notifications ORDER BY id DESC LIMIT 50").fetchall();ex(c,"UPDATE notifications SET seen=1");c.commit()
+  rs=ex(c,"SELECT * FROM notifications ORDER BY id DESC LIMIT 50").fetchall();ex(c,"UPDATE notifications SET seen=1");safe_commit(c)
   t="".join([f"<div class='card'>🔔 {r['msg']}<br><small>{r['date']}</small></div>" for r in rs]) or "<div class='card'>لا إشعارات</div>"
   return f"<h3>🔔 إشعارات</h3>{t}"
  if v=='logs':
@@ -185,7 +189,7 @@ document.getElementById('mb').onclick=e=>{{e.stopPropagation();sb.classList.togg
 document.addEventListener('click',e=>{{if(!sb.classList.contains('hide')&&!sb.contains(e.target))sb.classList.add('hide')}});
 async function loadView(v,force){{sb.classList.add('hide');curV=v;history.replaceState(null,'','#'+v);if(!force&&cache[v]){{mn.innerHTML=cache[v];bind();return}}if(cache[v]){{mn.innerHTML=cache[v]}}else{{mn.innerHTML='<div class=skel></div><div class=skel></div>'}}try{{let r=await fetch('/api/view?v='+v,{{headers:{{'X-Requested-With':'fetch'}}}});let h=await r.text();cache[v]=h;mn.innerHTML=h;bind()}}catch(e){{}}}}
 function bind(){{mn.querySelectorAll('script').forEach(s=>{{let n=document.createElement('script');n.textContent=s.textContent;document.body.appendChild(n);s.remove()}})}}
-async function ajaxSubmit(f,v){{let b=f.querySelector('button');let ot=b?b.innerHTML:'';if(b){{b.disabled=true;b.innerHTML='⏳...'}}try{{await fetch(f.action,{{method:'POST',body:new FormData(f),headers:{{'X-Requested-With':'fetch'}}}});delete cache[v];await loadView(v,true);f.reset()}}catch(e){{}}if(b){{b.disabled=false;b.innerHTML=ot}}return false}}
+async function ajaxSubmit(f,v){{if(f.dataset.sent=="1")return false;f.dataset.sent="1";let b=f.querySelector('button');let ot=b?b.innerHTML:'';if(b){{b.disabled=true;b.innerHTML='⏳...'}}try{{await fetch(f.action,{{method:'POST',body:new FormData(f),headers:{{'X-Requested-With':'fetch'}}}});delete cache[v];await loadView(v,true);f.reset()}}catch(e){{}}setTimeout(()=>{{f.dataset.sent="0";if(b){{b.disabled=false;b.innerHTML=ot}}}},1200);return false}}
 async function ajaxDel(url,v){{if(!confirm('تأكيد الحذف؟'))return false;try{{await fetch(url,{{headers:{{'X-Requested-With':'fetch'}}}});delete cache[v];await loadView(v,true)}}catch(e){{}}return false}}
 let debT=null;function debSearch(q){{clearTimeout(debT);debT=setTimeout(()=>{{fetch('/api/view?v=subs&q='+encodeURIComponent(q),{{headers:{{'X-Requested-With':'fetch'}}}}).then(r=>r.text()).then(h=>{{cache['subs']=h;mn.innerHTML=h;bind();let inp=document.getElementById('sq');if(inp){{inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length)}}}})}},300)}}
 document.querySelectorAll('[data-v]').forEach(a=>a.onclick=e=>{{e.preventDefault();loadView(a.dataset.v)}});
@@ -208,7 +212,7 @@ def login():
   c=db();u=ex(c,"SELECT * FROM users WHERE phone=? OR username=?",(i,i)).fetchone()
   if u and dict(u)['password']==p and dict(u)['active']==1:
    d=dict(u);session['phone']=d['phone'];session['role']=d['role']
-   ex(c,"INSERT INTO login_logs(phone,date,ip) VALUES(?,?,?)",(d['phone'],datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),request.remote_addr));c.commit();cc(c);return redirect('/dash')
+   ex(c,"INSERT INTO login_logs(phone,date,ip) VALUES(?,?,?)",(d['phone'],datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),request.remote_addr));safe_commit(c);cc(c);return redirect('/dash')
   try:cc(c)
   except:pass
   m="<p style='color:#ff6b6b;text-align:center'>❌ خطأ بالدخول</p>"
@@ -226,58 +230,79 @@ def apiv():
  v=request.args.get('v','home');q=request.args.get('q','')
  c=db();h=get_view_html(v,c,session.get('role','tech'),q);cc(c);return h
 def is_ajax():return request.headers.get('X-Requested-With')=='fetch'
+_last_add={}
+def allow_add(key, val):
+ import time as _t
+ now=_t.time(); k=f"{key}:{val.strip()}"
+ if k in _last_add and now-_last_add[k]<3:
+  return False
+ _last_add[k]=now; return True
 @app.route('/add_sub',methods=['POST'])
-def a1():c=db();ex(c,"INSERT INTO subs(name,phone,status) VALUES(?,?,?)",(request.form['name'],request.form['phone'],'نشط'));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#subs')
+def a1():
+ if not allow_add("sub", request.form.get('phone','')): return jsonify(ok=True)
+ c=db();ex(c,"INSERT INTO subs(name,phone,status) VALUES(?,?,?)",(request.form['name'],request.form['phone'],'نشط'));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#subs')
 @app.route('/del_sub/<int:i>')
-def d1(i):c=db();ex(c,"DELETE FROM subs WHERE id=?",(i,));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#subs')
+def d1(i):c=db();ex(c,"DELETE FROM subs WHERE id=?",(i,));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#subs')
 @app.route('/add_dish',methods=['POST'])
-def a2():c=db();f=request.form;ex(c,"INSERT INTO dish_ips(ip,location,area,tower,lat,lng) VALUES(?,?,?,?,?,?)",(f.get('ip') or '',f.get('location') or '',f.get('area') or '',f.get('tower') or '',float(f.get('lat') or 0),float(f.get('lng') or 0)));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#dishes')
+def a2():
+ f=request.form
+ ip=(f.get('ip') or '').strip()
+ if ip and not allow_add("dish", ip): return jsonify(ok=True)
+ c=db();ex(c,"INSERT INTO dish_ips(ip,location,area,tower,lat,lng) VALUES(?,?,?,?,?,?)",(f.get('ip') or '',f.get('location') or '',f.get('area') or '',f.get('tower') or '',float(f.get('lat') or 0),float(f.get('lng') or 0)));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#dishes')
 @app.route('/edit_dish/<int:i>',methods=['GET','POST'])
 def edit_dish(i):
  c=db()
  if request.method=='POST':
-  f=request.form;ex(c,"UPDATE dish_ips SET ip=?,location=?,area=?,tower=? WHERE id=?",(f.get('ip'),f.get('location'),f.get('area'),f.get('tower'),i));c.commit();cc(c);return redirect('/dash#dishes')
+  f=request.form;ex(c,"UPDATE dish_ips SET ip=?,location=?,area=?,tower=? WHERE id=?",(f.get('ip'),f.get('location'),f.get('area'),f.get('tower'),i));safe_commit(c);cc(c);return redirect('/dash#dishes')
  r=dict(ex(c,"SELECT * FROM dish_ips WHERE id=?",(i,)).fetchone());cc(c);col=get_colors();bg=get_bg_css()
  return f"<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{{margin:0;font-family:'Segoe UI';{bg};color:{col['text']};min-height:100vh;display:flex;align-items:center;justify-content:center}}input{{width:100%;padding:12px;margin:6px 0;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:{col['text']};box-sizing:border-box}}.card{{background:{col['card_bg']};border-radius:20px;padding:24px;width:92%;max-width:380px;text-align:center}}.abtn{{padding:12px 18px;border-radius:12px;font-weight:800;color:#fff;text-decoration:none;display:inline-block;border:none;cursor:pointer}}.abtn-edit{{background:linear-gradient(135deg,#06b6d4,#3b82f6)}}</style></head><body><div class='card'><h3>✏️ تعديل صحن</h3><form method=post><input name=ip value='{r['ip']}' dir=ltr placeholder='IP'><input name=location value='{r.get('location','')}' placeholder='الاسم'><input name=area value='{r.get('area','')}' placeholder='المنطقة'><input name=tower value='{r.get('tower','')}' placeholder='البرج'><button class='abtn abtn-edit' style='width:100%;font-size:14px'>💾 حفظ التعديل</button></form><a href='/dash#dishes' style='display:inline-block;margin-top:12px;color:{col['link']}'>رجوع</a></div></body></html>"
 @app.route('/del_dish/<int:i>')
-def d2(i):c=db();ex(c,"DELETE FROM dish_ips WHERE id=?",(i,));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#dishes')
+def d2(i):c=db();ex(c,"DELETE FROM dish_ips WHERE id=?",(i,));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#dishes')
 @app.route('/add_tower',methods=['POST'])
-def at():c=db();f=request.form;ex(c,"INSERT INTO towers(name,area,location,owner,lat,lng) VALUES(?,?,?,?,?,?)",(f.get('name') or '',f.get('area') or '',f.get('location') or '',f.get('owner') or '',float(f.get('lat') or 0),float(f.get('lng') or 0)));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#towers')
+def at():
+ f=request.form
+ nm=(f.get('name') or '').strip()
+ if nm and not allow_add("tower", nm): return jsonify(ok=True)
+ c=db();ex(c,"INSERT INTO towers(name,area,location,owner,lat,lng) VALUES(?,?,?,?,?,?)",(f.get('name') or '',f.get('area') or '',f.get('location') or '',f.get('owner') or '',float(f.get('lat') or 0),float(f.get('lng') or 0)));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#towers')
 @app.route('/del_tower/<int:i>')
-def dt(i):c=db();ex(c,"DELETE FROM towers WHERE id=?",(i,));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#towers')
+def dt(i):c=db();ex(c,"DELETE FROM towers WHERE id=?",(i,));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#towers')
 @app.route('/add_user',methods=['POST'])
 def a4():
  c=db();ph=request.form['phone'].strip()
- try:ex(c,"INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",(ph,ph,request.form['password'],request.form.get('role','tech')));c.commit()
+ try:ex(c,"INSERT INTO users(phone,username,password,role,active) VALUES(?,?,?,?,1)",(ph,ph,request.form['password'],request.form.get('role','tech')));safe_commit(c)
  except:pass
  cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#settings')
 @app.route('/edit_user/<ph>',methods=['POST'])
-def eu(ph):c=db();ex(c,"UPDATE users SET password=?,role=? WHERE phone=?",(request.form['password'],request.form['role'],ph));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#settings')
+def eu(ph):c=db();ex(c,"UPDATE users SET password=?,role=? WHERE phone=?",(request.form['password'],request.form['role'],ph));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#settings')
 @app.route('/del_user/<ph>')
 def du(ph):
  if ph=='05344851045':return jsonify(ok=False) if is_ajax() else redirect('/dash#settings')
- c=db();ex(c,"DELETE FROM users WHERE phone=?",(ph,));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#settings')
+ c=db();ex(c,"DELETE FROM users WHERE phone=?",(ph,));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#settings')
 @app.route('/toggle_user/<ph>')
-def tu(ph):c=db();u=ex(c,"SELECT active FROM users WHERE phone=?",(ph,)).fetchone();na=0 if dict(u)['active']==1 else 1;ex(c,"UPDATE users SET active=? WHERE phone=?",(na,ph));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#settings')
+def tu(ph):c=db();u=ex(c,"SELECT active FROM users WHERE phone=?",(ph,)).fetchone();na=0 if dict(u)['active']==1 else 1;ex(c,"UPDATE users SET active=? WHERE phone=?",(na,ph));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#settings')
 @app.route('/charge',methods=['POST'])
 def ch():
+ if not allow_add("charge", request.form.get('cust_name','')+request.form.get('amount','')): return jsonify(ok=True)
  amt=float(request.form['amount']);cur=request.form.get('currency','usd');cust_name=request.form.get('cust_name','')
  usd=amt if cur=='usd' else 0;syr=amt if cur=='syr' else 0;c=db()
  ex(c,"INSERT INTO ledger(date,usd,syr,type,note,by_user) VALUES(?,?,?,?,?,?)",(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),usd,syr,'قبض',cust_name,session.get('phone')))
- c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#ledger')
+ safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#ledger')
 @app.route('/edit_ledger/<int:i>',methods=['GET','POST'])
 def edit_ledger(i):
  c=db()
  if request.method=='POST':
-  ex(c,"UPDATE ledger SET note=?,usd=?,syr=? WHERE id=?",(request.form.get('note'),float(request.form.get('usd') or 0),float(request.form.get('syr') or 0),i));c.commit();cc(c);return redirect('/dash#ledger')
+  ex(c,"UPDATE ledger SET note=?,usd=?,syr=? WHERE id=?",(request.form.get('note'),float(request.form.get('usd') or 0),float(request.form.get('syr') or 0),i));safe_commit(c);cc(c);return redirect('/dash#ledger')
  r=dict(ex(c,"SELECT * FROM ledger WHERE id=?",(i,)).fetchone());cc(c);col=get_colors();bg=get_bg_css()
  return f"<!DOCTYPE html><html dir='rtl'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{{margin:0;font-family:'Segoe UI';{bg};color:{col['text']};min-height:100vh;display:flex;align-items:center;justify-content:center}}input{{width:100%;padding:12px;margin:6px 0;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:{col['text']};box-sizing:border-box}}.card{{background:{col['card_bg']};border-radius:20px;padding:24px;width:92%;max-width:380px;text-align:center}}.abtn{{padding:12px 18px;border-radius:12px;font-weight:800;color:#fff;border:none;cursor:pointer}}.abtn-edit{{background:linear-gradient(135deg,#06b6d4,#3b82f6)}}</style></head><body><div class='card'><h3>✏️ تعديل قيد</h3><form method=post><input name=note value='{r.get('note','')}' placeholder='البيان'><input name=usd value='{r.get('usd',0)}' type=number step=0.01><input name=syr value='{r.get('syr',0)}' type=number step=0.01><button class='abtn abtn-edit' style='width:100%;font-size:14px'>💾 حفظ التعديل</button></form><a href='/dash#ledger' style='display:inline-block;margin-top:12px;color:{col['link']}'>رجوع</a></div></body></html>"
 @app.route('/del_ledger/<int:i>')
-def del_ledger(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));c.commit();cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#ledger')
+def del_ledger(i):c=db();ex(c,"DELETE FROM ledger WHERE id=?",(i,));safe_commit(c);cc(c);return jsonify(ok=True) if is_ajax() else redirect('/dash#ledger')
 @app.route('/export_subs')
 def es():
  c=db();rs=ex(c,"SELECT name,phone,balance_usd FROM subs").fetchall();cc(c)
  o=io.StringIO();w=csv.writer(o);w.writerow(['name','phone','usd'])
  for r in rs:w.writerow([r['name'],r['phone'],r['balance_usd']])
  return Response(o.getvalue().encode('utf-8-sig'),mimetype='text/csv',headers={'Content-Disposition':'attachment;filename=subs.csv'})
+@app.route('/debug_db')
+def debug_db():
+ return f"USE_PG={USE_PG} LEN={len(DATABASE_URL)}"
 if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.environ.get("PORT",10000)))
