@@ -189,7 +189,7 @@ input{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid #
 <label class=save-row><input type=checkbox id=savePass> 💾 حفظ كلمة السر</label>
 <button class=btn>✨ دخول</button>
 </form>
-<div style='text-align:center;margin-top:12px'><a href='https://wa.me/905344851045' style='color:#22c55e;text-decoration:none'>💬 واتساب</a> | <a href='https://instagram.com/af_20_1999' style='color:#e1306c;text-decoration:none'>📸 af_20_1999</a></div>
+<div style='text-align:center;margin-top:12px'><a href='https://wa.me/905344851045' style='color:#22c55e;text-decoration:none;font-weight:800'>💬 واتساب الدعم الفني فقط</a></div>
 </div>
 <script>
 let u=document.getElementById('userin'), p=document.getElementById('password'), s=document.getElementById('savePass');
@@ -340,10 +340,17 @@ def au():
 def eu():
     old=request.form.get('old_phone','').strip()
     new_ph=request.form.get('phone','').strip()
+    new_user=request.form.get('username','').strip()
+    new_role=request.form.get('role','tech')
+    new_pass=request.form.get('password','').strip()
     if not old:
         return "خطأ",400
-    qexec("UPDATE users SET phone=?,username=?,role=? WHERE phone=?",
-          (new_ph,request.form.get('username',''),request.form.get('role','tech'),old))
+    if new_pass:
+        qexec("UPDATE users SET phone=?,username=?,role=?,password=? WHERE phone=?",
+              (new_ph,new_user,new_role,generate_password_hash(new_pass),old))
+    else:
+        qexec("UPDATE users SET phone=?,username=?,role=? WHERE phone=?",
+              (new_ph,new_user,new_role,old))
     if session.get('phone')==old:
         session['phone']=new_ph
     return "ok"
@@ -389,55 +396,38 @@ def page_content(v):
 <input name=dish_name placeholder='اسم الصحن' required style='flex:1'>
 <input name=ip placeholder='IP' required style='flex:1'>
 <input name=location placeholder='موقع' style='flex:1'>
-<button class=btn-gold>➕ إضافة</button>
+<button class=btn-gold>اضافة</button>
 </form>
-<input id=searchBox placeholder='🔍 بحث IP أو اسم + Enter' oninput="window.searchDishes(this.value)" onkeydown="if(event.key==='Enter')window.searchDishes(this.value)" style='margin-top:8px'>
+<input id=searchBox placeholder='بحث IP او اسم' oninput="window.searchDishes(this.value)" style='margin-top:8px'>
 </div>
 <div id=dl></div>
 </div>
 <script>
 window.escH=function(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 window.doEditDish=function(id){
-  let card=document.getElementById('dish-'+id);
-  let n=card.dataset.name, ip=card.dataset.ip, loc=card.dataset.loc;
-  let nn=prompt('اسم:',n);if(nn==null)return;
-  let ii=prompt('IP:',ip);if(ii==null)return;
-  let ll=prompt('موقع:',loc);if(ll==null)return;
-  fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:ii,location:ll})}).then(()=>window.ld(document.getElementById('searchBox').value||''));
+  let c=document.getElementById('dish-'+id);
+  let nn=prompt('اسم الصحن:',c.dataset.name);if(nn==null)return;
+  let ii=prompt('IP:',c.dataset.ip);if(ii==null)return;
+  let ll=prompt('موقع:',c.dataset.loc);if(ll==null)return;
+  fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:ii,location:ll})}).then(()=>window.ld());
 }
 window.doPing=function(id){
-  let card=document.getElementById('dish-'+id);
-  let ip=card.dataset.ip;
-  let out=card.querySelector('.ping-out');
-  out.textContent='⏳...';
-  fetch('/api/ping?ip='+encodeURIComponent(ip)).then(r=>r.json()).then(j=>{
-    out.textContent=j.out.slice(0,250);
-    out.style.color=j.ok?'#22c55e':'#ef4444';
-  }).catch(()=>{out.textContent='خطأ';});
+  let c=document.getElementById('dish-'+id);
+  let out=c.querySelector('.ping-out');
+  out.textContent='...';
+  fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip)).then(r=>r.json()).then(j=>{out.textContent=j.out.slice(0,200);out.style.color=j.ok?'#22c55e':'#ef4444';});
 }
 window.ld=async function(q){
-  let r=await fetch('/api/search?q='+encodeURIComponent(q||''));
-  let d=await r.json();
-  let h='';
+  let r=await fetch('/api/search?q='+encodeURIComponent(q||''));let d=await r.json();let h='';
   d.forEach(x=>{
     let safeName=window.escH(x.dish_name||'');
     let safeIp=window.escH(x.ip||'');
     let safeLoc=window.escH(x.location||'');
-    h+=`<div class="card anim" id="dish-${x.id}" data-name="${(x.dish_name||'').replace(/"/g,'&quot;')}" data-ip="${x.ip}" data-loc="${(x.location||'').replace(/"/g,'&quot;')}" style="display:flex;justify-content:space-between;align-items:center">
-      <div><b>${safeName}</b><br><span style="background:#000;color:#ffbe4d;padding:3px 8px;border-radius:10px;font-family:monospace">${safeIp}</span><br><small>${safeLoc}</small><br><small class="ping-out" style="font-size:11px"></small></div>
-      <div style="display:flex;flex-direction:column;gap:5px">
-        <button class=btn-gold onclick="window.doPing(${x.id})">📶 Ping</button>
-        <div style="display:flex;gap:5px">
-          <button class=btn-gold onclick="window.doEditDish(${x.id})">✏ تعديل</button>
-          <button class=btn-del onclick="askDel('/del_dish/${x.id}')">🗑</button>
-        </div>
-      </div>
-    </div>`;
+    h+='<div class="card anim" id="dish-'+x.id+'" data-name="'+(x.dish_name||'').replace(/"/g,'&quot;')+'" data-ip="'+x.ip+'" data-loc="'+(x.location||'').replace(/"/g,'&quot;')+'" style="display:flex;justify-content:space-between;align-items:center"><div><b>'+safeName+'</b><br><a href="http://'+x.ip+'" target="_blank" style="background:#000;color:#ffbe4d;padding:4px 10px;border-radius:10px;font-family:monospace;text-decoration:none;display:inline-block">🌐 '+safeIp+' ↗</a><br><small>'+safeLoc+'</small><br><small class="ping-out" style="font-size:11px"></small></div><div style="display:flex;flex-direction:column;gap:5px"><button class=btn-gold onclick="window.doPing('+x.id+')">📶 Ping</button><div style="display:flex;gap:5px"><button class=btn-gold onclick="window.doEditDish('+x.id+')" style="padding:8px 10px">✏</button><button class=btn-del onclick="askDel(\'/del_dish/'+x.id+'\')" style="padding:8px 10px">🗑</button></div></div></div>';
   });
   document.getElementById('dl').innerHTML=h||'<div class=card>لا يوجد صحون</div>';
 }
-window.ld();
-window.searchDishes=window.ld;
+window.ld();window.searchDishes=window.ld;
 </script>
 """
     if v=='towers':
@@ -544,36 +534,50 @@ setTimeout(()=>{{
 <a href='https://instagram.com/af_20_1999' target=_blank style='display:inline-block;background:linear-gradient(45deg,#feda75,#fa7e1e,#d62976);color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;margin:6px;font-weight:800'>📸 @af_20_1999 انستا</a><br>
 <a href='tel:+905344851045' style='display:inline-block;background:#0ea5e9;color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;margin:6px'>📞 +90 534 485 10 45</a>
 </div>"""
+
     if v=='settings':
         us=qall("SELECT * FROM users ORDER BY phone DESC")
         uh=""
         for u in us:
-            uh+=f"<div class='card anim' id='user-{esc(u['phone'])}' data-phone='{esc(u['phone'])}' data-username='{esc(u['username'] or '').replace(chr(34),'&quot;')}' data-role='{esc(u['role'])}' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(u['username'] or u['phone'])}</b><br>📞 {esc(u['phone'])} | {esc(u['role'])} </div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"window.doEditU('{esc(u['phone'])}')\">✏</button><button class=btn-del onclick=\"askDel('/del_user/{esc(u['phone'])}')\">🗑</button></div></div>"
-        return f"""<div style='max-width:600px;margin:0 auto'>
-<div class=card><h3>🔑 حفظ كلمة السر</h3>
+            ph=esc(u['phone'])
+            un=esc(u['username'] or '')
+            ro=esc(u['role'])
+            # 3 كروت لكل يوزر - تعديل ايقونة داخل نفس موقع الحذف
+            uh+="<div class='card anim' id='user-"+ph+"' data-phone='"+ph+"' data-username='"+un+"' data-role='"+ro+"' style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px'><div style='background:#ffffff10;padding:10px;border-radius:10px'><small>1️⃣ اسم مستخدم / رقم هاتف</small><br><b>"+un+"</b><br><small>"+ph+"</small></div><div style='background:#ffffff10;padding:10px;border-radius:10px'><small>2️⃣ password</small><br>••••••<br><small>اضغط تعديل لتغيير</small></div><div style='background:#ffffff10;padding:10px;border-radius:10px'><small>3️⃣ اسم / رتبة</small><br><b>"+ro+"</b></div><div style='grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end'><button class=btn-gold onclick=\"window.doEditU('"+ph+"')\" style='padding:8px 14px'>✏ تعديل</button><button class=btn-del onclick=\"askDel('/del_user/"+ph+"')\" style='padding:8px 14px'>🗑 حذف</button></div></div>"
+        return f"""<div style='max-width:750px;margin:0 auto'>
+<div class=card><h3>كلمة السر الخاصة بي</h3>
 <form data-ajax method=post action=/change_pass style='display:flex;gap:6px'>
 <input name=newpass type=password placeholder='كلمة سر جديدة' required style='flex:1'>
-<button class=btn-gold>💾 حفظ كلمة السر</button>
+<button class=btn-gold>حفظ كلمة السر</button>
 </form></div>
-<div class=card><h3>👥 المستخدمين - رقم/يوزر فقط</h3>
-<form data-ajax method=post action=/add_user style='display:flex;gap:5px;flex-wrap:wrap'>
-<input name=username placeholder='اليوزر' required style='flex:1'>
-<input name=phone placeholder='رقم/يوزر' required style='flex:1'>
-<input name=password type=password placeholder='كلمة السر' style='flex:1'>
-<select name=role style='flex:0.5'><option value=tech>فني</option><option value=manager>مدير</option></select>
-<button class=btn-gold>إضافة</button>
-</form></div>
+<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px'>
+<div class=card><h4>1️⃣ اسم مستخدم / رقم هاتف</h4>
+<form data-ajax method=post action=/add_user style='display:flex;flex-direction:column;gap:5px'>
+<input name=username placeholder='اسم المستخدم' required>
+<input name=phone placeholder='رقم الهاتف / يوزر' required>
+<input name=password type=password placeholder='كلمة السر' required>
+<select name=role><option value=tech>فني</option><option value=manager>مدير</option></select>
+<button class=btn-gold>اضافة يوزر</button>
+</form>
+</div>
+<div class=card><h4>2️⃣ password</h4><p style='font-size:12px;color:#aaa'>كلمة السر مشفرة<br>تقدر تغيرها من زر التعديل<br>اتركها فاضية اذا ما بدك تغير</p></div>
+<div class=card><h4>3️⃣ اسم / رتبة</h4><p style='font-size:12px;color:#aaa'>الاسم الظاهر<br>الرتبة: فني او مدير</p></div>
+</div>
 {uh}
 <script>
 window.doEditU=function(ph){{
-  let card=document.getElementById('user-'+ph);
-  if(!card){{card=document.querySelector('[data-phone="'+ph+'"]');}}
-  let old=ph, n=card?card.dataset.username:'', rl=card?card.dataset.role:'tech';
-  let nn=prompt('اليوزر:',n);if(nn==null)return;
-  let pp=prompt('رقم/يوزر جديد:',old);if(pp==null)return;
-  fetch('/edit_user',{{method:'POST',body:new URLSearchParams({{old_phone:old,phone:pp,username:nn,role:rl}})}}).then(()=>loadPage('settings',true));
+  let c=document.getElementById('user-'+ph);
+  let old=ph, n=c?c.dataset.username:'', rl=c?c.dataset.role:'tech';
+  let nn=prompt('اسم المستخدم:',n);if(nn==null)return;
+  let pp=prompt('رقم الهاتف / يوزر:',old);if(pp==null)return;
+  let pw=prompt('كلمة سر جديدة (فاضي = بدون تغيير):','');
+  if(pw==null)return;
+  let data={{old_phone:old,phone:pp,username:nn,role:rl}};
+  if(pw.trim()!='') data.password=pw.trim();
+  fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(()=>loadPage('settings',true));
 }}
 </script></div>"""
+
     return "<div class=card>ok</div>"
 
 def layout(c,v='home'):
@@ -589,7 +593,7 @@ def layout(c,v='home'):
 *{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;background:{bg};color:{txt};overflow-x:hidden}}
 .anim{{animation:fadeUp .22s ease both}}@keyframes fadeUp{{from{{opacity:0;transform:translateY(8px)}}to{{opacity:1;transform:none}}}}
 .top{{position:fixed;top:0;left:0;right:0;height:60px;background:#111827ee;backdrop-filter:blur(12px);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid #ffffff10}}
-.sidebar{{position:fixed;right:0;top:0;width:270px;height:100%;background:#111827f5;color:#fff;z-index:1002;padding-top:70px;transform:translateX(110%);transition:transform .26s ease;overflow-y:auto}}
+.sidebar{{position:fixed;right:0 !important;left:auto !important;top:0;direction:rtl;width:270px;height:100%;background:#111827f5;color:#fff;z-index:1002;padding-top:70px;transform:translateX(110%);transition:transform .26s ease;overflow-y:auto}}
 .sidebar.active{{transform:none}}
 .sidebar a{{display:flex;align-items:center;gap:10px;padding:12px 16px;margin:6px 12px;color:#fff;text-decoration:none;border-radius:12px;background:#ffffff10}}
 .sidebar a.active{{background:#ffbe4d;color:#111;font-weight:800}}
@@ -645,7 +649,7 @@ function applyLang(){{
   }});
   document.getElementById('langBtn').textContent=lang==='ar'?'🌐 ع':'🌐 En';
   document.documentElement.lang=lang;
-  document.documentElement.dir=lang==='ar'?'rtl':'ltr';
+  document.documentElement.dir='rtl'; document.body.style.direction='rtl'; /* ثابت يمين */
   localStorage.setItem('omaia_lang',lang);
 }}
 function toggleLang(){{lang=lang==='ar'?'en':'ar';applyLang();}}
