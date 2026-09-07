@@ -59,7 +59,6 @@ def init():
     if USE_PG: ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
     qexec("CREATE INDEX IF NOT EXISTS idx_ip ON dish_ips(ip)")
-    # settings default
     if not qone("SELECT * FROM settings WHERE k='allow_edit'"): qexec("INSERT INTO settings(k,v) VALUES('allow_edit','1')")
     if not qone("SELECT * FROM settings WHERE k='allow_del'"): qexec("INSERT INTO settings(k,v) VALUES('allow_del','1')")
     if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
@@ -108,14 +107,14 @@ def cur_theme(): return session.get('theme','dark')
 def api_ping():
     ip=request.args.get('ip','').strip()
     if not is_internal_ip(ip): return jsonify(ok=False,out='خارج الشبكة')
-    # يحاول عبر الوكيل المحلي أولا (بنج حقيقي)
-    # إذا ما فيه وكيل، يرجع تعليمات
-    return jsonify(ok=True,out=f'للبنج الحقيقي شغل ping_agent.py على لابتوبك ثم استخدم الزر - IP: {ip}')
+    return jsonify(ok=True,out=f'للبنج الحقيقي شغل ping_agent.py على لابتوبك - IP: {ip}')
 
 def page_content(v):
     can_e=can_edit();can_d=can_del()
     if v=='home':
-        ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0);nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0);nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0)
+        ns=(qone("SELECT COUNT(*) AS c FROM subs") or {}).get('c',0)
+        nd=(qone("SELECT COUNT(*) AS c FROM dish_ips") or {}).get('c',0)
+        nt=(qone("SELECT COUNT(*) AS c FROM towers") or {}).get('c',0)
         return f"<div style='max-width:700px;margin:0 auto;text-align:center'><div style='font-size:32px'>{logo_html()}</div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px'><div class=card onclick=\"loadPage('subs')\" style='cursor:pointer'><h3>👥 المشتركين</h3><h2>{ns}</h2></div><div class=card onclick=\"loadPage('dishes')\" style='cursor:pointer'><h3>📡 الصحون</h3><h2>{nd}</h2></div><div class=card onclick=\"loadPage('towers')\" style='cursor:pointer'><h3>🗼 الأبراج</h3><h2>{nt}</h2></div><div class=card onclick=\"loadPage('map')\" style='cursor:pointer'><h3>🗺 الخريطة</h3><h2>📍</h2></div></div></div>"
     if v=='dishes':
         return """<div style='max-width:900px;margin:0 auto'>
@@ -136,7 +135,7 @@ def page_content(v):
             eb=f"<button onclick='editTower({r['id']},\"{esc(r['name'])}\")' style='width:36px;height:36px;background:#FF9800;border:0;border-radius:10px'>✏️</button>" if can_e else ""
             dbtn=f"<button onclick='delItem(\"/del_tower/{r['id']}\")' style='width:36px;height:36px;background:#F44336;border:0;border-radius:10px'>🗑️</button>" if can_d else ""
             cards+=f"<div class=card style='display:flex;justify-content:space-between;align-items:center'><div><b>🗼 {esc(r['name'])}</b><br><small>{esc(r['area'] or '')}</small></div><div style='display:flex;gap:6px'>{eb}{dbtn}</div></div>"
-        return f"<div style='max-width:900px;margin:0 auto'><div class=card style='text-align:center'><h3>🗼 الأبراج</h3><form data-ajax method=post action=/add_tower><input name=name required placeholder='اسم البرج'><input name=area placeholder='المنطقة'><button class=btn-gold>اضافة</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>{cards}</div><script>function editTower(id,n){{let nn=prompt('اسم:',n);if(nn==null)return;fetch('/edit_tower/'+id,{{method:'POST',body:new URLSearchParams({{name:nn}})}}).then(()=>loadPage('towers',true))}}</script></div>"
+        return f"<div style='max-width:900px;margin:0 auto'><div class=card style='text-align:center'><h3>🗼 الأبراج</h3><form data-ajax method=post action=/add_tower><input name=name required placeholder='اسم البرج'><input name=area placeholder='المنطقة'><button class=btn-gold>اضافة</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>{cards}</div><script>function editTower(id,n)"+chr(123)+f"let nn=prompt('اسم:',n);if(nn==null)return;fetch('/edit_tower/'+id,"+chr(123)+f"method:'POST',body:new URLSearchParams("+chr(123)+f"name:nn"+chr(125)+f")"+chr(125)+f").then(()=>loadPage('towers',true))"+chr(125)+f"</script></div>"
     if v=='subs':
         rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 20")
         rows="".join([f"<div class=card><b>{esc(r['name'])}</b> - {esc(r['phone'] or '')}</div>" for r in rs])
@@ -147,7 +146,7 @@ def page_content(v):
         return f"<div style='max-width:600px;margin:0 auto'><div class=card style='text-align:center'><h3>📒 الحسابات</h3><form data-ajax method=post action=/add_ledger><input name=name required placeholder='الاسم'><input name=amount type=number step=0.01 required placeholder='مبلغ'><button class=btn-gold>اضافة</button></form></div>{rows}</div>"
     if v=='map':
         towers=qall("SELECT * FROM towers");tj=json.dumps([{"name":t['name'],"lat":float(t.get('lat') or 35.13),"lng":float(t.get('lng') or 36.75)} for t in towers],ensure_ascii=False)
-        return "<div class=card><input id=mapSearch placeholder='ابحث + Enter يروح للموقع' onkeydown='if(event.key===\"Enter\")mapGo(this.value)' style='max-width:400px'><div id=map style='height:65vh;border-radius:12px'></div><script>var _t="+tj+";var map=L.map('map').setView([35.1318,36.7578],13);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(map);setTimeout(()=>map.invalidateSize(),400);_t.forEach(t=>L.marker([t.lat,t.lng]).addTo(map).bindPopup(t.name));window.mapGo=function(q){let f=_t.find(t=>t.name.includes(q));if(f)map.flyTo([f.lat,f.lng],17);else toast('غير موجود')};</script></div>"
+        return "<div class=card><input id=mapSearch placeholder='ابحث + Enter' onkeydown='if(event.key===\"Enter\")mapGo(this.value)' style='max-width:400px'><div id=map style='height:65vh;border-radius:12px'></div><script>var _t="+tj+";var map=L.map('map').setView([35.1318,36.7578],13);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(map);setTimeout(()=>map.invalidateSize(),400);_t.forEach(t=>L.marker([t.lat,t.lng]).addTo(map).bindPopup(t.name));window.mapGo=function(q){let f=_t.find(t=>t.name.includes(q));if(f)map.flyTo([f.lat,f.lng],17);else toast('غير موجود')};</script></div>"
     if v=='logs':
         rs=qall("SELECT * FROM activity_log ORDER BY id DESC LIMIT 50")
         rows="".join([f"<div class=log-row><b>{esc(r['username'] or r['phone'])}</b> ({esc(r['phone'])}) - {esc(r['action'])} <small>{esc(r['time'])}</small></div>" for r in rs])
@@ -164,25 +163,85 @@ def page_content(v):
         return f"<div style='max-width:600px;margin:0 auto'><div class=card style='text-align:center'><h3>⚙ الإعدادات</h3><label>تفعيل التعديل <input type=checkbox {'checked' if ae=='1' else ''} onchange=\"fetch('/set/allow_edit/'+(this.checked?'1':'0'))\"></label><br><label>تفعيل الحذف <input type=checkbox {'checked' if ad=='1' else ''} onchange=\"fetch('/set/allow_del/'+(this.checked?'1':'0'))\"></label><br><button class=btn onclick='toggleTheme()'>🌓 ليل/نهار</button><form data-ajax method=post action=/change_pass style='margin-top:8px'><input name=newpass type=password required placeholder='كلمة سر جديدة'><button class=btn-gold>تغيير</button></form></div><div class=card style='text-align:center'><h3>اضافة مستخدم</h3><form data-ajax method=post action=/add_user><input name=phone required placeholder='يوزر'><input name=password type=password required placeholder='كلمة السر'><select name=role><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>اضافة</button></form></div>{uh}</div>"
     return "ok"
 
-def layout(c,v='home'):
-    th=cur_theme();bg=COLORS.get('bg_dark' if th=='dark' else 'bg_light','#0a1938');card=COLORS.get('card_dark','#222');txt='#fff';gold=COLORS.get('gold','#ffbe4d')
-    return f"<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'><style>*{{box-sizing:border-box;font-family:sans-serif}}body{{margin:0;background:{bg};color:{txt}}}.sidebar{{position:fixed;right:-280px;top:0;width:260px;height:100%;background:#111;z-index:1000;padding-top:70px;transition:.25s}}.sidebar.active{{right:0}}.sidebar a{{display:block;padding:12px;color:#fff;text-decoration:none}}.top{{position:fixed;top:0;left:0;right:0;height:60px;background:#1a1a1a;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:101}}.main{{margin-top:60px;padding:8px}}.card{{background:{card};padding:12px;border-radius:12px;margin-bottom:10px;border:1px solid #333}}input,select{{width:100%;padding:10px;margin:4px 0;background:#111;border:1px solid #444;color:#fff;border-radius:8px}}.btn-gold{{background:{gold};color:#000;padding:10px;border:0;border-radius:8px;font-weight:bold}}.btn-blue{{background:#2196F3;color:#fff;padding:8px;border:0;border-radius:8px}}.btn{{background:#333;color:#fff;padding:8px;border:0;border-radius:8px}}.ip-badge{{background:#000;color:{gold};padding:3px 8px;border-radius:10px;font-family:monospace}}#toast{{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;display:none;z-index:9999}}.log-row{{padding:6px;border-bottom:1px solid #333;font-size:13px}}@media(max-width:768px){{*{{animation:none!important;transition:none!important}}}}</style></head><body><div id=toast></div><div class=sidebar id=sb><a href=\"javascript:loadPage('home')\">🏠 الرئيسية</a><a href=\"javascript:loadPage('dishes')\">📡 الصحون</a><a href=\"javascript:loadPage('towers')\">🗼 الأبراج</a><a href=\"javascript:loadPage('map')\">🗺 الخريطة</a><a href=\"javascript:loadPage('logs')\">📜 السجل</a><a href=\"javascript:loadPage('support')\">🛠 الدعم</a><a href=\"javascript:loadPage('settings')\">⚙ الإعدادات</a><a href=/logout>🚪 خروج</a></div><div class=top><div onclick=\"document.getElementById('sb').classList.toggle('active')\" style='font-size:22px'>☰</div><div>{logo_html()}</div><div><button class=btn onclick=\"loadPage(cur,true)\">↻</button></div></div><div class=main id=mn>{c}</div><script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script><script>let cur='{v}';let cache={{}};function toast(m){{let t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2000)}}async function loadPage(v,f){{cur=v;document.getElementById('sb').classList.remove('active');try{{let ch=localStorage.getItem('p_'+v);if(ch&&!f){{document.getElementById('mn').innerHTML=ch;exe()}}}}catch(e){{}}if(cache[v]&&!f){{document.getElementById('mn').innerHTML=cache[v];exe();return}}let r=await fetch('/api/page?v='+v);let h=await r.text();cache[v]=h;try{{localStorage.setItem('p_'+v,h)}}catch(e){{}}document.getElementById('mn').innerHTML=h;exe();if('serviceWorker' in navigator){{}}}}function exe(){{document.getElementById('mn').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});bind()}}function bind(){{document.querySelectorAll('form[data-ajax]').forEach(f=>{{f.onsubmit=async e=>{{e.preventDefault();await fetch(f.action,{{method:'POST',body:new FormData(f)}});Object.keys(cache).forEach(k=>delete cache[k]);toast('تم ✅');loadPage(cur,true)}}}})}}window.delItem=async function(u){{if(!confirm('حذف؟'))return;await fetch(u);Object.keys(cache).forEach(k=>delete cache[k]);toast('انحذف');loadPage(cur,true)}};window.pingDish=async function(ip){{toast('بينغ '+ip+'...');try{{let r=await fetch('http://localhost:5001/ping?ip='+ip);let j=await r.json();toast(j.out.slice(0,120))}}catch(e){{let r2=await fetch('/api/ping?ip='+ip);let j2=await r2.json();toast(j2.out.slice(0,120))}}}};window.toggleTheme=async()=>{{await fetch('/toggle_theme');location.reload()}};window.exportExcel=()=>{{window.open('/export_excel')}};setInterval(async()=>{{try{{await fetch('/api/page?v=home',{cache:'no-store'})}}catch(e){{}}}},60000);bind();exe();</script></body></html>"
+def layout(c, v='home'):
+    th = cur_theme()
+    bg = COLORS.get('bg_dark' if th=='dark' else 'bg_light','#0a1938')
+    card = COLORS.get('card_dark','#222')
+    gold = COLORS.get('gold','#ffbe4d')
+    lg = logo_html()
+    tmpl = """<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
+<style>*{box-sizing:border-box;font-family:sans-serif}body{margin:0;background:__BG__;color:#fff}
+.sidebar{position:fixed;right:-280px;top:0;width:260px;height:100%;background:#111;z-index:1000;padding-top:70px;transition:.25s}
+.sidebar.active{right:0}.sidebar a{display:block;padding:12px;color:#fff;text-decoration:none}
+.top{position:fixed;top:0;left:0;right:0;height:60px;background:#1a1a1a;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:101}
+.main{margin-top:60px;padding:8px}.card{background:__CARD__;padding:12px;border-radius:12px;margin-bottom:10px;border:1px solid #333}
+input,select{width:100%;padding:10px;margin:4px 0;background:#111;border:1px solid #444;color:#fff;border-radius:8px}
+.btn-gold{background:__GOLD__;color:#000;padding:10px;border:0;border-radius:8px;font-weight:bold}
+.btn-blue{background:#2196F3;color:#fff;padding:8px;border:0;border-radius:8px}.btn{background:#333;color:#fff;padding:8px;border:0;border-radius:8px}
+.ip-badge{background:#000;color:__GOLD__;padding:3px 8px;border-radius:10px;font-family:monospace}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;display:none;z-index:9999}
+.log-row{padding:6px;border-bottom:1px solid #333;font-size:13px}
+</style></head><body><div id=toast></div>
+<div class=sidebar id=sb><a href="javascript:loadPage('home')">🏠 الرئيسية</a><a href="javascript:loadPage('dishes')">📡 الصحون</a><a href="javascript:loadPage('towers')">🗼 الأبراج</a><a href="javascript:loadPage('map')">🗺 الخريطة</a><a href="javascript:loadPage('logs')">📜 السجل</a><a href="javascript:loadPage('support')">🛠 الدعم</a><a href="javascript:loadPage('settings')">⚙ الإعدادات</a><a href=/logout>🚪 خروج</a></div>
+<div class=top><div onclick="document.getElementById('sb').classList.toggle('active')" style='font-size:22px'>☰</div><div>__LOGO__</div><div><button class=btn onclick="loadPage(cur,true)">↻</button></div></div>
+<div class=main id=mn>__CONTENT__</div>
+<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
+<script>
+let cur='__V__';let cache={};
+function toast(m){let t=document.getElementById('toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2000)}
+async function loadPage(v,f){cur=v;document.getElementById('sb').classList.remove('active');if(cache[v]&&!f){document.getElementById('mn').innerHTML=cache[v];exe();return}let r=await fetch('/api/page?v='+v);let h=await r.text();cache[v]=h;document.getElementById('mn').innerHTML=h;exe();}
+function exe(){document.getElementById('mn').querySelectorAll('script').forEach(s=>{try{eval(s.textContent)}catch(e){}});bind()}
+function bind(){document.querySelectorAll('form[data-ajax]').forEach(f=>{f.onsubmit=async e=>{e.preventDefault();await fetch(f.action,{method:'POST',body:new FormData(f)});for(let k in cache)delete cache[k];toast('تم');loadPage(cur,true)}})}
+window.delItem=async function(u){if(!confirm('حذف؟'))return;await fetch(u);for(let k in cache)delete cache[k];toast('انحذف');loadPage(cur,true)};
+window.pingDish=async function(ip){toast('بينغ '+ip);let r=await fetch('/api/ping?ip='+ip);let j=await r.json();toast(j.out.slice(0,120))};
+window.toggleTheme=async()=>{await fetch('/toggle_theme');location.reload()};
+window.exportExcel=()=>{window.open('/export_excel')};
+bind();exe();
+</script></body></html>"""
+    tmpl = tmpl.replace("__BG__", bg).replace("__CARD__", card).replace("__GOLD__", gold).replace("__LOGO__", lg).replace("__CONTENT__", c).replace("__V__", v)
+    return tmpl
 
 @app.route('/')
 def ix(): return redirect('/dash') if session.get('phone') else redirect('/login')
+
 @app.route('/login',methods=['GET','POST'])
 def login():
     if request.method=='POST':
-        uin=request.form.get('userin','').strip();pw=request.form.get('password','')
+        uin=request.form.get('userin','').strip() or request.form.get('phone','').strip()
+        pw=request.form.get('password','')
         u=qone("SELECT * FROM users WHERE phone=? OR username=?",(uin,uin))
-        if u and check_password_hash(u['password'],pw): session['phone']=u['phone'];session['role']=u['role'];add_log("دخول");return redirect('/dash')
-        return "<script>alert('خطأ');location.href='/login'</script>"
-    return f"<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'></head><body style='background:#0a1938;color:#fff;text-align:center;padding:40px'>{logo_html()}<h2>OMAIA</h2><form method=post><input name=userin placeholder='يوزر' style='padding:10px;margin:5px'><br><input name=password type=password placeholder='كلمة السر' style='padding:10px;margin:5px'><br><button style='background:#ffbe4d;padding:10px 30px;border:0;border-radius:8px'>دخول</button></form></body></html>"
+        if u and check_password_hash(u['password'],pw):
+            session['phone']=u['phone'];session['role']=u['role'];add_log("دخول");return redirect('/dash')
+        return "<script>alert('خطأ بالدخول');location.href='/login'</script>"
+    return """<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+<style>
+body{margin:0;min-height:100vh;background:linear-gradient(180deg,#0a0e2a 0%,#1a1446 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;color:#fff}
+.logo{font-size:50px}.title{background:linear-gradient(90deg,#5aa9ff,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:26px;font-weight:800;margin:10px 0 5px}
+.sub{color:#aaa;font-size:13px;margin-bottom:20px}.card{background:#1e2433cc;border:1px solid #ffffff15;padding:25px;border-radius:20px;width:320px;box-shadow:0 20px 60px #0008}
+.card h3{color:#5aa9ff;text-align:center;margin:0 0 15px}input{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid #ffffff20;color:#fff;border-radius:12px;box-sizing:border-box;text-align:right}
+.btn{width:100%;padding:13px;border:0;border-radius:12px;background:linear-gradient(90deg,#3b9dff,#8b5cf6);color:#fff;font-weight:bold;font-size:16px;margin-top:10px;cursor:pointer}
+.foot{margin-top:15px;font-size:12px;color:#aaa;text-align:center}
+</style></head><body>
+<div class=logo>🌐</div><div class=title>شركة أمية للإنترنت</div><div class=sub>✨ نظام إدارة المشتركين</div>
+<div class=card><h3>🔐 تسجيل الدخول</h3><form method=post>
+<input name=userin placeholder='📱 رقم الهاتف / اسم المستخدم' required>
+<input name=password type=password placeholder='🔑 كلمة السر' required>
+<button class=btn>✨ دخول</button></form></div>
+<div class=foot>📢 اشعارات شركة أمية للإنترنت<br>لا يوجد اشعارات</div>
+</body></html>"""
+
 @app.route('/logout')
 def lo(): session.clear();return redirect('/login')
 @app.route('/dash')
 @login_required
-def dash(): return layout(page_content(request.args.get('v','home')),request.args.get('v','home'))
+def dash():
+    try:
+        v=request.args.get('v','home')
+        return layout(page_content(v),v)
+    except Exception as e:
+        import traceback;traceback.print_exc()
+        return f"خطأ داخلي: {e}",500
 @app.route('/api/page')
 @login_required
 def ap(): return page_content(request.args.get('v','home'))
