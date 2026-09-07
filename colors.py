@@ -1,16 +1,15 @@
 COLORS = {
-    'bg_dark': '#0a1938',
-    'bg_light': '#f5f7fa',
-    'card_dark': '#1e2433',
+    'bg_dark': 'radial-gradient(1200px 600px at 80% -10%,#ff3d0022,transparent),#0a1938',
+    'bg_light': '#f5f5f5',
+    'card_dark': '#222222',
     'card_light': '#ffffff',
     'gold': '#ffbe4d',
-    'gold_dark': '#e6a93a',
-    'text_dark': '#ffffff',
-    'text_light': '#1a1a1a',
+    'gold2': '#ff6a00',
     'blue': '#2196F3',
-    'green': '#4CAF50',
     'red': '#F44336',
+    'green': '#25D366',
+    'pink': '#E1306C',
 }
 
 def logo_html():
-    return """<span style='font-weight:900;font-size:22px;letter-spacing:1px'><span style='color:#ffbe4d'>OMIA</span><span style='color:#fff'>NET</span></span>"""
+    return "OMAIA ISP"
