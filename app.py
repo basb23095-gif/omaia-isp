@@ -13,6 +13,10 @@ USE_PG = bool(DATABASE_URL.startswith("postgres://") and psycopg2)
 _pg=None
 INSTA="https://www.instagram.com/af_20_1999/"
 WA="https://wa.me/905344851045"
+# ألوان احتياطية للسرعة لو نقص شي من colors.py
+BG=COLORS.get('bg',COLORS.get('bg1','#0a1938'))
+TXT=COLORS.get('text','#ffffff')
+GOLD=COLORS.get('gold','#ffbe4d')
 
 def backup_db():
     if not USE_PG and os.path.exists("omia.db"):
@@ -125,10 +129,10 @@ def login():
             session['phone']=u['phone'];add_log(f"دخول {uin}");return redirect('/dash')
         return "<script>alert('خطأ بالدخول');location.href='/login'</script>"
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
-    <style>body{{background:{COLORS['bg']};color:{COLORS['text']};font-family:sans-serif;text-align:center;padding:30px}}
-    input{{padding:12px;margin:6px;width:280px;border-radius:10px;border:1px solid {COLORS['gold']};background:#1e1e1e;color:#fff;text-align:center}}
-    button{{background:{COLORS['gold']};padding:12px 40px;border:0;border-radius:12px;font-weight:bold;font-size:16px;cursor:pointer}}</style></head>
-    <body>{logo_html()}<h2 style='color:{COLORS['gold']}'>OMAIA ISP</h2>
+    <style>body{{background:{BG};color:{TXT};font-family:sans-serif;text-align:center;padding:30px}}
+    input{{padding:12px;margin:6px;width:280px;border-radius:10px;border:1px solid {GOLD};background:#1e1e1e;color:#fff;text-align:center}}
+    button{{background:{GOLD};padding:12px 40px;border:0;border-radius:12px;font-weight:bold;font-size:16px;cursor:pointer}}</style></head>
+    <body>{logo_html()}<h2 style='color:{GOLD}'>OMAIA ISP</h2>
     <form method=post id=lf>
     <input id=uin name=userin placeholder='يوزر / هاتف'><br>
     <input id=pw name=password type=password placeholder='كلمة السر' autocomplete="current-password"><br>
@@ -136,7 +140,7 @@ def login():
     <input type=checkbox id=rm style='width:18px;height:18px'> حفظ كلمة السر على هذا الجهاز</label>
     <button>دخول</button></form>
     <div style='margin-top:25px'><div style='color:#aaa;font-size:14px;margin-bottom:8px'>الدعم الفني</div>
-    <a href='{WA}' target=_blank style='font-size:34px;text-decoration:none'>💬</a></div>
+    <a href='{WA}' target=_blank style='display:inline-block;width:52px;height:52px;background:#25d366;border-radius:50%;line-height:52px;font-size:28px;text-decoration:none'>💬</a></div>
     <script>
     window.onload=function(){{
       var u=localStorage.getItem('omia_u'); var p=localStorage.getItem('omia_p');
@@ -201,11 +205,11 @@ def page_content(v):
 
 def layout(c,v):
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
-    <style>body{{background:{COLORS['bg']};color:{COLORS['text']};font-family:sans-serif;margin:0}}
-   .nav{{background:#1a1a1a;padding:12px;display:flex;gap:12px;align-items:center}}
-   .nav a{{color:{COLORS['text']};text-decoration:none;padding:8px 12px;background:#222;border-radius:8px}}
-   .wrap{{padding:15px;max-width:900px;margin:auto}}.card{{background:#1e1e1e;padding:15px;border-radius:12px;margin:10px 0;border:1px solid #333}}
-   .grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}.btn{{background:{COLORS['gold']};border:0;padding:10px 20px;border-radius:8px;font-weight:bold}}
+    <style>body{{background:{BG};color:{TXT};font-family:sans-serif;margin:0}}
+  .nav{{background:#1a1a1a;padding:12px;display:flex;gap:12px;align-items:center}}
+  .nav a{{color:{TXT};text-decoration:none;padding:8px 12px;background:#222;border-radius:8px}}
+  .wrap{{padding:15px;max-width:900px;margin:auto}}.card{{background:#1e1e1e;padding:15px;border-radius:12px;margin:10px 0;border:1px solid #333}}
+  .grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}.btn{{background:{GOLD};border:0;padding:10px 20px;border-radius:8px;font-weight:bold}}
     input{{padding:10px;margin:5px;border-radius:8px;border:1px solid #444;background:#111;color:#fff}}</style></head>
     <body><div class=nav>{logo_html()}<a href='/dash?v=home'>🏠</a><a href='/dash?v=dishes'>📡</a><a href='/dash?v=support'>🛠️ دعم</a><a href='/logout'>🚪</a></div>{c}</body></html>"""
 
