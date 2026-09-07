@@ -2,7 +2,7 @@ from flask import Flask, request, redirect, session, jsonify, Response
 from colors import COLORS, logo_html
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import os, datetime, json, html, subprocess, platform, ipaddress, io, csv
+import os, datetime, json, html, ipaddress, io, csv
 try: import psycopg2, psycopg2.extras
 except: psycopg2=None
 import sqlite3
@@ -13,7 +13,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL","").strip().replace("postgresql://"
 USE_PG = bool(DATABASE_URL.startswith("postgres://") and psycopg2)
 _pg=None
 def esc(s): return html.escape(str(s or ''), quote=True)
-def js_esc(s): return json.dumps(str(s or ''), ensure_ascii=False)
 def db():
     global _pg
     if USE_PG:
@@ -124,7 +123,7 @@ def page_content(v):
         <div style='display:flex;gap:6px;justify-content:center'><button class=btn-blue onclick='exportExcel()'>Excel</button><button class=btn-blue onclick="window.open('/export_pdf')">PDF</button></div></div>
         <div id=dishList style='display:flex;flex-direction:column;gap:8px;align-items:center'></div>
         <div style='text-align:center;margin:10px'><button class=btn onclick='moreDishes()'>المزيد 20</button></div>
-        <script>let pg=0;async function loadD(q=""){let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&page='+pg);let d=await r.json();let h="";d.forEach(x=>{h+=`<div class=card style="width:320px;max-width:95%;margin:0 auto;padding:8px 10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;text-align:right"><b>${x.dish_name||''}</b> <span class=ip-badge>${x.ip}</span><br><small>${x.location||''}</small></div><div style="display:flex;gap:4px">`+(CAN_E?`<button onclick='editDish(${x.id},"${x.dish_name}","${x.ip}","${x.location||''}")' style="width:52px;height:32px;background:#FF9800;border:0;border-radius:8px;font-size:12px">تعديل</button>`:'')+(CAN_D?`<button onclick='delItem("/del_dish/${x.id}")' style="width:44px;height:32px;background:#F44336;border:0;border-radius:8px;font-size:12px">حذف</button>`:'')+`<button class=btn-blue style="padding:6px 8px" onclick='pingDish("${x.ip}")'>Ping</button></div></div>`});if(pg==0)document.getElementById('dishList').innerHTML=h;else document.getElementById('dishList').innerHTML+=h}
+        <script>let pg=0;async function loadD(q=""){let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&page='+pg);let d=await r.json();let h="";d.forEach(x=>{h+=`<div class=card style="width:320px;max-width:95%;margin:0 auto;padding:8px 10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;text-align:right"><b>${x.dish_name||''}</b> <span class=ip-badge>${x.ip}</span><br><small>${x.location||''}</small></div><div style="display:flex;gap:4px">`+(CAN_E?`<button onclick='editDish(${x.id},"${(x.dish_name||'').replace(/"/g,'')}","${x.ip}","${(x.location||'').replace(/"/g,'')}")' style="width:52px;height:32px;background:#FF9800;border:0;border-radius:8px;font-size:12px">تعديل</button>`:'')+(CAN_D?`<button onclick='delItem("/del_dish/${x.id}")' style="width:44px;height:32px;background:#F44336;border:0;border-radius:8px;font-size:12px">حذف</button>`:'')+`<button class=btn-blue style="padding:6px 8px" onclick='pingDish("${x.ip}")'>Ping</button></div></div>`});if(pg==0)document.getElementById('dishList').innerHTML=h;else document.getElementById('dishList').innerHTML+=h}
         async function instantSearch(q){pg=0;loadD(q)}function moreDishes(){pg++;loadD(document.getElementById('searchBox').value)}loadD();
         function editDish(id,n,ip,loc){let nn=prompt('اسم:',n);if(nn==null)return;let i2=prompt('IP:',ip);if(i2==null)return;let l2=prompt('موقع:',loc);fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:i2,location:l2})}).then(()=>{toast('تم التعديل');loadPage('dishes',true)})}
         </script></div>""".replace("CAN_E","1" if can_e else "0").replace("CAN_D","1" if can_d else "0")
@@ -132,10 +131,12 @@ def page_content(v):
         rs=qall("SELECT * FROM towers ORDER BY id DESC LIMIT 40")
         cards=""
         for r in rs:
-            eb=f"<button onclick='editTower({r['id']},\"{esc(r['name'])}\")' style='width:52px;height:32px;background:#FF9800;border:0;border-radius:8px;font-size:12px'>تعديل</button>" if can_e else ""
+            eb=f"<button onclick='editTower({r['id']})' style='width:52px;height:32px;background:#FF9800;border:0;border-radius:8px;font-size:12px'>تعديل</button>" if can_e else ""
             dbtn=f"<button onclick='delItem(\"/del_tower/{r['id']}\")' style='width:44px;height:32px;background:#F44336;border:0;border-radius:8px;font-size:12px'>حذف</button>" if can_d else ""
             cards+=f"<div class=card style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r['name'])}</b><br><small>{esc(r['area'] or '')}</small></div><div style='display:flex;gap:6px'>{eb}{dbtn}</div></div>"
-        return f"<div style='max-width:900px;margin:0 auto'><div class=card style='text-align:center'><h3>الأبراج</h3><form data-ajax method=post action=/add_tower><input name=name required placeholder='اسم البرج'><input name=area placeholder='المنطقة'><button class=btn-gold>اضافة</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>{cards}</div><script>function editTower(id,n)"+chr(123)+f"let nn=prompt('اسم:',n);if(nn==null)return;fetch('/edit_tower/'+id,"+chr(123)+f"method:'POST',body:new URLSearchParams("+chr(125)+f")"+chr(125)+f").then(()=>loadPage('towers',true))"+chr(125)+f"</script></div>"
+        return f"""<div style='max-width:900px;margin:0 auto'><div class=card style='text-align:center'><h3>الأبراج</h3><form data-ajax method=post action=/add_tower><input name=name required placeholder='اسم البرج'><input name=area placeholder='المنطقة'><button class=btn-gold>اضافة</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>{cards}</div><script>
+        function editTower(id){{ let nn=prompt('اسم جديد:'); if(nn==null||!nn) return; fetch('/edit_tower/'+id,{{method:'POST',body:new URLSearchParams({{name:nn}})}}).then(()=>loadPage('towers',true)) }}
+        </script></div>"""
     if v=='subs':
         rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 20")
         rows="".join([f"<div class=card><b>{esc(r['name'])}</b> - {esc(r['phone'] or '')}</div>" for r in rs])
@@ -145,10 +146,32 @@ def page_content(v):
         rows="".join([f"<div class=card>{esc(r['name'])} - {r['amount']}</div>" for r in rs])
         return f"<div style='max-width:600px;margin:0 auto'><div class=card style='text-align:center'><h3>الحسابات</h3><form data-ajax method=post action=/add_ledger><input name=name required placeholder='الاسم'><input name=amount type=number step=0.01 required placeholder='مبلغ'><button class=btn-gold>اضافة</button></form></div>{rows}</div>"
     if v=='pingpage':
-        return """<div style='max-width:500px;margin:0 auto'><div class=card style='text-align:center'><h3>فحص Ping</h3><form onsubmit='event.preventDefault();pingDish(document.getElementById("pip").value)'><input id=pip placeholder='IP داخلي مثلا 192.168.1.1' required style='max-width:300px;margin:0 auto'><button class=btn-gold style='margin-top:8px'>فحص</button></form><div id=pr style='margin-top:10px'></div></div><script>window.pingDish=async function(ip){toast('جاري الفحص '+ip);let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));let j=await r.json();document.getElementById('pr').innerHTML='<div class=card>'+j.out+'</div>';toast(j.out.slice(0,100))}</script></div>"""
+        return """<div style='max-width:500px;margin:0 auto'><div class=card style='text-align:center'><h3>فحص Ping</h3><form onsubmit='event.preventDefault();doPing(document.getElementById("pip").value)'><input id=pip placeholder='IP داخلي مثلا 192.168.1.1' required style='max-width:300px;margin:0 auto'><button class=btn-gold style='margin-top:8px'>فحص</button></form><div id=pr style='margin-top:10px'></div></div><script>async function doPing(ip){toast('جاري الفحص '+ip);let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));let j=await r.json();document.getElementById('pr').innerHTML='<div class=card>'+j.out+'</div'}</script></div>"""
     if v=='map':
         towers=qall("SELECT * FROM towers");tj=json.dumps([{"name":t['name'],"lat":float(t.get('lat') or 35.13),"lng":float(t.get('lng') or 36.75)} for t in towers],ensure_ascii=False)
-        return "<div class=card><input id=mapSearch placeholder='ابحث + Enter' onkeydown='if(event.key===\"Enter\")mapGo(this.value)' style='max-width:400px'><div id=map style='height:65vh;border-radius:12px'></div><script>var _t="+tj+";var map=L.map('map').setView([35.1318,36.7578],13);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(map);setTimeout(()=>map.invalidateSize(),400);_t.forEach(t=>L.marker([t.lat,t.lng]).addTo(map).bindPopup(t.name));window.mapGo=function(q){let f=_t.find(t=>t.name.includes(q));if(f)map.flyTo([f.lat,f.lng],17);else toast('غير موجود')};</script></div>"
+        dishes=qall("SELECT dish_name,ip FROM dish_ips LIMIT 500");dj=json.dumps([{"n":d['dish_name'],"ip":d['ip']} for d in dishes],ensure_ascii=False)
+        return """<div class=card><div style='display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px'>
+        <input id=mapSearch placeholder='ابحث برج + Enter' onkeydown='if(event.key==="Enter")mapGo(this.value)' style='max-width:200px'>
+        <input id=dishSearch placeholder='ابحث صحن IP' oninput='searchDish(this.value)' style='max-width:200px'>
+        <button class=btn-blue id=measBtn onclick='toggleMeasure()'>قياس مسافة</button>
+        <button class=btn onclick='clearMeasure()'>مسح القياس</button>
+        <span id=measOut style='background:#000;color:#ffbe4d;padding:6px 12px;border-radius:10px;font-family:monospace'></span></div>
+        <div id=dishRes style='max-height:100px;overflow:auto'></div>
+        <div id=map style='height:65vh;border-radius:12px'></div>
+        <script>var _t="""+tj+""";var _d="""+dj+""";
+        var map=L.map('map').setView([35.1318,36.7578],13);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:22,maxNativeZoom:19}).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,opacity:0.35}).addTo(map);
+        setTimeout(()=>map.invalidateSize(),400);
+        _t.forEach(t=>L.marker([t.lat,t.lng]).addTo(map).bindPopup(t.name));
+        map.locate({enableHighAccuracy:true});
+        window.mapGo=function(q){let f=_t.find(t=>t.name.includes(q));if(f){map.flyTo([f.lat,f.lng],18);L.popup().setLatLng([f.lat,f.lng]).setContent(f.name).openOn(map)}else toast('غير موجود')};
+        window.searchDish=function(q){if(!q||q.length<2){document.getElementById('dishRes').innerHTML='';return}let f=_d.filter(d=>(d.n&&d.n.includes(q))||(d.ip&&d.ip.includes(q))).slice(0,10);document.getElementById('dishRes').innerHTML=f.map(d=>'<div style="padding:4px;border-bottom:1px solid #333">'+d.n+' - '+d.ip+'</div>').join('')};
+        let measuring=false,pts=[],line=null,markers=[];
+        window.toggleMeasure=function(){measuring=!measuring;document.getElementById('measBtn').textContent=measuring?'اضغط على الخريطة...':'قياس مسافة';toast(measuring?'اضغط على الخريطة لقياس':'تم الايقاف')};
+        window.clearMeasure=function(){pts=[];markers.forEach(m=>map.removeLayer(m));markers=[];if(line){map.removeLayer(line);line=null}document.getElementById('measOut').textContent=''};
+        map.on('click',function(e){if(!measuring)return;pts.push(e.latlng);let m=L.circleMarker(e.latlng,{radius:5,color:'#ffbe4d'}).addTo(map);markers.push(m);if(line)map.removeLayer(line);line=L.polyline(pts,{color:'#ffbe4d',weight:3,dashArray:'6 6'}).addTo(map);let total=0;for(let i=1;i<pts.length;i++)total+=map.distance(pts[i-1],pts[i]);let txt=total<1000?total.toFixed(2)+' متر':(total/1000).toFixed(4)+' كم';document.getElementById('measOut').textContent='المسافة: '+txt});
+        </script></div>"""
     if v=='logs':
         rs=qall("SELECT * FROM activity_log ORDER BY id DESC LIMIT 50")
         rows="".join([f"<div class=log-row><b>{esc(r['username'] or r['phone'])}</b> ({esc(r['phone'])}) - {esc(r['action'])} <small>{esc(r['time'])}</small></div>" for r in rs])
@@ -198,7 +221,7 @@ async function loadPage(v,f){cur=v;document.getElementById('sb').classList.remov
 function exe(){document.getElementById('mn').querySelectorAll('script').forEach(s=>{try{eval(s.textContent)}catch(e){}});bind()}
 function bind(){document.querySelectorAll('form[data-ajax]').forEach(f=>{f.onsubmit=async e=>{e.preventDefault();await fetch(f.action,{method:'POST',body:new FormData(f)});for(let k in cache)delete cache[k];toast('تم');loadPage(cur,true)}})}
 window.delItem=async function(u){if(!confirm('حذف؟'))return;await fetch(u);for(let k in cache)delete cache[k];toast('انحذف');loadPage(cur,true)};
-window.pingDish=async function(ip){toast('بينغ '+ip);let r=await fetch('/api/ping?ip='+ip);let j=await r.json();toast(j.out.slice(0,120))};
+window.pingDish=async function(ip){toast('بينغ '+ip);let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));let j=await r.json();toast(j.out.slice(0,120))};
 window.toggleTheme=async()=>{await fetch('/toggle_theme');location.reload()};
 window.exportExcel=()=>{window.open('/export_excel')};
 bind();exe();
@@ -247,12 +270,8 @@ def lo(): session.clear();return redirect('/login')
 @app.route('/dash')
 @login_required
 def dash():
-    try:
-        v=request.args.get('v','home')
-        return layout(page_content(v),v)
-    except Exception as e:
-        import traceback;traceback.print_exc()
-        return f"خطأ داخلي: {e}",500
+    v=request.args.get('v','home')
+    return layout(page_content(v),v)
 @app.route('/api/page')
 @login_required
 def ap(): return page_content(request.args.get('v','home'))
