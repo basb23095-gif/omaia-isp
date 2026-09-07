@@ -480,7 +480,7 @@ function bindAjax(){{
 }}
 window.delItem=async function(url){{if(!confirm('⚠ تأكيد الحذف؟'))return;showLine(40);try{{let res=await fetch(url,{{cache:'no-store'}});if(res.status==401){{location.href='/login';return}} Object.keys(pageCache).forEach(k=>delete pageCache[k]); loadPage(currentPage, true);}}catch(e){{alert(e)}}}}
 function pingDish(ip){{if(!ip){{alert('لا يوجد IP');return}}showLine(40);fetch('/api/ping?ip='+encodeURIComponent(ip),{{cache:'no-store'}}).then(r=>r.json()).then(j=>{{showLine(0);alert(j.out.slice(0,400))}}).catch(()=>showLine(0))}}
-async function toggleTheme(){{showLine(30);await fetch('/toggle_theme',{cache:'no-store'});location.reload()}}
+async function toggleTheme(){{showLine(30);await fetch('/toggle_theme',{{cache:'no-store'}});location.reload()}}
 async function toggleLang(){{showLine(30);try{{let r=await fetch('/toggle_lang',{{cache:'no-store', method:'POST'}});if(r.ok){{Object.keys(pageCache).forEach(k=>delete pageCache[k]); location.reload();}}else{{alert('فشل');showLine(0);}}}}catch(e){{alert('خطأ: '+e);showLine(0);}}}}
 document.addEventListener('keydown', e=>{{if(e.key==='Escape' && document.getElementById('sidebar').classList.contains('active'))toggleMenu()}});
 let startY=0, pulling=false;
