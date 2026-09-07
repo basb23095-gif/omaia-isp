@@ -1,4 +1,3 @@
-
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -138,7 +137,6 @@ def is_valid_ip(ip):
                 return False
         return False
 
-
 def is_internal_ip(ip):
     try:
         o=ipaddress.ip_address(ip.strip())
@@ -231,10 +229,16 @@ def api_export(tbl):
         fname='users.csv'
     elif tbl=='towers':
         rows=qall("SELECT * FROM towers ORDER BY id DESC")
-        w.writerow(['ID','اسم البرج','المنطقة'])
+        w.writerow(['ID','اسم البرج','المنطقة','lat','lng'])
         for r in rows:
-            w.writerow([r['id'],r.get('name',''),r.get('area','')])
+            w.writerow([r['id'],r.get('name',''),r.get('area',''),r.get('lat',''),r.get('lng','')])
         fname='towers.csv'
+    elif tbl=='logs':
+        rows=qall("SELECT * FROM logs ORDER BY id DESC")
+        w.writerow(['ID','يوزر','فعل','تفصيل','وقت'])
+        for r in rows:
+            w.writerow([r['id'],r.get('user_phone',''),r.get('action',''),r.get('detail',''),r.get('time','')])
+        fname='logs.csv'
     else:
         w.writerow(['ID'])
         fname='export.csv'
@@ -267,12 +271,7 @@ input:focus{border-color:#ffbe4d;outline:none}
 .btn:active{transform:scale(.98)}
 .save-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:13px;color:#aaa}
 .save-row input{width:auto;margin:0}
-#loader{position:fixed;inset:0;background:#0a0e2a;z-index:9999;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s}
-#loader.show{opacity:1;pointer-events:auto}
-.spinner{width:40px;height:40px;border:3px solid #ffffff20;border-top-color:#ffbe4d;border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
 </style></head><body>
-
 <div style='font-size:28px;font-weight:900;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div class=card>
 <form id=loginForm>
@@ -298,7 +297,6 @@ document.getElementById('loginForm').addEventListener('submit',async e=>{
   let j=await r.json();
   if(j.ok){
    if(s.checked){localStorage.setItem('omaia_user',u.value);localStorage.setItem('omaia_pass',p.value);}else{localStorage.removeItem('omaia_user');localStorage.removeItem('omaia_pass');}
-   // سلاسة فائقة - بدون تحميل كامل
    location.href='/dash?v=home';
   }else{msg.textContent=j.msg||'خطأ'; btn.textContent='✨ دخول فوري'; btn.disabled=false;}
  }catch(err){msg.textContent='خطأ شبكة'; btn.textContent='✨ دخول فوري'; btn.disabled=false;}
@@ -359,8 +357,6 @@ def ad():
         return "IP مطلوب",400
     if not is_valid_ip(ip):
         return "IP غير صالح - مثال 192.168.1.1",400
-    # FIX الصحون ما يضيف ايبي - كان يرفض المكرر
-    # هلا لو موجود يحدث
     ex=qone("SELECT * FROM dish_ips WHERE ip=?",(ip,))
     user=session.get('phone','')
     if ex:
@@ -376,12 +372,14 @@ def ad():
 def ed(i):
     qexec("UPDATE dish_ips SET dish_name=?,ip=?,location=? WHERE id=?",
           (request.form.get('dish_name',''),request.form.get('ip',''),request.form.get('location',''),i))
+    add_log(session.get('phone',''), 'عدل صحن', f"id={i}")
     return "ok"
 
 @app.route('/del_dish/<int:i>')
 @login_required
 def dd(i):
     qexec("DELETE FROM dish_ips WHERE id=?",(i,))
+    add_log(session.get('phone',''), 'حذف صحن', f"id={i}")
     return "ok"
 
 @app.route('/add_tower',methods=['POST'])
@@ -396,6 +394,7 @@ def at():
         la=35.1312; ln=36.7578
     qexec("INSERT INTO towers(name,area,lat,lng) VALUES(?,?,?,?)",
           (request.form.get('name',''),request.form.get('area',''),la,ln))
+    add_log(session.get('phone',''), 'اضاف برج', request.form.get('name',''))
     return "ok"
 
 @app.route('/del_tower/<int:i>')
@@ -466,7 +465,6 @@ def el(i):
 @app.route('/add_user',methods=['POST'])
 @login_required
 def au():
-    # حقل واحد فقط - يوزر/رقم بنفس الحقل
     ph=request.form.get('phone','').strip() or request.form.get('username','').strip() or request.form.get('user_field','').strip()
     if not ph:
         return "رقم مطلوب",400
@@ -528,7 +526,7 @@ def page_content(v):
         <div style='max-width:700px;margin:0 auto;text-align:center'>
           <div style='display:grid;grid-template-columns:1fr 1fr;gap:12px'>
             <div class='card anim' onclick="loadPage('subs')" style='cursor:pointer'><h3>المشتركين</h3><h2>{ns}</h2></div>
-            <div class='card anim' onclick="loadPage('dishes')" style='cursor:pointer'><h3>الصحون</h3><h2>{nd}</h2></div>
+            <div class='card anim' onclick="loadPage('dishes')" style='cursor:pointer'><h3>الصحون - Ping</h3><h2>{nd}</h2></div>
             <div class='card anim' onclick="loadPage('towers')" style='cursor:pointer'><h3>الأبراج</h3><h2>{nt}</h2></div>
             <div class='card anim' onclick="loadPage('ledger')" style='cursor:pointer'><h3>الحسابات</h3><h2>{nl}</h2></div>
           </div>
@@ -545,8 +543,9 @@ def page_content(v):
         return """<div style='max-width:900px;margin:0 auto'>
 <div class=card>
 <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px'>
-<h3>📡 الصحون</h3>
+<h3>📡 الصحون - مع Ping</h3>
 <div style='display:flex;gap:6px'>
+<button onclick="pingAll()" class=btn-gold style='padding:6px 10px;font-size:12px'>📶 Ping الكل</button>
 <a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:7px 12px;font-size:13px'>📊 Excel</a>
 <button onclick="window.print()" class=btn-gold style='padding:7px 12px;font-size:13px'>📄 PDF</button>
 </div>
@@ -580,7 +579,7 @@ window.saveEdit=function(type,id){
     fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:ii,location:ll})}).then(()=>{closeEditModal(); window.ld(document.getElementById('searchBox').value||'');});
   }
 }
-window.openChrome=function(ip){ let url='http://'+ip; let w=window.open(url,'_blank'); if(!w){ navigator.clipboard.writeText(url).then(()=>alert('تم نسخ: '+url+'\nالصق في كروم')).catch(()=>prompt('انسخ:',url)); } };
+window.openChrome=function(ip){ let url='http://'+ip; let w=window.open(url,'_blank'); if(!w){ navigator.clipboard.writeText(url).then(()=>alert('تم نسخ: '+url+'\\nالصق في كروم')).catch(()=>prompt('انسخ:',url)); } };
 window.closeEditModal=function(){document.getElementById('editModal').classList.remove('show');}
 window.doEditDish=function(id){ window.openEditModal('dish',id); }
 window.doPing=function(id){
@@ -591,6 +590,21 @@ window.doPing=function(id){
     out.textContent=j.out.slice(0,250);
     out.style.color=j.ok?'#22c55e':'#ef4444';
   }).catch(()=>{out.textContent='خطأ';});
+}
+window.pingAll=async function(){
+  let cards=document.querySelectorAll('[id^=dish-]');
+  for(let c of cards){
+    let out=c.querySelector('.ping-out');
+    if(!out) continue;
+    out.textContent='⏳...';
+    try{
+      let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip));
+      let j=await r.json();
+      out.textContent=j.ok?'✅ '+j.out.slice(0,80):'❌ '+j.out.slice(0,80);
+      out.style.color=j.ok?'#22c55e':'#ef4444';
+    }catch(e){ out.textContent='خطأ'; }
+    await new Promise(r=>setTimeout(r,300));
+  }
 }
 window.ld=async function(q){
   let r=await fetch('/api/search?q='+encodeURIComponent(q||''));
@@ -708,23 +722,27 @@ window.saveLed=function(id){{
         towers=qall("SELECT * FROM towers")
         tj=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.1318),"lng":float(t.get('lng') or 36.7578)} for t in towers],ensure_ascii=False)
         return f"""<div class=card style='padding:6px'>
-<div style='display:flex;gap:6px;margin-bottom:6px'><input id=mapSearch placeholder='🔍 بحث برج + Enter' onkeydown="if(event.key==='Enter')window.mapGo(this.value)" style='flex:1'><button class=btn-gold onclick="window.mapGo(document.getElementById('mapSearch').value)">اذهب</button></div>
+<div style='display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap'><input id=mapSearch placeholder='🔍 بحث برج + Enter' onkeydown="if(event.key==='Enter')window.mapGo(this.value)" style='flex:1'><button class=btn-gold onclick="window.mapGo(document.getElementById('mapSearch').value)">اذهب</button> <button class=btn-gold onclick="locateMe()" style='background:#22c55e'>📍 موقعي</button></div>
 <div id=map style='height:72vh;min-height:450px;border-radius:14px;background:#e5e7eb;z-index:1'></div>
 </div>
 <script>
 let _towers={tj};
 setTimeout(()=>{{
   if(typeof L==='undefined'){{document.getElementById('map').innerHTML='<div style=text-align:center;padding:40px>⚠ فشل تحميل الخريطة</div>';return;}}
-  let map=L.map('map').setView([35.1318,36.7578],12);
+  let map=L.map('map',{{zoomControl:true}}).setView([35.1318,36.7578],12);
   let osm=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19,attribution:'© OSM'}}).addTo(map);
   let sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19}});
   L.control.layers({{"عادية":osm,"قمر صناعي":sat}}).addTo(map);
-  setTimeout(()=>map.invalidateSize(),350);
+  L.control.scale().addTo(map);
+  setTimeout(()=>map.invalidateSize(),250);
   _towers.forEach(t=>{{L.marker([t.lat,t.lng]).addTo(map).bindPopup('<b>'+t.name+'</b><br>'+t.area);}});
   window.mapGo=function(q){{
     q=(q||'').toLowerCase().trim(); if(!q)return;
     let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q));
     if(f){{map.flyTo([f.lat,f.lng],16);}} else alert('غير موجود');
+  }};
+  window.locateMe=function(){{
+    if(navigator.geolocation){{ navigator.geolocation.getCurrentPosition(p=>{{ map.flyTo([p.coords.latitude,p.coords.longitude],16); L.marker([p.coords.latitude,p.coords.longitude]).addTo(map).bindPopup('📍 موقعك').openPopup(); }}); }}
   }};
 }},120);
 </script>"""
@@ -740,7 +758,6 @@ setTimeout(()=>{{
         uh=""
         for u in us:
             ph=esc(u['phone'])
-            un=esc(u['username'] or '')
             ro=esc(u['role'])
             display_val=ph
             uh+='<div class="card anim" id="user-'+ph+'" data-phone="'+ph+'" data-role="'+ro+'" style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:10px"><div style="width:40px;height:40px;border-radius:50%;background:#ffbe4d;display:flex;align-items:center;justify-content:center;color:#000;font-weight:900">'+display_val[:1].upper()+'</div><div><b style="font-family:monospace;color:#ffbe4d;font-size:15px">'+display_val+'</b><br><small style="color:#aaa">'+ro+'</small></div></div><div style="display:flex;gap:6px"><button class=btn-gold onclick="window.openEditUser(\''+ph+'\')" style="padding:8px 12px">✏</button><button class=btn-del onclick="askDel(\'/del_user/'+ph+'\')" style="padding:8px 12px">🗑</button></div></div>'
@@ -754,21 +771,21 @@ setTimeout(()=>{{
 <div class=card style='background:linear-gradient(180deg,#1e2433,#0f1424);border:1px solid #ffbe4d30'>
 <h4 style='text-align:center;margin:0 0 12px'>👤 اضافة يوزر</h4>
 <form data-ajax method=post action=/add_user style='display:flex;flex-direction:column;gap:10px'>
-<input name=user_field placeholder='📱 رقم / uesr' required style='font-size:15px;padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'>
-<input name=password type=password placeholder='🔑 password' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'>
+<input name=user_field placeholder='📱 رقم / يوزر' required style='font-size:15px;padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'>
+<input name=password type=password placeholder='🔑 كلمة سر' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'>
 <select name=role style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><option value=tech>فني</option><option value=manager>مدير</option></select>
-<button class=btn-gold style='padding:14px;font-size:16px'>add uesr</button>
+<button class=btn-gold style='padding:14px;font-size:16px'>➕ اضافة</button>
 </form>
 </div>
-<div class=card><h4>📊 تصدير Excel / PDF</h4><div style='display:flex;flex-direction:column;gap:8px'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:10px;text-align:center'>📥 تصدير يوزرات Excel</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:10px;text-align:center'>📥 تصدير صحون Excel</a><a href='/api/export/subs' class=btn-gold style='text-decoration:none;padding:10px;text-align:center'>📥 تصدير مشتركين Excel</a><button onclick="window.print()" class=btn-gold style='padding:10px'>📄 طباعة PDF</button></div></div>
+<div class=card><h4>📊 تصدير</h4><div style='display:flex;flex-direction:column;gap:8px'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:10px;text-align:center'>📥 يوزرات Excel</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:10px;text-align:center'>📥 صحون Excel</a><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:10px;text-align:center'>📥 سجل Excel</a><button onclick="window.print()" class=btn-gold style='padding:10px'>📄 طباعة PDF</button></div></div>
 </div>
 {uh}
 <script>
 window.openEditUser=function(ph){{
   let c=document.getElementById('user-'+ph);
   document.getElementById('editModal').classList.add('show');
-  document.getElementById('editTitle').textContent='✏ تعديل يوزر - يوزر/رقم بنفس الكرت';
-  document.getElementById('editBody').innerHTML='<label style="display:block;text-align:right;font-size:12px;margin-top:6px">اسم المستخدم (اليوزر)</label><input id=edit_u_field value="'+c.dataset.username+'" style="width:100%;padding:10px;border-radius:8px;margin-top:4px"><label style="display:block;text-align:right;font-size:12px;margin-top:8px">رقم الهاتف / يوزر</label><input id=edit_u_field value="'+c.dataset.phone+'" style="width:100%;padding:10px;border-radius:8px;margin-top:4px"><label style="display:block;text-align:right;font-size:12px;margin-top:8px">كلمة سر جديدة (فاضي = بدون تغيير)</label><input id=edit_u_pass type="password" placeholder="••••••" style="width:100%;padding:10px;border-radius:8px;margin-top:4px"><button onclick="window.saveUser(\\'"+ph+"\\')" class=btn-gold style="width:100%;padding:12px;margin-top:12px">💾 حفظ</button>';
+  document.getElementById('editTitle').textContent='✏ تعديل يوزر';
+  document.getElementById('editBody').innerHTML='<input id=edit_u_field value="'+c.dataset.phone+'" style="width:100%;padding:10px;border-radius:8px;margin:6px 0"><input id=edit_u_pass type="password" placeholder="كلمة سر جديدة (فاضي=بدون تغيير)" style="width:100%;padding:10px;border-radius:8px;margin:6px 0"><button onclick="window.saveUser(\\'"+ph+"\\')" class=btn-gold style="width:100%;padding:12px;margin-top:8px">💾 حفظ</button>';
 }}
 window.saveUser=function(oldPh){{
   let ff=document.getElementById('edit_u_field').value.trim();
@@ -776,7 +793,7 @@ window.saveUser=function(oldPh){{
   if(!ff){{alert('required');return;}}
   let data={{old_phone:oldPh,phone:ff,username:ff,role:document.getElementById('user-'+oldPh).dataset.role}};
   if(pw.trim()!='') data.password=pw.trim();
-  fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(()=>{{closeEditModal(); loadPage('settings',true,true);}});
+  fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(()=>{{closeEditModal(); loadPage('settings',true);}});
 }}
 </script></div>"""
     return "<div class=card>ok</div>"
@@ -800,7 +817,7 @@ def layout(c,v='home'):
 .sidebar a:hover{{background:#ffffff20;transform:translateX(-4px)}}
 .sidebar a.active{{background:#ffbe4d;color:#111;font-weight:800}}
 #overlay{{position:fixed;inset:0;background:#0008;z-index:1001;display:none}}#overlay.show{{display:block}}
-.main{{margin-top:70px;padding:12px;min-height:90vh;transition:opacity .18s, transform .18s}}@media(max-width:700px){{.main{{padding:8px}}}}
+.main{{margin-top:70px;padding:12px;min-height:90vh}}@media(max-width:700px){{.main{{padding:8px}}}}
 .card{{background:{card_bg};color:{txt};padding:14px;border-radius:14px;margin-bottom:10px;border:1px solid {border};transition:all .18s}}
 .card:hover{{transform:translateY(-1px);box-shadow:0 6px 18px #0002}}
 input,select{{padding:11px;margin:5px 0;border-radius:10px;border:1px solid {border};width:100%;background:#ffffff08;color:{txt};transition:border .18s}}
@@ -808,13 +825,11 @@ input:focus{{border-color:#ffbe4d;outline:none}}
 .btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:10px 16px;border:0;border-radius:10px;font-weight:800;cursor:pointer;transition:all .18s}}
 .btn-gold:hover{{transform:translateY(-1px);box-shadow:0 4px 12px #ffbe4d44}}
 .btn-gold:active{{transform:scale(.97)}}
-.btn-del{{background:#ef4444;color:#fff;padding:9px 14px;border:0;border-radius:10px;cursor:pointer;transition:all .18s}}
-.btn-del:hover{{background:#dc2626}}
+.btn-del{{background:#ef4444;color:#fff;padding:9px 14px;border:0;border-radius:10px;cursor:pointer}}
 #delModal, #editModal{{position:fixed;inset:0;background:#0009;backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.25s;z-index:2000}}
 #delModal.show, #editModal.show{{opacity:1;pointer-events:auto}}
 #delBox, #editBox{{background:{card_bg};color:{txt};padding:24px;border-radius:18px;width:92%;max-width:440px;text-align:right;transform:scale(.92) translateY(15px);transition:.28s cubic-bezier(.4,0,.2,1)}}
 #delModal.show #delBox, #editModal.show #editBox{{transform:scale(1) translateY(0)}}
-@media print{{.top,.sidebar,#overlay,#editModal,#delModal{{display:none !important}}.main{{margin-top:0}}}}
 </style></head>
 <body>
 <div id=overlay onclick="toggleSb(false)"></div>
@@ -833,13 +848,13 @@ input:focus{{border-color:#ffbe4d;outline:none}}
 <div class=top>
 <div style='display:flex;gap:8px;align-items:center'>
 <span onclick="toggleSb()" style='font-size:24px;cursor:pointer'>☰</span>
-<input id=topsearch placeholder='🔍 بحث شامل كلشي' oninput="globalSearchTop(this.value)" style='background:#1f2937;border:1px solid #374151;color:#fff;padding:7px 10px;border-radius:10px;width:110px'>
+<input id=topsearch placeholder='🔍 بحث شامل' oninput="globalSearchTop(this.value)" style='background:#1f2937;border:1px solid #374151;color:#fff;padding:7px 10px;border-radius:10px;width:130px'>
 </div>
 <div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div style='display:flex;gap:6px;align-items:center'>
 <div id=notifBell onclick="toggleNotif()" style='position:relative;cursor:pointer;font-size:20px'>🔔<span id=notifCount style='display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;font-size:10px;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center'>0</span></div>
 <button onclick="toggleLang()" id=langBtn style='background:#1f2937;color:#fff;border:0;padding:8px 10px;border-radius:10px;cursor:pointer'>🌐 ع</button>
-<button onclick="toggleTheme()" style='background:#1f2937;color:#fff;border:0;padding:8px 10px;border-radius:10px;cursor:pointer' title='ليل/نهار'>🌓</button>
+<button onclick="toggleTheme()" style='background:#1f2937;color:#fff;border:0;padding:8px 10px;border-radius:10px;cursor:pointer'>🌓</button>
 <button onclick="loadPage(cur,true)" style='background:#1f2937;color:#fff;border:0;padding:8px 10px;border-radius:10px;cursor:pointer'>↻</button>
 </div>
 </div>
@@ -859,15 +874,8 @@ const T={{
 }};
 function saveCache(){{try{{localStorage.setItem('omaia_cache',JSON.stringify(pageCache))}}catch(e){{}}}}
 function applyLang(){{
-  document.querySelectorAll('[data-l]').forEach(e=>{{
-    let k=e.getAttribute('data-l');
-    if(T[lang][k])e.textContent=T[lang][k];
-  }});
   document.getElementById('langBtn').textContent=lang==='ar'?'🌐 ع':'🌐 En';
-  document.documentElement.lang=lang;
-  // ثابت يمين - القائمة لا تتحرك
   document.documentElement.dir='rtl';
-  document.body.style.direction='rtl';
   localStorage.setItem('omaia_lang',lang);
 }}
 window.toggleLang=function(){{
@@ -876,7 +884,7 @@ window.toggleLang=function(){{
   applyLang();
   pageCache={{}};
   saveCache();
-  fetch('/toggle_lang').then(()=>{{ loadPage(cur,true,true); }});
+  fetch('/toggle_lang').then(()=>{{ loadPage(cur,true); }});
 }}
 applyLang();
 function toggleSb(force){{
@@ -894,31 +902,20 @@ async function loadPage(v,force=false,push=true){{
   let nav=document.getElementById('nav-'+v);
   if(nav)nav.classList.add('active');
   let mn=document.getElementById('mn');
-  // سلاسة فائقة
   if(pageCache[v] && !force){{
-    mn.style.opacity='0.5';
-    setTimeout(()=>{{
-      mn.innerHTML=pageCache[v];
-      mn.style.opacity='1';
-      bind();execScripts();
-    }},80);
+    mn.innerHTML=pageCache[v];
+    bind();execScripts();
     fetch('/api/page?v='+v).then(r=>r.text()).then(h=>{{pageCache[v]=h;saveCache();}});
     return;
   }}
-  mn.style.opacity='0.6';
-  mn.style.transform='translateY(6px)';
   try{{
     let r=await fetch('/api/page?v='+v,{{cache:'no-store'}});
     let h=await r.text();
     pageCache[v]=h;saveCache();
     mn.innerHTML=h;
-    mn.style.opacity='1';
-    mn.style.transform='translateY(0)';
     bind();execScripts();
   }}catch(e){{
     mn.innerHTML='<div class=card>❌ خطأ: '+e+'</div>';
-    mn.style.opacity='1';
-    mn.style.transform='none';
   }}
 }}
 function execScripts(){{
@@ -962,17 +959,58 @@ document.getElementById('delYes').onclick=async()=>{{
   }}
 }};
 async function toggleTheme(){{
-  let stay=cur;
+  try{{ await fetch('/toggle_theme'); location.reload(); }}catch(e){{location.reload();}}
+}}
+window.globalSearchTop=async function(q){{
+  let box=document.getElementById('searchResults');
+  if(!q){{ box.style.display='none'; return; }}
   try{{
-    await fetch('/toggle_theme');
-    location.reload();
-    localStorage.setItem('omaia_last_page',stay);
-  }}catch(e){{location.reload();}}
+    let r=await fetch('/api/search?q='+encodeURIComponent(q));
+    let d=await r.json();
+    if(d.length==0){{ box.innerHTML='<div style="padding:12px;text-align:center;color:#aaa">لا يوجد نتائج</div>'; box.style.display='block'; return; }}
+    let h='<div style="padding:8px;background:#ffffff08;font-weight:800;border-bottom:1px solid #ffffff15">🔍 نتائج ('+d.length+')</div>';
+    d.forEach(x=>{{
+      h+='<div style="padding:10px;border-bottom:1px solid #ffffff10;cursor:pointer;display:flex;justify-content:space-between" onclick="loadPage(\\''+x.page+'\\'); document.getElementById(\\'searchResults\\').style.display=\\'none\\';"><div><b>'+x.title+'</b><br><small style=color:#aaa>'+x.type+' - '+x.sub+'</small></div><small style=color:#ffbe4d>↗</small></div>';
+    }});
+    box.innerHTML=h;
+    box.style.display='block';
+  }}catch(e){{ box.style.display='none'; }}
 }}
+window.toggleNotif=async function(){{
+  let panel=document.getElementById('notifPanel');
+  panel.style.display=panel.style.display==='block'?'none':'block';
+  if(panel.style.display==='block'){{
+    try{{
+      let r=await fetch('/api/notifications');
+      let j=await r.json();
+      let h='<div style="padding:12px"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><b>🔔 الاشعارات ('+j.unread+')</b><button onclick="readAllNotif()" style="font-size:11px;padding:4px 8px;background:#ffbe4d;border:0;border-radius:6px;cursor:pointer">مقروء</button></div>';
+      if(j.rows.length==0){{ h+='<div style="padding:20px;text-align:center;color:#aaa">لا يوجد</div>'; }}
+      j.rows.forEach(n=>{{
+        h+='<div style="padding:10px;border-bottom:1px solid #ffffff10;background:'+(n.read==0?'#ffffff08':'transparent')+'"><b style="color:#ffbe4d">'+n.title+'</b><br><small>'+n.msg+'</small><br><small style="color:#aaa">'+n.time+'</small></div>';
+      }});
+      h+='</div>';
+      panel.innerHTML=h;
+    }}catch(e){{ panel.innerHTML='<div style="padding:12px">خطأ</div>'; }}
+  }}
+}}
+window.readAllNotif=async function(){{
+  try{{ await fetch('/api/notifications/read',{{method:'POST'}}); }}catch(e){{}}
+  document.getElementById('notifCount').style.display='none';
+  document.getElementById('notifPanel').style.display='none';
+  loadNotif();
+}}
+async function loadNotif(){{
+  try{{
+    let r=await fetch('/api/notifications');
+    let j=await r.json();
+    let c=document.getElementById('notifCount');
+    if(j.unread>0){{ c.textContent=j.unread>99?'99+':j.unread; c.style.display='flex'; }} else {{ c.style.display='none'; }}
+  }}catch(e){{}}
+}}
+loadNotif();
+setInterval(loadNotif, 8000);
 let lastPage=localStorage.getItem('omaia_last_page');
-if(lastPage && lastPage!==cur && cur==='home'){{
-  loadPage(lastPage);
-}}
+if(lastPage && lastPage!==cur && cur==='home'){{ loadPage(lastPage); }}
 window.addEventListener('popstate', (e)=>{{ let v='home'; if(e.state && e.state.page){{ v=e.state.page; }} else {{ let p=new URLSearchParams(window.location.search); v=p.get('v')||'home'; }} loadPage(v,true,false); }});
 bind();
 execScripts();
