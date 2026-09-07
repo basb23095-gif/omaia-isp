@@ -10,7 +10,7 @@ except:
 import sqlite3
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY","omia-sec-2026-CHANGE-ME")
+app.secret_key = os.environ.get("SECRET_KEY") or "omia-sec-2026-CHANGE-ME"
 DATABASE_URL = os.environ.get("DATABASE_URL","").strip().replace("postgresql://","postgres://")
 USE_PG = bool(DATABASE_URL.startswith("postgres://") and psycopg2)
 _pg = None
@@ -83,13 +83,24 @@ def qexec(q,a=()):
     except:
         cc(c)
 
+def add_log(user_phone, action, detail):
+    try:
+        import datetime
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(user_phone or 'unknown', action, detail, now))
+        qexec("INSERT INTO notifications(title,msg,time) VALUES(?,?,?)",(action, str(user_phone)+": "+str(detail), now))
+    except:
+        pass
+
 def init():
     ss=[
     "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,username TEXT)",
     "CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,note TEXT)",
     "CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,amount REAL,note TEXT,currency TEXT)",
     "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT)",
-    "CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL)"
+    "CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL)",
+    "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,action TEXT,detail TEXT,time TEXT)",
+    "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)"
     ]
     if USE_PG:
         ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
@@ -114,13 +125,19 @@ def is_valid_ip(ip):
     ip=ip.strip()
     if not ip:
         return False
-    # تساهل - يقبل اي IP حتى لو مش 100% صحيح عشان الصحون ما يضيف ايبي
     try:
+        import ipaddress
         ipaddress.ip_address(ip)
         return True
     except:
-        # يقبل حتى لو فيه مسافات او احرف بسيطة - على الاقل فيه نقاط وارقام
-        return len(ip)>=7 and '.' in ip
+        parts=ip.split('.')
+        if len(parts)==4:
+            try:
+                return all(0<=int(pp)<=255 for pp in parts)
+            except:
+                return False
+        return False
+
 
 def is_internal_ip(ip):
     try:
@@ -135,6 +152,8 @@ def api_ping():
     ip=request.args.get('ip','').strip()
     if not ip:
         return jsonify(ok=False,out='لا يوجد IP')
+    if not is_valid_ip(ip):
+        return jsonify(ok=False,out='IP غير صالح')
     try:
         cmd=['ping','-c','1','-W','2',ip] if platform.system().lower()!='windows' else ['ping','-n','1','-w','2000',ip]
         out=subprocess.check_output(cmd,timeout=4).decode(errors='ignore')
@@ -142,6 +161,33 @@ def api_ping():
         return jsonify(ok=ok,out=('✅ متصل ' if ok else '❌ لا يرد ')+out[:400])
     except Exception as e:
         return jsonify(ok=False,out=f'❌ لا يرد {e}')
+
+@app.route('/api/notifications')
+@login_required
+def api_noti():
+    rows=qall("SELECT * FROM notifications ORDER BY id DESC LIMIT 20")
+    unread=qone("SELECT COUNT(*) c FROM notifications WHERE read=0")
+    cnt = unread.get('c',0) if unread else 0
+    return jsonify(rows=rows, unread=cnt)
+
+@app.route('/api/notifications/read', methods=['POST'])
+@login_required
+def api_noti_read():
+    qexec("UPDATE notifications SET read=1")
+    return jsonify(ok=True)
+
+@app.route('/api/logs')
+@login_required
+def api_logs():
+    rows=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 100")
+    return jsonify(rows)
+
+@app.route('/toggle_lang')
+@login_required
+def toggle_lang_route():
+    cur=session.get('lang','ar')
+    session['lang']='en' if cur=='ar' else 'ar'
+    return jsonify(ok=True)
 
 @app.route('/api/login',methods=['POST'])
 @login_required
@@ -156,6 +202,7 @@ def api_login_public():
     if u and check_password_hash(u['password'],pw):
         session['phone']=u['phone']
         session['username']=u.get('username') or u['phone']
+        add_log(u['phone'], 'دخل النظام', 'تسجيل دخول')
         return jsonify(ok=True)
     return jsonify(ok=False,msg='خطأ بالدخول'),401
 
@@ -279,10 +326,21 @@ def ap():
 @login_required
 def s():
     q=request.args.get('q','').strip()
-    if q:
-        return jsonify(qall("SELECT * FROM dish_ips WHERE ip LIKE ? OR dish_name LIKE ? OR location LIKE ? ORDER BY id DESC LIMIT 100",
-                            ("%"+q+"%","%"+q+"%","%"+q+"%")))
-    return jsonify(qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 100"))
+    if not q:
+        return jsonify([])
+    like="%"+q+"%"
+    results=[]
+    for r in qall("SELECT * FROM dish_ips WHERE ip LIKE ? OR dish_name LIKE ? OR location LIKE ? ORDER BY id DESC LIMIT 20",(like,like,like)):
+        results.append({"type":"dish","id":r['id'],"title":r.get('dish_name') or 'صحن',"sub":r.get('ip',''),"page":"dishes"})
+    for r in qall("SELECT * FROM subs WHERE name LIKE ? OR phone LIKE ? OR note LIKE ? ORDER BY id DESC LIMIT 20",(like,like,like)):
+        results.append({"type":"sub","id":r['id'],"title":r.get('name',''),"sub":r.get('phone',''),"page":"subs"})
+    for r in qall("SELECT * FROM towers WHERE name LIKE ? OR area LIKE ? ORDER BY id DESC LIMIT 20",(like,like)):
+        results.append({"type":"tower","id":r['id'],"title":r.get('name',''),"sub":r.get('area',''),"page":"towers"})
+    for r in qall("SELECT * FROM users WHERE phone LIKE ? OR username LIKE ? ORDER BY phone DESC LIMIT 20",(like,like)):
+        results.append({"type":"user","id":r['phone'],"title":r.get('phone',''),"sub":r.get('role',''),"page":"settings"})
+    for r in qall("SELECT * FROM logs WHERE user_phone LIKE ? OR action LIKE ? OR detail LIKE ? ORDER BY id DESC LIMIT 20",(like,like,like)):
+        results.append({"type":"log","id":r['id'],"title":r.get('action',''),"sub":r.get('user_phone','')+" - "+r.get('detail',''),"page":"logs"})
+    return jsonify(results)
 
 @app.route('/toggle_theme')
 @login_required
@@ -304,10 +362,13 @@ def ad():
     # FIX الصحون ما يضيف ايبي - كان يرفض المكرر
     # هلا لو موجود يحدث
     ex=qone("SELECT * FROM dish_ips WHERE ip=?",(ip,))
+    user=session.get('phone','')
     if ex:
         qexec("UPDATE dish_ips SET dish_name=?,location=? WHERE ip=?",(name,loc,ip))
+        add_log(user, 'عدل صحن', name+" "+ip)
         return "ok updated"
     qexec("INSERT INTO dish_ips(ip,location,dish_name) VALUES(?,?,?)",(ip,loc,name))
+    add_log(user, 'اضاف صحن', name+" "+ip)
     return "ok"
 
 @app.route('/edit_dish/<int:i>',methods=['POST'])
@@ -326,8 +387,15 @@ def dd(i):
 @app.route('/add_tower',methods=['POST'])
 @login_required
 def at():
+    lat=request.form.get('lat','').strip()
+    lng=request.form.get('lng','').strip()
+    try:
+        la=float(lat) if lat else 35.1312
+        ln=float(lng) if lng else 36.7578
+    except:
+        la=35.1312; ln=36.7578
     qexec("INSERT INTO towers(name,area,lat,lng) VALUES(?,?,?,?)",
-          (request.form.get('name',''),request.form.get('area',''),35.1312,36.7578))
+          (request.form.get('name',''),request.form.get('area',''),la,ln))
     return "ok"
 
 @app.route('/del_tower/<int:i>')
@@ -404,8 +472,8 @@ def au():
 @login_required
 def eu():
     old=request.form.get('old_phone','').strip()
-    new_ph=request.form.get('phone','').strip()
-    new_user=request.form.get('username','').strip()
+    new_ph=request.form.get('phone','').strip() or request.form.get('user_field','').strip() or request.form.get('username','').strip()
+    new_user=new_ph
     new_role=request.form.get('role','tech')
     new_pass=request.form.get('password','').strip()
     if not old:
@@ -519,7 +587,7 @@ window.ld=async function(q){
     let safeName=(x.dish_name||'').replace(/</g,'&lt;');
     let safeIp=(x.ip||'');
     let safeLoc=(x.location||'').replace(/</g,'&lt;');
-    h+='<div class="card anim" id="dish-'+x.id+'" data-name="'+(x.dish_name||'').replace(/"/g,'&quot;')+'" data-ip="'+x.ip+'" data-loc="'+(x.location||'').replace(/"/g,'&quot;')+'" style="display:flex;justify-content:space-between;align-items:center"><div><b>'+safeName+'</b><br><button onclick="window.openChrome(\''+x.ip+'" target="_blank" rel="noopener" style="background:#000;color:#ffbe4d;padding:5px 12px;border-radius:10px;font-family:monospace;text-decoration:none;display:inline-block">🌐 '+safeIp+' ↗ Chrome</a><br><small>'+safeLoc+'</small><br><small class="ping-out" style="font-size:11px"></small></div><div style="display:flex;flex-direction:column;gap:5px"><button class=btn-gold onclick="window.doPing('+x.id+')">📶 Ping</button><div style="display:flex;gap:5px"><button class=btn-gold onclick="window.doEditDish('+x.id+')" style="padding:8px 10px">✏</button><button class=btn-del onclick="askDel(\\'/del_dish/'+x.id+'\\')" style="padding:8px 10px">🗑</button></div></div></div>';
+        h+='<div class="card anim" id="dish-'+x.id+'" data-name="'+(x.dish_name||'').replace(/"/g,'&quot;')+'" data-ip="'+x.ip+'" data-loc="'+(x.location||'').replace(/"/g,'&quot;')+'" style="display:flex;justify-content:space-between;align-items:center"><div><b>'+safeName+'</b><br><button onclick="window.openChrome(\''+safeIp+'\')" style="background:#000;color:#ffbe4d;padding:6px 12px;border-radius:10px;border:0;cursor:pointer;font-family:monospace">🌐 '+safeIp+' ↗ Chrome</button><br><small>'+safeLoc+'</small><br><small class="ping-out" style="font-size:11px"></small></div><div style="display:flex;flex-direction:column;gap:5px"><button class=btn-gold onclick="window.doPing('+x.id+')">📶 Ping</button><div style="display:flex;gap:5px"><button class=btn-gold onclick="window.doEditDish('+x.id+')" style="padding:8px 10px">✏</button><button class=btn-del onclick="askDel(\'/del_dish/'+x.id+'\')" style="padding:8px 10px">🗑</button></div></div></div>';
   });
   document.getElementById('dl').innerHTML=h||'<div class=card>لا يوجد صحون</div>';
 }
@@ -611,6 +679,12 @@ window.saveLed=function(id){{
   fetch('/edit_ledger/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,amount:aa,note:'',currency:'USD'}})}}).then(()=>{{closeEditModal(); loadPage('ledger',true);}});
 }}
 </script></div>"""
+    if v=='logs':
+        rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 200")
+        rows=""
+        for r in rs:
+            rows+=f"<div class='card anim' style='font-size:13px'><div style='display:flex;justify-content:space-between'><b style='color:#ffbe4d'>{esc(r['user_phone'])}</b><small>{esc(r['time'])}</small></div><div><b>{esc(r['action'])}</b> - {esc(r['detail'])}</div></div>"
+        return f"<div style='max-width:800px;margin:0 auto'><div class=card><h3>📜 سجل النشاطات - يبين مين دخل ومين عدل وشو عدل</h3><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:6px 10px'>تصدير Excel</a></div>{rows or '<div class=card>لا يوجد سجل</div>'}</div>"
     if v=='map':
         towers=qall("SELECT * FROM towers")
         tj=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.1318),"lng":float(t.get('lng') or 36.7578)} for t in towers],ensure_ascii=False)
@@ -731,6 +805,7 @@ input:focus{{border-color:#ffbe4d;outline:none}}
 <a href="javascript:loadPage('towers')" id=nav-towers>🗼 الأبراج</a>
 <a href="javascript:loadPage('subs')" id=nav-subs>👥 المشتركين</a>
 <a href="javascript:loadPage('ledger')" id=nav-ledger>📒 الحسابات</a>
+<a href="javascript:loadPage('logs')" id=nav-logs>📜 السجل</a>
 <a href="javascript:loadPage('map')" id=nav-map>🗺 الخريطة</a>
 <a href="javascript:loadPage('support')" id=nav-support>🛠 الدعم</a>
 <a href="javascript:loadPage('settings')" id=nav-settings>⚙ الإعدادات</a>
