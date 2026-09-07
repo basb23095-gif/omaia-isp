@@ -404,8 +404,8 @@ def au():
 @login_required
 def eu():
     old=request.form.get('old_phone','').strip()
-    new_ph=request.form.get('phone','').strip() or request.form.get('user_field','').strip() or request.form.get('username','').strip()
-    new_user=new_ph
+    new_ph=request.form.get('phone','').strip()
+    new_user=request.form.get('username','').strip()
     new_role=request.form.get('role','tech')
     new_pass=request.form.get('password','').strip()
     if not old:
@@ -499,6 +499,7 @@ window.saveEdit=function(type,id){
     fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:ii,location:ll})}).then(()=>{closeEditModal(); window.ld(document.getElementById('searchBox').value||'');});
   }
 }
+window.openChrome=function(ip){ let url='http://'+ip; let w=window.open(url,'_blank'); if(!w){ navigator.clipboard.writeText(url).then(()=>alert('تم نسخ: '+url+'\nالصق في كروم')).catch(()=>prompt('انسخ:',url)); } };
 window.closeEditModal=function(){document.getElementById('editModal').classList.remove('show');}
 window.doEditDish=function(id){ window.openEditModal('dish',id); }
 window.doPing=function(id){
@@ -518,7 +519,7 @@ window.ld=async function(q){
     let safeName=(x.dish_name||'').replace(/</g,'&lt;');
     let safeIp=(x.ip||'');
     let safeLoc=(x.location||'').replace(/</g,'&lt;');
-    h+='<div class="card anim" id="dish-'+x.id+'" data-name="'+(x.dish_name||'').replace(/"/g,'&quot;')+'" data-ip="'+x.ip+'" data-loc="'+(x.location||'').replace(/"/g,'&quot;')+'" style="display:flex;justify-content:space-between;align-items:center"><div><b>'+safeName+'</b><br><a href="http://'+x.ip+'" target="_blank" rel="noopener" style="background:#000;color:#ffbe4d;padding:5px 12px;border-radius:10px;font-family:monospace;text-decoration:none;display:inline-block">🌐 '+safeIp+' ↗ Chrome</a><br><small>'+safeLoc+'</small><br><small class="ping-out" style="font-size:11px"></small></div><div style="display:flex;flex-direction:column;gap:5px"><button class=btn-gold onclick="window.doPing('+x.id+')">📶 Ping</button><div style="display:flex;gap:5px"><button class=btn-gold onclick="window.doEditDish('+x.id+')" style="padding:8px 10px">✏</button><button class=btn-del onclick="askDel(\\'/del_dish/'+x.id+'\\')" style="padding:8px 10px">🗑</button></div></div></div>';
+    h+='<div class="card anim" id="dish-'+x.id+'" data-name="'+(x.dish_name||'').replace(/"/g,'&quot;')+'" data-ip="'+x.ip+'" data-loc="'+(x.location||'').replace(/"/g,'&quot;')+'" style="display:flex;justify-content:space-between;align-items:center"><div><b>'+safeName+'</b><br><button onclick="window.openChrome(\''+x.ip+'" target="_blank" rel="noopener" style="background:#000;color:#ffbe4d;padding:5px 12px;border-radius:10px;font-family:monospace;text-decoration:none;display:inline-block">🌐 '+safeIp+' ↗ Chrome</a><br><small>'+safeLoc+'</small><br><small class="ping-out" style="font-size:11px"></small></div><div style="display:flex;flex-direction:column;gap:5px"><button class=btn-gold onclick="window.doPing('+x.id+')">📶 Ping</button><div style="display:flex;gap:5px"><button class=btn-gold onclick="window.doEditDish('+x.id+')" style="padding:8px 10px">✏</button><button class=btn-del onclick="askDel(\\'/del_dish/'+x.id+'\\')" style="padding:8px 10px">🗑</button></div></div></div>';
   });
   document.getElementById('dl').innerHTML=h||'<div class=card>لا يوجد صحون</div>';
 }
@@ -648,7 +649,8 @@ setTimeout(()=>{{
             ph=esc(u['phone'])
             un=esc(u['username'] or '')
             ro=esc(u['role'])
-            uh+='<div class="card anim" id="user-'+ph+'" data-phone="'+ph+'" data-username="'+un+'" data-role="'+ro+'" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div style="background:#ffffff10;padding:14px;border-radius:12px"><small style="color:#aaa">👤 يوزر / رقم بنفس الكرت</small><br><b style="font-size:16px">'+un+'</b><br><span style="color:#ffbe4d;font-family:monospace">'+ph+'</span><br><small style="color:#aaa">'+ro+'</small></div><div style="display:flex;flex-direction:column;gap:8px;justify-content:center"><button class=btn-gold onclick="window.openEditUser(\''+ph+'\')" style="padding:10px">✏ تعديل</button><button class=btn-del onclick="askDel(\'/del_user/'+ph+'\')" style="padding:10px">🗑 حذف</button></div></div>'
+            display_val=ph
+            uh+='<div class="card anim" id="user-'+ph+'" data-phone="'+ph+'" data-role="'+ro+'" style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:10px"><div style="width:40px;height:40px;border-radius:50%;background:#ffbe4d;display:flex;align-items:center;justify-content:center;color:#000;font-weight:900">'+display_val[:1].upper()+'</div><div><b style="font-family:monospace;color:#ffbe4d;font-size:15px">'+display_val+'</b><br><small style="color:#aaa">'+ro+'</small></div></div><div style="display:flex;gap:6px"><button class=btn-gold onclick="window.openEditUser(\''+ph+'\')" style="padding:8px 12px">✏</button><button class=btn-del onclick="askDel(\'/del_user/'+ph+'\')" style="padding:8px 12px">🗑</button></div></div>'
         return f"""<div style='max-width:750px;margin:0 auto'>
 <div class=card><h3>🔑 كلمة السر الخاصة بي</h3>
 <form data-ajax method=post action=/change_pass style='display:flex;gap:6px'>
@@ -676,12 +678,12 @@ window.openEditUser=function(ph){{
   document.getElementById('editBody').innerHTML='<label style="display:block;text-align:right;font-size:12px;margin-top:6px">اسم المستخدم (اليوزر)</label><input id=edit_u_field value="'+c.dataset.username+'" style="width:100%;padding:10px;border-radius:8px;margin-top:4px"><label style="display:block;text-align:right;font-size:12px;margin-top:8px">رقم الهاتف / يوزر</label><input id=edit_u_field value="'+c.dataset.phone+'" style="width:100%;padding:10px;border-radius:8px;margin-top:4px"><label style="display:block;text-align:right;font-size:12px;margin-top:8px">كلمة سر جديدة (فاضي = بدون تغيير)</label><input id=edit_u_pass type="password" placeholder="••••••" style="width:100%;padding:10px;border-radius:8px;margin-top:4px"><button onclick="window.saveUser(\\'"+ph+"\\')" class=btn-gold style="width:100%;padding:12px;margin-top:12px">💾 حفظ</button>';
 }}
 window.saveUser=function(oldPh){{
-  let nn=document.getElementById('edit_u_field').value;
-  let pp=document.getElementById('edit_u_field').value;
+  let ff=document.getElementById('edit_u_field').value.trim();
   let pw=document.getElementById('edit_u_pass').value;
-  let data={{old_phone:oldPh,phone:pp,username:nn,role:document.getElementById('user-'+oldPh).dataset.role}};
+  if(!ff){{alert('required');return;}}
+  let data={{old_phone:oldPh,phone:ff,username:ff,role:document.getElementById('user-'+oldPh).dataset.role}};
   if(pw.trim()!='') data.password=pw.trim();
-  fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(()=>{{closeEditModal(); loadPage('settings',true);}});
+  fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(()=>{{closeEditModal(); loadPage('settings',true,true);}});
 }}
 </script></div>"""
     return "<div class=card>ok</div>"
@@ -773,7 +775,11 @@ function applyLang(){{
 }}
 window.toggleLang=function(){{
   lang=lang==='ar'?'en':'ar';
+  localStorage.setItem('omaia_lang',lang);
   applyLang();
+  pageCache={{}};
+  saveCache();
+  fetch('/toggle_lang').then(()=>{{ loadPage(cur,true,true); }});
 }}
 applyLang();
 function toggleSb(force){{
@@ -782,7 +788,8 @@ function toggleSb(force){{
   sb.classList.toggle('active',open);
   ov.classList.toggle('show',open);
 }}
-async function loadPage(v,force=false){{
+async function loadPage(v,force=false,push=true){{
+  if(push && cur!==v){{ history.pushState({{page:v}}, '', '/dash?v='+v); }}
   cur=v;
   localStorage.setItem('omaia_last_page',v);
   toggleSb(false);
@@ -869,8 +876,10 @@ let lastPage=localStorage.getItem('omaia_last_page');
 if(lastPage && lastPage!==cur && cur==='home'){{
   loadPage(lastPage);
 }}
+window.addEventListener('popstate', (e)=>{{ let v='home'; if(e.state && e.state.page){{ v=e.state.page; }} else {{ let p=new URLSearchParams(window.location.search); v=p.get('v')||'home'; }} loadPage(v,true,false); }});
 bind();
 execScripts();
+if(!history.state){{ history.replaceState({{page:cur}}, '', '/dash?v='+cur); }}
 </script>
 </body></html>"""
 
