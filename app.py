@@ -769,13 +769,13 @@ input:focus{{border-color:#ffbe4d;outline:none}}
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
 let cur='{v}';
-let pageCache={{}}; try{{let _r=localStorage.getItem('omaia_cache'); if(_r && _r.length<200000){{pageCache=JSON.parse(_r);}}else{{localStorage.removeItem('omaia_cache');}}}}catch(e){{pageCache={{}};}}
+let pageCache={{}}; // تم تعطيل الكاش نهائيا لمنع التجمد
 let lang=localStorage.getItem('omaia_lang')||'ar';
 const T={{
   ar:{{subs:'المشتركين',dishes:'الصحون',towers:'الأبراج',ledger:'الحسابات',home:'الرئيسية'}},
   en:{{subs:'Subscribers',dishes:'Dishes',towers:'Towers',ledger:'Accounts',home:'Home'}}
 }};
-function saveCache(){{try{{let s=JSON.stringify(pageCache); if(s.length>200000){{let k=Object.keys(pageCache)[0]; delete pageCache[k]; s=JSON.stringify(pageCache);}} localStorage.setItem('omaia_cache',s);}}catch(e){{try{{localStorage.removeItem('omaia_cache'); pageCache={{}};}}catch(e2){{}}}}}}
+function saveCache(){{}} // معطل
 function applyLang(){{
   document.querySelectorAll('[data-l]').forEach(e=>{{
     let k=e.getAttribute('data-l');
@@ -807,21 +807,31 @@ async function loadPage(v,force=false){{
   let nav=document.getElementById('nav-'+v);
   if(nav)nav.classList.add('active');
   let mn=document.getElementById('mn');
-  if(v!=='map' && pageCache[v] && !force){{
-    mn.innerHTML=pageCache[v];
-    bind();execScripts();
-    fetch('/api/page?v='+v).then(r=>r.text()).then(h=>{{if(h.length<150000){{pageCache[v]=h;saveCache();}}}}).catch(()=>{{}});
+  // سلاسة فائقة
+  if(pageCache[v] && !force){{
+    mn.style.opacity='0.5';
+    setTimeout(()=>{{
+      mn.innerHTML=pageCache[v];
+      mn.style.opacity='1';
+      bind();execScripts();
+    }},80);
+    fetch('/api/page?v='+v).then(r=>r.text()).then(h=>{{pageCache[v]=h;saveCache();}});
     return;
   }}
-  mn.innerHTML='<div class=card style="text-align:center;padding:12px">⏳ تحميل...</div>';
+  mn.style.opacity='0.6';
+  mn.style.transform='translateY(6px)';
   try{{
     let r=await fetch('/api/page?v='+v,{{cache:'no-store'}});
     let h=await r.text();
-    if(v!=='map' && h.length<150000){{pageCache[v]=h;saveCache();}}
+    pageCache[v]=h;saveCache();
     mn.innerHTML=h;
+    mn.style.opacity='1';
+    mn.style.transform='translateY(0)';
     bind();execScripts();
   }}catch(e){{
-    mn.innerHTML='<div class=card>❌ خطأ: '+e+'<br><button class=btn-gold onclick="loadPage(\''+v+'\',true)">↻</button></div>';
+    mn.innerHTML='<div class=card>❌ خطأ: '+e+'</div>';
+    mn.style.opacity='1';
+    mn.style.transform='none';
   }}
 }}
 function execScripts(){{
@@ -872,10 +882,9 @@ async function toggleTheme(){{
     localStorage.setItem('omaia_last_page',stay);
   }}catch(e){{location.reload();}}
 }}
-let lastPage=localStorage.getItem('omaia_last_page');
-if(lastPage && lastPage!==cur && cur==='home'){{
-  loadPage(lastPage);
-}}
+// تم تعطيل التحميل التلقائي لاخر صفحة لمنع التجمد
+// let lastPage=localStorage.getItem('omaia_last_page');
+// if(lastPage && lastPage!==cur && cur==='home'){{ loadPage(lastPage); }}
 bind();
 execScripts();
 </script>
