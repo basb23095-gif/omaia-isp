@@ -272,7 +272,7 @@ input:focus{border-color:#ffbe4d;outline:none}
 .spinner{width:40px;height:40px;border:3px solid #ffffff20;border-top-color:#ffbe4d;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style></head><body>
-<div id=loader><div class=spinner></div></div>
+
 <div style='font-size:28px;font-weight:900;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div class=card>
 <form id=loginForm>
@@ -290,8 +290,8 @@ let su=localStorage.getItem('omaia_user'), sp=localStorage.getItem('omaia_pass')
 if(su){u.value=su; if(sp){p.value=sp; s.checked=true;}}
 document.getElementById('loginForm').addEventListener('submit',async e=>{
  e.preventDefault();
- let btn=document.getElementById('loginBtn'), msg=document.getElementById('msg'), loader=document.getElementById('loader');
- btn.textContent='⏳ دخول...'; btn.disabled=true; loader.classList.add('show');
+ let btn=document.getElementById('loginBtn'), msg=document.getElementById('msg');
+ btn.textContent='⏳ دخول...'; btn.disabled=true;
  try{
   let fd=new FormData(e.target);
   let r=await fetch('/api/login_public',{method:'POST',body:fd});
@@ -300,8 +300,8 @@ document.getElementById('loginForm').addEventListener('submit',async e=>{
    if(s.checked){localStorage.setItem('omaia_user',u.value);localStorage.setItem('omaia_pass',p.value);}else{localStorage.removeItem('omaia_user');localStorage.removeItem('omaia_pass');}
    // سلاسة فائقة - بدون تحميل كامل
    location.href='/dash?v=home';
-  }else{msg.textContent=j.msg||'خطأ'; btn.textContent='✨ دخول فوري'; btn.disabled=false; loader.classList.remove('show');}
- }catch(err){msg.textContent='خطأ شبكة'; btn.textContent='✨ دخول فوري'; btn.disabled=false; loader.classList.remove('show');}
+  }else{msg.textContent=j.msg||'خطأ'; btn.textContent='✨ دخول فوري'; btn.disabled=false;}
+ }catch(err){msg.textContent='خطأ شبكة'; btn.textContent='✨ دخول فوري'; btn.disabled=false;}
 });
 </script>
 </body></html>"""
@@ -512,6 +512,10 @@ def page_content(v):
         nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0)
         nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0)
         nl=(qone("SELECT COUNT(*) c FROM ledger") or {}).get('c',0)
+        logs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 5")
+        log_html=""
+        for l in logs:
+            log_html+="<div style='font-size:12px;padding:6px;border-bottom:1px solid #ffffff10'><b>"+esc(l.get('user_phone',''))+"</b> "+esc(l.get('action',''))+" <small>"+esc(l.get('detail',''))+"</small><br><small style='color:#aaa'>"+esc(l.get('time',''))+"</small></div>"
         return f"""
         <div style='max-width:700px;margin:0 auto;text-align:center'>
           <div style='display:grid;grid-template-columns:1fr 1fr;gap:12px'>
@@ -520,14 +524,15 @@ def page_content(v):
             <div class='card anim' onclick="loadPage('towers')" style='cursor:pointer'><h3>الأبراج</h3><h2>{nt}</h2></div>
             <div class='card anim' onclick="loadPage('ledger')" style='cursor:pointer'><h3>الحسابات</h3><h2>{nl}</h2></div>
           </div>
+          <div class=card style='margin-top:12px;text-align:right'><h4>📜 اخر السجل - مين دخل ومين عدل</h4>{log_html}<button class=btn-gold onclick="loadPage('logs')" style='width:100%;margin-top:8px'>عرض كل السجل</button></div>
           <div style='margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap'>
-            <a href='/api/export/dishes' class=btn-gold style='text-decoration:none'>📊 تصدير صحون Excel</a>
-            <a href='/api/export/subs' class=btn-gold style='text-decoration:none'>📊 مشتركين Excel</a>
-            <a href='/api/export/users' class=btn-gold style='text-decoration:none'>📊 يوزرات Excel</a>
-            <a href='/api/export/towers' class=btn-gold style='text-decoration:none'>📊 أبراج Excel</a>
-            <button onclick="window.print()" class=btn-gold>📄 طباعة PDF</button>
+            <a href='/api/export/dishes' class=btn-gold style='text-decoration:none'>📊 صحون</a>
+            <a href='/api/export/logs' class=btn-gold style='text-decoration:none'>📜 سجل</a>
+            <button onclick="window.print()" class=btn-gold>📄 PDF</button>
           </div>
-        </div>"""
+          <a href='https://wa.me/905344851045' target=_blank style='position:fixed;left:20px;bottom:20px;background:#25D366;color:#fff;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;text-decoration:none;box-shadow:0 8px 24px #0006;z-index:9999'>💬</a>
+        </div>""".replace("{log_html}", log_html)
+
     if v=='dishes':
         return """<div style='max-width:900px;margin:0 auto'>
 <div class=card>
@@ -601,26 +606,32 @@ window.searchDishes=window.ld;
         for r in rs:
             sn=esc(r['name'])
             sa=esc(r['area'] or '')
-            rows+=f"<div class='card anim' id='tower-{r['id']}' data-name='{sn}' data-area='{sa}' style='display:flex;justify-content:space-between;align-items:center'><div><b>🗼 {sn}</b><br><small>{sa}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"window.openEditTower({r['id']})\" style='padding:8px 10px'>✏</button><button class=btn-del onclick=\"askDel('/del_tower/{r['id']}')\" style='padding:8px 10px'>🗑</button></div></div>"
+            lat=r.get('lat') or 0
+            lng=r.get('lng') or 0
+            rows+=f"<div class='card anim' id='tower-{r['id']}' data-name='{sn}' data-area='{sa}' data-lat='{lat}' data-lng='{lng}' style=''><div style='display:flex;justify-content:space-between'><div><b>🗼 {sn}</b><br><small>{sa}</small><br><small style='color:#ffbe4d'>📍 {lat} , {lng}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"window.openEditTower({r['id']})\" style='padding:8px 10px'>✏</button><button class=btn-del onclick=\"askDel('/del_tower/{r['id']}')\" style='padding:8px 10px'>🗑</button></div></div><div style='margin-top:6px'><a href='https://maps.google.com/?q={lat},{lng}' target=_blank style='font-size:12px;color:#22c55e'>🗺 فتح بخرائط جوجل</a> | <button onclick=\"navigator.clipboard.writeText('{lat},{lng}')\" style='font-size:12px;background:transparent;border:0;color:#ffbe4d;cursor:pointer'>📋 نسخ الاحداثية</button></div></div>"
         return f"""<div style='max-width:700px;margin:0 auto'>
 <div class=card><div style='display:flex;justify-content:space-between'><h3>🗼 الأبراج</h3><div><a href='/api/export/towers' class=btn-gold style='text-decoration:none;padding:6px 10px;font-size:12px'>📊 Excel</a> <button onclick="window.print()" class=btn-gold style='padding:6px 10px;font-size:12px'>📄 PDF</button></div></div>
-<form data-ajax method=post action=/add_tower style='display:flex;gap:6px;margin-top:8px'>
+<form data-ajax method=post action=/add_tower style='display:flex;gap:6px;flex-wrap:wrap;margin-top:8px'>
 <input name=name placeholder='اسم البرج' required style='flex:1'>
 <input name=area placeholder='المنطقة' style='flex:1'>
-<button class=btn-gold>➕</button>
+<input name=lat placeholder='lat 35.1318' style='flex:0.6'>
+<input name=lng placeholder='lng 36.7578' style='flex:0.6'>
+<button class=btn-gold>➕ إضافة</button>
 </form></div>
 {rows or '<div class=card>لا يوجد أبراج</div>'}
 <script>
 window.openEditTower=function(id){{
   let c=document.getElementById('tower-'+id);
   document.getElementById('editModal').classList.add('show');
-  document.getElementById('editTitle').textContent='✏ تعديل برج';
-  document.getElementById('editBody').innerHTML='<input id=edit_t_name value="'+c.dataset.name+'" style="width:100%;margin:6px 0;padding:10px;border-radius:8px"><input id=edit_t_area value="'+c.dataset.area+'" style="width:100%;margin:6px 0;padding:10px;border-radius:8px"><button onclick="window.saveTower('+id+')" class=btn-gold style="width:100%;padding:12px">💾 حفظ</button>';
+  document.getElementById('editTitle').textContent='✏ تعديل برج + احداثية';
+  document.getElementById('editBody').innerHTML='<input id=edit_t_name value="'+c.dataset.name+'" placeholder="اسم" style="width:100%;margin:6px 0;padding:10px;border-radius:8px"><input id=edit_t_area value="'+c.dataset.area+'" placeholder="منطقة" style="width:100%;margin:6px 0;padding:10px;border-radius:8px"><input id=edit_t_lat value="'+c.dataset.lat+'" placeholder="lat" style="width:100%;margin:6px 0;padding:10px;border-radius:8px"><input id=edit_t_lng value="'+c.dataset.lng+'" placeholder="lng" style="width:100%;margin:6px 0;padding:10px;border-radius:8px"><button onclick="window.saveTower('+id+')" class=btn-gold style="width:100%;padding:12px">💾 حفظ</button>';
 }}
 window.saveTower=function(id){{
   let nn=document.getElementById('edit_t_name').value;
   let aa=document.getElementById('edit_t_area').value;
-  fetch('/edit_tower/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,area:aa}})}}).then(()=>{{closeEditModal(); loadPage('towers',true);}});
+  let la=document.getElementById('edit_t_lat').value;
+  let ln=document.getElementById('edit_t_lng').value;
+  fetch('/edit_tower/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,area:aa,lat:la,lng:ln}})}}).then(()=>{{closeEditModal(); loadPage('towers',true);}});
 }}
 </script></div>"""
     if v=='subs':
@@ -814,15 +825,18 @@ input:focus{{border-color:#ffbe4d;outline:none}}
 <div class=top>
 <div style='display:flex;gap:8px;align-items:center'>
 <span onclick="toggleSb()" style='font-size:24px;cursor:pointer'>☰</span>
-<input id=topsearch placeholder='🔍 بحث' oninput="if(cur=='dishes'&&window.searchDishes)window.searchDishes(this.value)" style='background:#1f2937;border:1px solid #374151;color:#fff;padding:7px 10px;border-radius:10px;width:110px'>
+<input id=topsearch placeholder='🔍 بحث شامل كلشي' oninput="globalSearchTop(this.value)" style='background:#1f2937;border:1px solid #374151;color:#fff;padding:7px 10px;border-radius:10px;width:110px'>
 </div>
 <div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div style='display:flex;gap:6px;align-items:center'>
+<div id=notifBell onclick="toggleNotif()" style='position:relative;cursor:pointer;font-size:20px'>🔔<span id=notifCount style='display:none;position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;font-size:10px;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center'>0</span></div>
 <button onclick="toggleLang()" id=langBtn style='background:#1f2937;color:#fff;border:0;padding:8px 10px;border-radius:10px;cursor:pointer'>🌐 ع</button>
 <button onclick="toggleTheme()" style='background:#1f2937;color:#fff;border:0;padding:8px 10px;border-radius:10px;cursor:pointer' title='ليل/نهار'>🌓</button>
 <button onclick="loadPage(cur,true)" style='background:#1f2937;color:#fff;border:0;padding:8px 10px;border-radius:10px;cursor:pointer'>↻</button>
 </div>
 </div>
+<div id=searchResults style='position:fixed;top:60px;right:10px;left:10px;max-width:500px;margin:0 auto;background:{card_bg};border:1px solid {border};border-radius:12px;z-index:1500;display:none;max-height:60vh;overflow:auto'></div>
+<div id=notifPanel style='position:fixed;top:60px;left:10px;max-width:360px;background:{card_bg};border:1px solid {border};border-radius:14px;z-index:2000;display:none;max-height:70vh;overflow:auto'></div>
 <div class=main id=mn>{c}</div>
 <div id=delModal><div id=delBox><div style='font-size:44px;text-align:center'>🗑</div><h3 style='text-align:center'>تأكيد الحذف؟</h3><p style='color:#aaa;font-size:13px;text-align:center'>لا يمكن التراجع</p><div style='display:flex;gap:10px;margin-top:12px'><button onclick="closeDel()" style='flex:1;padding:12px;border-radius:12px;border:1px solid {border};background:transparent;color:{txt};cursor:pointer'>تراجع</button><button id=delYes style='flex:1;padding:12px;border-radius:12px;background:#ef4444;color:#fff;border:0;cursor:pointer;font-weight:800'>حذف</button></div></div></div>
 <div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px'><h3 id=editTitle style='margin:0'>✏ تعديل</h3><button onclick="closeEditModal()" style='background:#ffffff15;border:0;color:{txt};width:32px;height:32px;border-radius:50%;cursor:pointer'>✕</button></div><div id=editBody></div></div></div>
@@ -952,6 +966,50 @@ if(lastPage && lastPage!==cur && cur==='home'){{
   loadPage(lastPage);
 }}
 window.addEventListener('popstate', (e)=>{{ let v='home'; if(e.state && e.state.page){{ v=e.state.page; }} else {{ let p=new URLSearchParams(window.location.search); v=p.get('v')||'home'; }} loadPage(v,true,false); }});
+
+window.globalSearchTop=async function(q){{
+  let box=document.getElementById('searchResults');
+  if(!q){{ box.style.display='none'; return; }}
+  let r=await fetch('/api/search?q='+encodeURIComponent(q));
+  let d=await r.json();
+  if(d.length==0){{ box.innerHTML='<div style="padding:12px">لا يوجد نتائج</div>'; box.style.display='block'; return; }}
+  let h='';
+  d.forEach(x=>{{
+    h+='<div style="padding:10px;border-bottom:1px solid #ffffff10;cursor:pointer" onclick="loadPage(\''+x.page+'\'); document.getElementById(\'searchResults\').style.display=\'none\';"><b>'+x.title+'</b><br><small>'+x.type+' - '+x.sub+'</small></div>';
+  }});
+  box.innerHTML=h;
+  box.style.display='block';
+}}
+window.toggleNotif=async function(){{
+  let panel=document.getElementById('notifPanel');
+  panel.style.display=panel.style.display==='block'?'none':'block';
+  if(panel.style.display==='block'){{
+    let r=await fetch('/api/notifications');
+    let j=await r.json();
+    let h='<div style="padding:10px"><div style="display:flex;justify-content:space-between"><b>🔔 الاشعارات</b><button onclick="readAllNotif()" style="font-size:11px">مقروء</button></div>';
+    j.rows.forEach(n=>{{
+      h+='<div style="padding:8px;border-bottom:1px solid #ffffff10"><b>'+n.title+'</b><br><small>'+n.msg+'</small><br><small style="color:#aaa">'+n.time+'</small></div>';
+    }});
+    h+='</div>';
+    panel.innerHTML=h;
+  }}
+}}
+window.readAllNotif=async function(){{
+  await fetch('/api/notifications/read',{{method:'POST'}});
+  document.getElementById('notifCount').style.display='none';
+  document.getElementById('notifPanel').style.display='none';
+}}
+async function loadNotif(){{
+  try{{
+    let r=await fetch('/api/notifications');
+    let j=await r.json();
+    let c=document.getElementById('notifCount');
+    if(j.unread>0){{ c.textContent=j.unread; c.style.display='flex'; }} else {{ c.style.display='none'; }}
+  }}catch(e){{}}
+}}
+loadNotif();
+setInterval(loadNotif, 10000);
+
 bind();
 execScripts();
 if(!history.state){{ history.replaceState({{page:cur}}, '', '/dash?v='+cur); }}
