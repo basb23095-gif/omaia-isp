@@ -104,7 +104,6 @@ def init():
     safe_alter("ledger","name","TEXT")
     if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username,active) VALUES(?,?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin',1))
-    # FIXED: 5 placeholders, 5 params
     if not qone("SELECT * FROM towers WHERE fixed=1"):
         qexec("INSERT INTO towers(name,lat,lng,location,area,fixed) VALUES(?,?,?,?,?,?)",('نقطة حماة الرئيسية',35.1318,36.7578,'حماة','حماة',1))
 init()
@@ -185,7 +184,6 @@ def api_ping():
 def page_content(v):
     h=""; can = can_edit(); tech = is_tech()
     edit_btn_attr = "" if can else "disabled style='opacity:.3;pointer-events:none'"
-    
     if v=='home':
         ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0)
         nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0)
@@ -301,17 +299,13 @@ def page_content(v):
               L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ attribution: 'OMAIA ISP - Ultra HD', maxZoom: 23, maxNativeZoom: 19, tileSize:256, detectRetina:true }}).addTo(map);
               setTimeout(()=>{{map.invalidateSize();}}, 400);
               let mapEl = document.getElementById('map');
-              ['touchstart','touchmove','touchend'].forEach(ev=>{{
-                mapEl.addEventListener(ev, e=>{{e.stopPropagation(); window.mapActive=true;}}, {{passive:false}});
-              }});
+              ['touchstart','touchmove','touchend'].forEach(ev=>{{mapEl.addEventListener(ev, e=>{{e.stopPropagation(); window.mapActive=true;}}, {{passive:false}});}});
               mapEl.addEventListener('mouseenter', ()=>{{window.mapActive=true}});
               mapEl.addEventListener('mouseleave', ()=>{{window.mapActive=false}});
               let towers = {towers_js};
               towers.forEach(t=>{{let m = L.marker([t.lat, t.lng]).addTo(map); m.bindPopup(`<div style='text-align:center'><b>${{t.name}}</b><br>🗺 ${{t.area}}</div>`);}});
               let userMarker=null;
-              if(navigator.geolocation){{
-                navigator.geolocation.getCurrentPosition(pos=>{{map.setView([pos.coords.latitude, pos.coords.longitude], 17); userMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup('📍 أنت هنا').openPopup();}}, null, {{enableHighAccuracy:true, timeout:10000, maximumAge:0}});
-              }}
+              if(navigator.geolocation){{navigator.geolocation.getCurrentPosition(pos=>{{map.setView([pos.coords.latitude, pos.coords.longitude], 17); userMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup('📍 أنت هنا').openPopup();}}, null, {{enableHighAccuracy:true, timeout:10000, maximumAge:0}});}}
               window.getMyLocation = function(){{if(navigator.geolocation){{navigator.geolocation.getCurrentPosition(pos=>{{map.setView([pos.coords.latitude, pos.coords.longitude], 18); if(userMarker) map.removeLayer(userMarker); userMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup('📍 موقعك - دقة عالية جدا').openPopup();}}, null, {{enableHighAccuracy:true}});}}}}
               let distPoints=[], distLine=null; window.distMode=false;
               map.on('click', e=>{{if(window.distMode){{distPoints.push(e.latlng); L.marker(e.latlng).addTo(map); if(distPoints.length==2){{let d=map.distance(distPoints[0], distPoints[1]); document.getElementById('distResult').innerHTML = `📍 ${{(d/1000).toFixed(3)}} كم`; if(distLine) map.removeLayer(distLine); distLine = L.polyline(distPoints, {{color: '{COLORS['gold']}', weight:4}}).addTo(map); distPoints=[]; window.distMode=false;}}}}}});
