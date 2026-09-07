@@ -106,7 +106,7 @@ def cur_theme(): return session.get('theme','dark')
 def api_ping():
     ip=request.args.get('ip','').strip()
     if not is_internal_ip(ip): return jsonify(ok=False,out='خارج الشبكة')
-    return jsonify(ok=True,out=f'للبنج الحقيقي شغل ping_agent.py على لابتوبك - IP: {ip}')
+    return jsonify(ok=True,out=f'IP: {ip} - افتح http://{ip} للوصول')
 
 def page_content(v):
     can_e=can_edit();can_d=can_del()
@@ -123,7 +123,7 @@ def page_content(v):
         <div style='display:flex;gap:6px;justify-content:center'><button class=btn-blue onclick='exportExcel()'>Excel</button><button class=btn-blue onclick="window.open('/export_pdf')">PDF</button></div></div>
         <div id=dishList style='display:flex;flex-direction:column;gap:8px;align-items:center'></div>
         <div style='text-align:center;margin:10px'><button class=btn onclick='moreDishes()'>المزيد 20</button></div>
-        <script>let pg=0;async function loadD(q=""){let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&page='+pg);let d=await r.json();let h="";d.forEach(x=>{h+=`<div class=card style="width:320px;max-width:95%;margin:0 auto;padding:8px 10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;text-align:right"><b>${x.dish_name||''}</b> <span class=ip-badge>${x.ip}</span><br><small>${x.location||''}</small></div><div style="display:flex;gap:4px">`+(CAN_E?`<button onclick='editDish(${x.id},"${(x.dish_name||'').replace(/"/g,'')}","${x.ip}","${(x.location||'').replace(/"/g,'')}")' style="width:52px;height:32px;background:#FF9800;border:0;border-radius:8px;font-size:12px">تعديل</button>`:'')+(CAN_D?`<button onclick='delItem("/del_dish/${x.id}")' style="width:44px;height:32px;background:#F44336;border:0;border-radius:8px;font-size:12px">حذف</button>`:'')+`<button class=btn-blue style="padding:6px 8px" onclick='pingDish("${x.ip}")'>Ping</button></div></div>`});if(pg==0)document.getElementById('dishList').innerHTML=h;else document.getElementById('dishList').innerHTML+=h}
+        <script>let pg=0;async function loadD(q=""){let r=await fetch('/api/search?q='+encodeURIComponent(q)+'&page='+pg);let d=await r.json();let h="";d.forEach(x=>{h+=`<div class=card style="width:320px;max-width:95%;margin:0 auto;padding:8px 10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;text-align:right"><b>${x.dish_name||''}</b> <a href="http://${x.ip}" target=_blank class=ip-badge style="text-decoration:none">${x.ip}</a><br><small>${x.location||''}</small></div><div style="display:flex;gap:4px">`+(CAN_E?`<button onclick='editDish(${x.id},"${(x.dish_name||'').replace(/"/g,'')}","${x.ip}","${(x.location||'').replace(/"/g,'')}")' style="width:52px;height:32px;background:#FF9800;border:0;border-radius:8px;font-size:12px">تعديل</button>`:'')+(CAN_D?`<button onclick='delItem("/del_dish/${x.id}")' style="width:44px;height:32px;background:#F44336;border:0;border-radius:8px;font-size:12px">حذف</button>`:'')+`</div></div>`});if(pg==0)document.getElementById('dishList').innerHTML=h;else document.getElementById('dishList').innerHTML+=h}
         async function instantSearch(q){pg=0;loadD(q)}function moreDishes(){pg++;loadD(document.getElementById('searchBox').value)}loadD();
         function editDish(id,n,ip,loc){let nn=prompt('اسم:',n);if(nn==null)return;let i2=prompt('IP:',ip);if(i2==null)return;let l2=prompt('موقع:',loc);fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:i2,location:l2})}).then(()=>{toast('تم التعديل');loadPage('dishes',true)})}
         </script></div>""".replace("CAN_E","1" if can_e else "0").replace("CAN_D","1" if can_d else "0")
@@ -146,7 +146,7 @@ def page_content(v):
         rows="".join([f"<div class=card>{esc(r['name'])} - {r['amount']}</div>" for r in rs])
         return f"<div style='max-width:600px;margin:0 auto'><div class=card style='text-align:center'><h3>الحسابات</h3><form data-ajax method=post action=/add_ledger><input name=name required placeholder='الاسم'><input name=amount type=number step=0.01 required placeholder='مبلغ'><button class=btn-gold>اضافة</button></form></div>{rows}</div>"
     if v=='pingpage':
-        return """<div style='max-width:500px;margin:0 auto'><div class=card style='text-align:center'><h3>فحص Ping</h3><form onsubmit='event.preventDefault();doPing(document.getElementById("pip").value)'><input id=pip placeholder='IP داخلي مثلا 192.168.1.1' required style='max-width:300px;margin:0 auto'><button class=btn-gold style='margin-top:8px'>فحص</button></form><div id=pr style='margin-top:10px'></div></div><script>async function doPing(ip){toast('جاري الفحص '+ip);let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));let j=await r.json();document.getElementById('pr').innerHTML='<div class=card>'+j.out+'</div'}</script></div>"""
+        return """<div style='max-width:500px;margin:0 auto'><div class=card style='text-align:center'><h3>فحص</h3><form onsubmit='event.preventDefault();doPing(document.getElementById("pip").value)'><input id=pip placeholder='IP داخلي مثلا 192.168.1.1' required style='max-width:300px;margin:0 auto'><button class=btn-gold style='margin-top:8px'>فتح</button></form><div id=pr style='margin-top:10px'></div></div><script>async function doPing(ip){window.open('http://'+ip,'_blank')}</script></div>"""
     if v=='map':
         towers=qall("SELECT * FROM towers");tj=json.dumps([{"name":t['name'],"lat":float(t.get('lat') or 35.13),"lng":float(t.get('lng') or 36.75)} for t in towers],ensure_ascii=False)
         dishes=qall("SELECT dish_name,ip FROM dish_ips LIMIT 500");dj=json.dumps([{"n":d['dish_name'],"ip":d['ip']} for d in dishes],ensure_ascii=False)
@@ -164,17 +164,16 @@ def page_content(v):
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,opacity:0.35}).addTo(map);
         setTimeout(()=>map.invalidateSize(),400);
         _t.forEach(t=>L.marker([t.lat,t.lng]).addTo(map).bindPopup(t.name));
-        map.locate({enableHighAccuracy:true});
-        window.mapGo=function(q){let f=_t.find(t=>t.name.includes(q));if(f){map.flyTo([f.lat,f.lng],18);L.popup().setLatLng([f.lat,f.lng]).setContent(f.name).openOn(map)}else toast('غير موجود')};
+        window.mapGo=function(q){let f=_t.find(t=>t.name.includes(q));if(f){map.flyTo([f.lat,f.lng],18)}else toast('غير موجود')};
         window.searchDish=function(q){if(!q||q.length<2){document.getElementById('dishRes').innerHTML='';return}let f=_d.filter(d=>(d.n&&d.n.includes(q))||(d.ip&&d.ip.includes(q))).slice(0,10);document.getElementById('dishRes').innerHTML=f.map(d=>'<div style="padding:4px;border-bottom:1px solid #333">'+d.n+' - '+d.ip+'</div>').join('')};
         let measuring=false,pts=[],line=null,markers=[];
-        window.toggleMeasure=function(){measuring=!measuring;document.getElementById('measBtn').textContent=measuring?'اضغط على الخريطة...':'قياس مسافة';toast(measuring?'اضغط على الخريطة لقياس':'تم الايقاف')};
+        window.toggleMeasure=function(){measuring=!measuring;document.getElementById('measBtn').textContent=measuring?'اضغط على الخريطة...':'قياس مسافة'};
         window.clearMeasure=function(){pts=[];markers.forEach(m=>map.removeLayer(m));markers=[];if(line){map.removeLayer(line);line=null}document.getElementById('measOut').textContent=''};
         map.on('click',function(e){if(!measuring)return;pts.push(e.latlng);let m=L.circleMarker(e.latlng,{radius:5,color:'#ffbe4d'}).addTo(map);markers.push(m);if(line)map.removeLayer(line);line=L.polyline(pts,{color:'#ffbe4d',weight:3,dashArray:'6 6'}).addTo(map);let total=0;for(let i=1;i<pts.length;i++)total+=map.distance(pts[i-1],pts[i]);let txt=total<1000?total.toFixed(2)+' متر':(total/1000).toFixed(4)+' كم';document.getElementById('measOut').textContent='المسافة: '+txt});
         </script></div>"""
     if v=='logs':
         rs=qall("SELECT * FROM activity_log ORDER BY id DESC LIMIT 50")
-        rows="".join([f"<div class=log-row><b>{esc(r['username'] or r['phone'])}</b> ({esc(r['phone'])}) - {esc(r['action'])} <small>{esc(r['time'])}</small></div>" for r in rs])
+        rows="".join([f"<div class=log-row><b>{esc(r['username'] or r['phone'])}</b> - {esc(r['action'])} <small>{esc(r['time'])}</small></div>" for r in rs])
         return f"<div style='max-width:650px;margin:0 auto'><div class=card><h3>السجل</h3>{rows}</div></div>"
     if v=='support':
         return f"<div style='max-width:500px;margin:20px auto'><div class=card style='text-align:center'><h2>{logo_html()}</h2><a href='https://wa.me/905344851045' target=_blank style='background:#25D366;color:#fff;padding:12px 24px;border-radius:24px;text-decoration:none;display:inline-block;margin:6px'>واتساب</a><br><a href='https://instagram.com/af_20_1999' target=_blank style='background:#E1306C;color:#fff;padding:12px 24px;border-radius:24px;text-decoration:none;display:inline-block;margin:6px'>af_20_1999</a></div></div>"
@@ -186,7 +185,7 @@ def page_content(v):
             sel_t='selected' if u['role']=='tech' else ''
             sel_m='selected' if u['role']=='manager' else ''
             uh+=f"<div class=card style='text-align:center'><b>{esc(u['username'])}</b><br><small>{esc(u['phone'])}</small><div style='margin:8px 0'><select id='r_{esc(u['phone'])}' style='max-width:120px;margin:0 auto'><option value=tech {sel_t}>فني</option><option value=manager {sel_m}>مدير</option></select></div><div style='display:flex;gap:6px;justify-content:center'><button class=btn-blue onclick=\"saveRole('{esc(u['phone'])}')\">حفظ</button><button class=btn style='background:#F44336' onclick=\"delU('{esc(u['phone'])}')\">حذف</button></div></div>"
-        return f"<div style='max-width:700px;margin:0 auto'><div class=card style='text-align:center'><h3>الإعدادات</h3><label>تفعيل التعديل <input type=checkbox {'checked' if ae=='1' else ''} onchange=\"fetch('/set/allow_edit/'+(this.checked?'1':'0'))\" style='width:auto'></label> <label>تفعيل الحذف <input type=checkbox {'checked' if ad=='1' else ''} onchange=\"fetch('/set/allow_del/'+(this.checked?'1':'0'))\" style='width:auto'></label><br><button class=btn onclick='toggleTheme()'>ليل/نهار</button><form data-ajax method=post action=/change_pass style='margin-top:8px;display:flex;gap:6px;justify-content:center'><input name=newpass type=password required placeholder='كلمة سر جديدة' style='max-width:200px'><button class=btn-gold>تغيير</button></form></div><div class=card style='text-align:center'><h3>اضافة مستخدم</h3><form data-ajax method=post action=/add_user style='display:flex;gap:6px;flex-wrap:wrap;justify-content:center'><input name=phone required placeholder='يوزر' style='max-width:140px'><input name=password type=password required placeholder='كلمة السر' style='max-width:140px'><select name=role style='max-width:120px'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>اضافة</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>{uh}</div><script>async function saveRole(ph){{await fetch('/edit_user/'+ph,{{method:'POST',body:new URLSearchParams({{role:document.getElementById('r_'+ph).value}})}});toast('تم الحفظ')}};async function delU(ph){{if(!confirm('حذف؟'))return;await fetch('/del_user/'+ph);loadPage('settings',true)}}</script></div>"
+        return f"<div style='max-width:700px;margin:0 auto'><div class=card style='text-align:center'><h3>الإعدادات</h3><label>تفعيل التعديل <input type=checkbox {'checked' if ae=='1' else ''} onchange=\"fetch('/set/allow_edit/'+(this.checked?'1':'0'))\" style='width:auto'></label> <label>تفعيل الحذف <input type=checkbox {'checked' if ad=='1' else ''} onchange=\"fetch('/set/allow_del/'+(this.checked?'1':'0'))\" style='width:auto'></label><br><button class=btn onclick='toggleTheme()'>ليل/نهار</button><form data-ajax method=post action=/change_pass style='margin-top:8px;display:flex;gap:6px;justify-content:center'><input name=newpass type=password required placeholder='كلمة سر جديدة' style='max-width:200px'><button class=btn-gold>تغيير</button></form></div><div class=card style='text-align:center'><h3>اضافة مستخدم</h3><form data-ajax method=post action=/add_user style='display:flex;gap:6px;flex-wrap:wrap;justify-content:center'><input name=phone required placeholder='يوزر' style='max-width:140px'><input name=password type=password required placeholder='كلمة السر' style='max-width:140px'><select name=role style='max-width:120px'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>اضافة</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'>{uh}</div><script>async function saveRole(ph){{await fetch('/edit_user/'+ph,{{method:'POST',body:new URLSearchParams({{role:document.getElementById('r_'+ph).value}})}});toast('تم الحفظ')}};async function delU(ph){{await fetch('/del_user/'+ph);toast('انحذف');loadPage('settings',true)}}</script></div>"
     return "ok"
 
 def layout(c, v='home'):
@@ -197,21 +196,28 @@ def layout(c, v='home'):
     lg = logo_html()
     tmpl = """<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
-<style>*{box-sizing:border-box;font-family:sans-serif}body{margin:0;background:__BG__;color:#fff}
-.sidebar{position:fixed;right:0;top:0;width:260px;height:100%;background:#111111d9;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);z-index:1000;padding-top:70px;transition:.25s;transform:translateX(280px);direction:rtl;border-left:1px solid #ffffff15}
+<style>
+*{box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif;transition:.2s}
+body{margin:0;background:radial-gradient(1200px 600px at 80% -10%,#ff3d0022,transparent),__BG__;color:#fff;min-height:100vh}
+.sidebar{position:fixed;right:0;top:0;width:270px;height:100%;background:linear-gradient(180deg,#0a0a0a 0%,#1a0f00 50%,#0a0a0a 100%);z-index:1000;padding-top:70px;transition:.3s;transform:translateX(290px);direction:rtl;border-left:2px solid #ff6a00aa}
 .sidebar.active{transform:translateX(0)}
-.sidebar a{display:block;padding:12px 16px;color:#fff;text-decoration:none;border-bottom:1px solid #ffffff08}
-.top{position:fixed;top:0;left:0;right:0;height:60px;background:#1a1a1a;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:101}
-.main{margin-top:60px;padding:8px}.card{background:__CARD__;padding:12px;border-radius:12px;margin-bottom:10px;border:1px solid #333}
-input,select{width:100%;padding:10px;margin:4px 0;background:#111;border:1px solid #444;color:#fff;border-radius:8px}
-.btn-gold{background:__GOLD__;color:#000;padding:10px;border:0;border-radius:8px;font-weight:bold}
-.btn-blue{background:#2196F3;color:#fff;padding:8px;border:0;border-radius:8px}.btn{background:#333;color:#fff;padding:8px;border:0;border-radius:8px}
-.ip-badge{background:#000;color:__GOLD__;padding:3px 8px;border-radius:10px;font-family:monospace}
-#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;display:none;z-index:9999}
+.sidebar a{display:flex;align-items:center;gap:10px;padding:14px 20px;margin:6px 12px;color:#fff;text-decoration:none;border-radius:12px;background:#ffffff08}
+.sidebar a:hover{background:linear-gradient(90deg,#ff6a00,#ffbe4d);color:#000;font-weight:800;transform:translateX(-5px)}
+.top{position:fixed;top:0;left:0;right:0;height:62px;background:linear-gradient(90deg,#0a0a0a,#2a1500,#0a0a0a);display:flex;align-items:center;justify-content:space-between;padding:0 15px;z-index:1001;border-bottom:2px solid #ff6a00}
+.main{margin-top:70px;padding:12px}.card{background:linear-gradient(145deg,__CARD__,#1a1a1a);padding:16px;border-radius:16px;margin-bottom:12px;border:1px solid #ff6a0033;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;right:0;left:0;height:3px;background:linear-gradient(90deg,#ff3d00,#ffbe4d,#ff3d00);background-size:200% 100%;animation:fire 2s linear infinite}
+@keyframes fire{0%{background-position:0%}100%{background-position:200%}}
+input,select{width:100%;padding:12px;margin:6px 0;background:#0f0f0f;border:1px solid #ff6a0055;color:#fff;border-radius:12px}
+.btn-gold{background:linear-gradient(135deg,#ff3d00,#ffbe4d);color:#000;padding:12px 20px;border:0;border-radius:12px;font-weight:800;cursor:pointer}
+.btn-blue{background:#2196F3;color:#fff;padding:10px 16px;border:0;border-radius:12px}.btn{background:#2a2a2a;color:#fff;padding:10px 16px;border:1px solid #444;border-radius:12px}
+.ip-badge{background:#000;color:#ffbe4d;padding:4px 10px;border-radius:20px;font-family:monospace;border:1px solid #ffbe4d66}
+#toast{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#ff3d00,#ffbe4d);color:#000;padding:12px 25px;border-radius:30px;display:none;z-index:9999;font-weight:800}
 .log-row{padding:6px;border-bottom:1px solid #333;font-size:13px}
+.wa-float{position:fixed;bottom:18px;left:18px;width:58px;height:58px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:2000;box-shadow:0 8px 25px #25D36688}
 </style></head><body><div id=toast></div>
-<div class=sidebar id=sb dir=rtl><a href="javascript:loadPage('home')">الرئيسية</a><a href="javascript:loadPage('dishes')">الصحون</a><a href="javascript:loadPage('towers')">الأبراج</a><a href="javascript:loadPage('pingpage')">فحص Ping</a><a href="javascript:loadPage('map')">الخريطة</a><a href="javascript:loadPage('logs')">السجل</a><a href="javascript:loadPage('support')">الدعم</a><a href="javascript:loadPage('settings')">الإعدادات</a><a href=/logout>خروج</a></div>
-<div class=top><div onclick="document.getElementById('sb').classList.toggle('active')" style='font-size:22px'>☰</div><div>__LOGO__</div><div><button class=btn onclick="loadPage(cur,true)">تحديث</button></div></div>
+<a class=wa-float href="https://wa.me/905344851045" target=_blank><svg viewBox="0 0 24 24" width="30" height="30" fill="white"><path d="M17.5 14.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.5 0 1.47 1.07 2.9 1.22 3.1.15.2 2.1 3.2 5.1 4.49.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.76-.72 2.01-1.42.25-.7.25-1.29.17-1.42-.07-.13-.27-.2-.57-.35M12.04 2C6.56 2 2.1 6.46 2.1 11.93c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 004.79 1.22c5.48 0 9.93-4.46 9.93-9.93 0-2.65-1.03-5.14-2.9-7.01A9.86 9.86 0 0012.04 2"/></svg></a>
+<div class=sidebar id=sb dir=rtl><a href="javascript:loadPage('home')">🏠 الرئيسية</a><a href="javascript:loadPage('dishes')">📡 الصحون</a><a href="javascript:loadPage('towers')">🗼 الأبراج</a><a href="javascript:loadPage('pingpage')">📶 فحص</a><a href="javascript:loadPage('map')">🗺️ الخريطة</a><a href="javascript:loadPage('logs')">📝 السجل</a><a href="javascript:loadPage('support')">💬 الدعم</a><a href="javascript:loadPage('settings')">⚙️ الإعدادات</a><a href=/logout style="background:#ff3d0022;border:1px solid #ff3d00">🚪 خروج</a></div>
+<div class=top><div onclick="document.getElementById('sb').classList.toggle('active')" style='font-size:24px;cursor:pointer'>☰</div><div>__LOGO__</div><div><button class=btn onclick="loadPage(cur,true)">🔄</button></div></div>
 <div class=main id=mn>__CONTENT__</div>
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
@@ -220,13 +226,12 @@ function toast(m){let t=document.getElementById('toast');t.textContent=m;t.style
 async function loadPage(v,f){cur=v;document.getElementById('sb').classList.remove('active');if(cache[v]&&!f){document.getElementById('mn').innerHTML=cache[v];exe();return}let r=await fetch('/api/page?v='+v);let h=await r.text();cache[v]=h;document.getElementById('mn').innerHTML=h;exe();}
 function exe(){document.getElementById('mn').querySelectorAll('script').forEach(s=>{try{eval(s.textContent)}catch(e){}});bind()}
 function bind(){document.querySelectorAll('form[data-ajax]').forEach(f=>{f.onsubmit=async e=>{e.preventDefault();await fetch(f.action,{method:'POST',body:new FormData(f)});for(let k in cache)delete cache[k];toast('تم');loadPage(cur,true)}})}
-window.delItem=async function(u){if(!confirm('حذف؟'))return;await fetch(u);for(let k in cache)delete cache[k];toast('انحذف');loadPage(cur,true)};
-window.pingDish=async function(ip){toast('بينغ '+ip);let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));let j=await r.json();toast(j.out.slice(0,120))};
+window.delItem=async function(u){await fetch(u);for(let k in cache)delete cache[k];toast('انحذف');loadPage(cur,true)};
 window.toggleTheme=async()=>{await fetch('/toggle_theme');location.reload()};
 window.exportExcel=()=>{window.open('/export_excel')};
 bind();exe();
 </script></body></html>"""
-    tmpl = tmpl.replace("__BG__", bg).replace("__CARD__", card).replace("__GOLD__", gold).replace("__LOGO__", lg).replace("__CONTENT__", c).replace("__V__", v)
+    tmpl = tmpl.replace("__BG__", bg).replace("__CARD__", card).replace("__LOGO__", lg).replace("__CONTENT__", c).replace("__V__", v)
     return tmpl
 
 @app.route('/')
@@ -250,15 +255,18 @@ def login():
 body{margin:0;min-height:100vh;background:#0a0e2a;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;color:#fff}
 .title{font-size:24px;font-weight:800;margin:10px 0 5px;color:#fff}.sub{color:#aaa;font-size:13px;margin-bottom:20px}.card{background:#1e2433;border:1px solid #ffffff15;padding:25px;border-radius:20px;width:320px}
 input{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid #ffffff20;color:#fff;border-radius:12px;box-sizing:border-box}
-.btn{width:100%;padding:13px;border:0;border-radius:12px;background:#3b9dff;color:#fff;font-weight:bold;font-size:16px;margin-top:10px;cursor:pointer}
+.btn{width:100%;padding:13px;border:0;border-radius:12px;background:linear-gradient(135deg,#ff3d00,#ffbe4d);color:#000;font-weight:800;font-size:16px;margin-top:10px;cursor:pointer}
 label{font-size:13px;color:#aaa;display:flex;align-items:center;gap:6px}label input{width:auto}
+.wa{margin-top:20px;background:#25D366;color:#fff;padding:12px 25px;border-radius:30px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;font-weight:700}
 </style></head><body>
-<div class=title>شركة أمية للإنترنت</div><div class=sub>نظام إدارة المشتركين</div>
+<div class=title>شركة أمية للإنترنت 🔥</div><div class=sub>نظام إدارة المشتركين</div>
 <div class=card><h3 style="text-align:center">تسجيل الدخول</h3><form id=lf>
 <input name=userin id=uin placeholder='رقم الهاتف / اسم المستخدم' required>
 <input name=password id=pw type=password placeholder='كلمة السر' required>
 <label><input type=checkbox id=rem> حفظ كلمة السر (تذكرني)</label>
 <button class=btn>دخول</button><div id=err style="color:#ff8080;text-align:center"></div></form></div>
+<a class=wa href="https://wa.me/905344851045" target="_blank">💬 الدعم الفني واتساب</a>
+<div style="color:#888;font-size:12px;margin-top:6px">اضغط للتواصل عند مشكلة بالدخول</div>
 <script>
 uin.value=localStorage.getItem('uin')||'';pw.value=localStorage.getItem('pw')||'';rem.checked=!!localStorage.getItem('uin');
 document.getElementById('lf').onsubmit=async e=>{e.preventDefault();if(rem.checked){localStorage.setItem('uin',uin.value);localStorage.setItem('pw',pw.value)}else{localStorage.removeItem('uin');localStorage.removeItem('pw')}
@@ -353,8 +361,5 @@ def ep():
     rs=qall("SELECT * FROM dish_ips")
     h="<h1>Dishes</h1><table border=1>"+"".join([f"<tr><td>{esc(r['dish_name'])}</td><td>{esc(r['ip'])}</td></tr>" for r in rs])+"</table>"
     return h
-@app.route('/backup')
-@manager_required
-def bk(): return jsonify(towers=qall("SELECT * FROM towers"),dishes=qall("SELECT * FROM dish_ips"))
 
 if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.environ.get("PORT",10000)))
