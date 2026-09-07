@@ -106,18 +106,17 @@ def init():
     if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username,active) VALUES(?,?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin',1))
     if not qone("SELECT * FROM towers WHERE fixed=1"):
-        qexec("INSERT INTO towers(name,lat,lng,location,area,fixed) VALUES(?,?,?,?,?,1)",('برج الحصن الرئيسي','حمص - الحصن','حماة - مركز','حماة',34.723,36.715))
-        # تصحيح - حماة مركزها
-        qexec("DELETE FROM towers")
-        qexec("INSERT INTO towers(name,lat,lng,location,area,fixed) VALUES(?,?,?,?,?,1)",('نقطة حماة الرئيسية',35.1318,36.7578,'حماة - المركز','حماة',1))
-        qexec("INSERT INTO towers(name,lat,lng,location,area,fixed) VALUES(?,?,?,?,?,1)",('برج الحصن',34.758,36.268,'تلكلخ','حمص',1))
-    if not qone("SELECT * FROM notifications LIMIT 1"):
-        qexec("INSERT INTO notifications(time,title,msg) VALUES(?,?,?)",(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),"مرحباً بك","نظام OMAIA ISP جاهز"))
+        qexec("INSERT INTO towers(name,lat,lng,location,area,fixed) VALUES(?,?,?,?,?,1)",('نقطة حماة الرئيسية',35.1318,36.7578,'حماة','حماة',1))
+    # 7- شيل مربحا بك ونظام omaia جاهز
+    # لا نضيف اشعار افتراضي
 init()
 
 def add_log(action):
     ph = session.get('phone','system')
     qexec("INSERT INTO activity_log(time,action,phone) VALUES(?,?,?)",(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), action, ph))
+    # 7- فعل الاشعارات - اضف اشعار لكل نشاط مهم
+    if any(k in action for k in ["اضافة","حذف","تعديل","دخول"]):
+        qexec("INSERT INTO notifications(time,title,msg) VALUES(?,?,?)",(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),"نشاط جديد",action))
 
 def login_required(f):
     @wraps(f)
@@ -143,6 +142,10 @@ def can_edit():
     if not m: return False
     return m.get('role')!='tech'
 
+def is_tech():
+    m=me()
+    return m and m.get('role')=='tech'
+
 def is_internal_ip(ip):
     try:
         ip_o = ipaddress.ip_address(ip.strip())
@@ -154,19 +157,12 @@ def is_internal_ip(ip):
 def cur_theme(): return session.get('theme','dark')
 def cur_lang(): return session.get('lang','ar')
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
 @app.route('/api/ping')
 @login_required
 def api_ping():
     ip=request.args.get('ip','').strip()
     if not ip: return jsonify(ok=False,out='لا يوجد IP')
-    if not is_internal_ip(ip): return jsonify(ok=False,out='⛔ خارج الشبكة - يجب 192.168.x.x')
+    if not is_internal_ip(ip): return jsonify(ok=False,out='⛔ خارج الشبكة')
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1.5)
@@ -175,7 +171,7 @@ def api_ping():
                 result = sock.connect_ex((ip, port))
                 sock.close()
                 if result == 0:
-                    return jsonify(ok=True,out=f'✅ {ip}:{port} متصل (TCP)')
+                    return jsonify(ok=True,out=f'✅ {ip}:{port} متصل')
             except: pass
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1.5)
@@ -186,32 +182,29 @@ def api_ping():
         cmd=['ping','-n','2',ip] if w else ['ping','-c','2','-W','2',ip]
         o=subprocess.run(cmd,capture_output=True,text=True,timeout=4)
         out = (o.stdout or '')+(o.stderr or '')
-        if not out.strip():
-            out = f"⚠️ ICMP ممنوع على الاستضافة لكن جرب فتح http://{ip} بالمتصفح"
         return jsonify(ok=True,out=out[:1500])
     except Exception as e: 
         return jsonify(ok=False,out=f'غير متاح: {str(e)[:200]}')
 
 def page_content(v):
-    h=""; can = can_edit(); dis_attr = "" if can else "disabled style='opacity:.4;pointer-events:none'"
+    h=""; can = can_edit(); tech = is_tech()
+    dis_attr = "" if can else "disabled style='opacity:.3;pointer-events:none'"
     lang = cur_lang()
+    # صلاحيات الفني
+    edit_btn_attr = "" if can else "disabled style='opacity:.3;pointer-events:none'"
+    
     if v=='home':
-        ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0)
-        nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0)
-        nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0)
-        # 2- صفحة رئيسية بالنص وشيل اخر نشاطات
+        # 2- صفحه الرئيسه شيل لوحه تحكم والكروت وبنج رايحات يسار خليها بالنص
         h=f"""
-        <div style='text-align:center;margin:20px 0'>
-          <h1 style='font-size:32px;margin:0'>{logo_html()}</h1>
-          <p style='color:#94a3b8'>لوحة التحكم</p>
+        <div style='display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center'>
+          <div style='font-size:48px;margin-bottom:10px'>{logo_html()}</div>
+          <p style='color:{COLORS['text_muted_dark']};font-size:14px'>OMAIA ISP</p>
+          <div style='margin-top:30px;display:flex;gap:10px;flex-wrap:wrap;justify-content:center'>
+            <button class=btn-gold onclick="loadPage('subs')" style='padding:15px 25px'>👥 المشتركين</button>
+            <button class=btn-blue onclick="loadPage('dishes')" style='padding:15px 25px'>📡 الصحون</button>
+            <button class=btn-blue onclick="loadPage('map')" style='padding:15px 25px'>🗺 الخريطة</button>
+          </div>
         </div>
-        <div class=stats-grid style='max-width:600px;margin:0 auto'>
-          <div class="card stat-card" style='justify-content:center;text-align:center;flex-direction:column'><div class=stat-icon>📡</div><h3>الصحون</h3><h2>{nd}</h2></div>
-          <div class="card stat-card" style='justify-content:center;text-align:center;flex-direction:column'><div class=stat-icon>🗼</div><h3>الأبراج</h3><h2>{nt}</h2></div>
-          <div class="card stat-card" style='justify-content:center;text-align:center;flex-direction:column'><div class=stat-icon>👥</div><h3>المشتركين</h3><h2>{ns}</h2></div>
-        </div>
-        <div class="card" style='max-width:600px;margin:15px auto'><h3>⚡ فحص الشبكة السريع</h3><div class=ping-box><input id=ping_ip placeholder="192.168.1.1"><button class=btn-blue onclick="doPing()">بينغ</button></div><pre id=ping_out>جاهز...</pre></div>
-        <script>async function doPing(){{let i=document.getElementById("ping_ip").value;let o=document.getElementById("ping_out");if(!i){{o.textContent="ادخل IP";return}} o.textContent="⏳...";let r=await fetch("/api/ping?ip="+encodeURIComponent(i));let j=await r.json();o.textContent=j.out}}</script>
         """
         return h
     elif v=='subs':
@@ -220,14 +213,20 @@ def page_content(v):
         for r in rs:
             name_js = js_esc(r['name'])
             phone_js = js_esc(r['phone'])
-            rows+=f"<div class='card sub-card'><div><b>{esc(r['name'])}</b><br><small>📞 {esc(r['phone'])}</small></div><div class=actions><button class=btn-blue onclick='editSub({r['id']}, {name_js}, {phone_js})'>تعديل</button><a href=/del_sub/{r['id']} data-del class=btn-red {dis_attr}>حذف</a></div></div>"
-        h=f"<div class=card><h3>👥 المشتركين</h3><form data-ajax method=post action=/add_sub class=form-row><input name=name required placeholder='الاسم الكامل'><input name=phone placeholder='رقم الهاتف'><button class=btn-gold>اضافة</button></form></div><div class=subs-list>{rows}</div>"
-        h+="""
+            # 8- الفني لا يحسن يمسح ولا يعدل
+            edit_b = f"<button class=btn-blue onclick='editSub({r['id']}, {name_js}, {phone_js})' {edit_btn_attr}>تعديل</button>" if can else ""
+            del_b = f"<a href=/del_sub/{r['id']} data-del class=btn-red>حذف</a>" if can else ""
+            # 3- مشتركين خلي مربعين فوق بعض وبنص شاشه
+            rows+=f"<div class='card sub-card' style='max-width:450px;margin:8px auto;width:100%'><div><b>{esc(r['name'])}</b><br><small>📞 {esc(r['phone'])}</small></div><div class=actions>{edit_b}{del_b}</div></div>"
+        h=f"""
+        <div style='max-width:500px;margin:0 auto'>
+          <div class=card style='text-align:center'><h3>👥 المشتركين</h3><form data-ajax method=post action=/add_sub class=form-col><input name=name required placeholder='الاسم الكامل'><input name=phone placeholder='رقم الهاتف'><button class=btn-gold>اضافة</button></form></div>
+          <div style='display:flex;flex-direction:column;align-items:center'>{rows if rows else '<div class=card>لا يوجد</div>'}</div>
+        </div>
         <div id=editModal class=modal><div class=modal-content><h3>تعديل مشترك</h3><form id=editForm method=post><input type=hidden name=id id=edit_id><input name=name id=edit_name required placeholder='الاسم'><input name=phone id=edit_phone placeholder='الهاتف'><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="closeModal()">الغاء</button></div></form></div></div>
         <script>
-        function editSub(id,name,phone){document.getElementById('edit_id').value=id;document.getElementById('edit_name').value=name;document.getElementById('edit_phone').value=phone;document.getElementById('editModal').style.display='flex';document.getElementById('editForm').action='/edit_sub/'+id}
-        function closeModal(){document.getElementById('editModal').style.display='none'}
-        window.onclick=function(e){if(e.target==document.getElementById('editModal'))closeModal()}
+        function editSub(id,name,phone){{document.getElementById('edit_id').value=id;document.getElementById('edit_name').value=name;document.getElementById('edit_phone').value=phone;document.getElementById('editModal').style.display='flex';document.getElementById('editForm').action='/edit_sub/'+id}}
+        function closeModal(){{document.getElementById('editModal').style.display='none'}}
         </script>
         """
         return h
@@ -240,155 +239,177 @@ def page_content(v):
             dname_js = js_esc(r.get('dish_name') or '')
             loc = esc(r.get('location') or '')
             loc_js = js_esc(r.get('location') or '')
-            # 3- موقع تحت IP والضغط على IP يحول لكروم
-            cards+=f"<div class='card dish-card'><div class=dish-head><b>📡 {dname}</b></div><a href='http://{ip}' target='_blank' class=ip-badge style='text-decoration:none;display:inline-block;margin:5px 0'>🌐 {ip} - فتح بكروم</a><br><small>📍 {loc}</small><div class=actions style='margin-top:8px'><button class=btn-blue onclick='pingDish(\"{ip}\")'>بينغ</button><button class=btn-blue onclick='editDish({r['id']}, {dname_js}, \"{ip}\", {loc_js})'>تعديل</button><a href=/del_dish/{r['id']} data-del class=btn-red {dis_attr}>حذف</a></div></div>"
-        h=f"<div class=card><h3>📡 الصحون</h3><form data-ajax method=post action=/add_dish class=form-row><input name=dish_name required placeholder='اسم الصحن'><input name=ip required placeholder='IP داخلي'><input name=location placeholder='الموقع'><button class=btn-gold>اضافة</button></form></div><div class=dishes-grid>{cards}</div>"
+            edit_b = f"<button class=btn-blue onclick='editDish({r['id']}, {dname_js}, \"{ip}\", {loc_js})' {edit_btn_attr}>تعديل</button>" if can else ""
+            del_b = f"<a href=/del_dish/{r['id']} data-del class=btn-red>حذف</a>" if can else ""
+            cards+=f"<div class='card dish-card' style='max-width:500px;margin:8px auto'><div class=dish-head><b>📡 {dname}</b></div><a href='http://{ip}' target='_blank' class=ip-badge>🌐 {ip}</a><br><small>📍 {loc}</small><div class=actions style='margin-top:8px'><button class=btn-blue onclick='pingDish(\"{ip}\")'>بينغ</button>{edit_b}{del_b}</div></div>"
+        h=f"<div style='max-width:550px;margin:0 auto'><div class=card><h3>📡 الصحون</h3><form data-ajax method=post action=/add_dish class=form-col><input name=dish_name required placeholder='اسم الصحن'><input name=ip required placeholder='IP داخلي'><input name=location placeholder='الموقع'><button class=btn-gold>اضافة</button></form></div><div>{cards}</div></div>"
         h+="""
-        <div id=editDishModal class=modal><div class=modal-content><h3>تعديل صحن</h3><form id=editDishForm method=post><input name=dish_name id=edit_dish_name required placeholder='اسم الصحن'><input name=ip id=edit_dish_ip required placeholder='IP'><input name=location id=edit_dish_loc placeholder='الموقع'><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editDishModal').style.display='none'">الغاء</button></div></form></div></div>
+        <div id=editDishModal class=modal><div class=modal-content><h3>تعديل صحن</h3><form id=editDishForm method=post><input name=dish_name id=edit_dish_name required><input name=ip id=edit_dish_ip required><input name=location id=edit_dish_loc><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editDishModal').style.display='none'">الغاء</button></div></form></div></div>
         <script>function editDish(id,name,ip,loc){document.getElementById('edit_dish_name').value=name;document.getElementById('edit_dish_ip').value=ip;document.getElementById('edit_dish_loc').value=loc;document.getElementById('editDishModal').style.display='flex';document.getElementById('editDishForm').action='/edit_dish/'+id}</script>
         """
         return h
     elif v=='towers':
-        rs=qall("SELECT * FROM towers ORDER BY fixed DESC, id DESC LIMIT 200")
+        rs=qall("SELECT * FROM towers ORDER BY id DESC LIMIT 200")
         cards=""
         for r in rs:
-            is_fixed = r.get('fixed')
-            badge = "<span class=fixed-badge>🔒 ثابت</span>" if is_fixed else ""
-            delbtn = "" if is_fixed else f"<a href=/del_tower/{r['id']} data-del class=btn-red {dis_attr}>حذف</a>"
             tname_js = js_esc(r['name'])
-            tloc_js = js_esc(r.get('location') or '')
             tarea_js = js_esc(r.get('area') or '')
-            area = esc(r.get('area') or r.get('location') or '')
-            # 5- برج اسم موقع منطقة
-            cards+=f"<div class='card tower-card'><div><b>🗼 {esc(r['name'])} {badge}</b><br><small>📍 الموقع: {esc(r.get('location') or '')}</small><br><small>🗺 المنطقة: {area}</small></div><div class=actions>{delbtn}<button class=btn-blue onclick='editTower({r['id']}, {tname_js}, {tloc_js}, {tarea_js})'>تعديل</button></div></div>"
-        h=f"<div class=card><h3>🗼 الأبراج - اسم + موقع + منطقة</h3><form data-ajax method=post action=/add_tower class=form-row><input name=name required placeholder='اسم البرج'><input name=location placeholder='الموقع'><input name=area placeholder='المنطقة - حماة/حمص'><button class=btn-gold>اضافة</button></form></div><div class=towers-list>{cards}</div>"
-        h+="""
-        <div id=editTowerModal class=modal><div class=modal-content><h3>تعديل برج</h3><form id=editTowerForm method=post><input name=name id=edit_tower_name required placeholder='اسم'><input name=location id=edit_tower_loc placeholder='موقع'><input name=area id=edit_tower_area placeholder='منطقة'><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editTowerModal').style.display='none'">الغاء</button></div></form></div></div>
-        <script>function editTower(id,name,loc,area){document.getElementById('edit_tower_name').value=name;document.getElementById('edit_tower_loc').value=loc;document.getElementById('edit_tower_area').value=area;document.getElementById('editTowerModal').style.display='flex';document.getElementById('editTowerForm').action='/edit_tower/'+id}</script>
+            tloc_js = js_esc(r.get('location') or '')
+            area = esc(r.get('area') or '')
+            # 4- الأبراج خلي مربعين فوق بعض على يمين وخلي بس منطقه بدون محافظة وشغل زر تعديل
+            edit_b = f"<button class=btn-blue onclick='editTower({r['id']}, {tname_js}, {tarea_js})' {edit_btn_attr}>تعديل</button>" if can else ""
+            del_b = f"<a href=/del_tower/{r['id']} data-del class=btn-red>حذف</a>" if can else ""
+            cards+=f"<div class='card tower-card' style='max-width:400px'><div><b>🗼 {esc(r['name'])}</b><br><small>🗺 المنطقة: {area}</small></div><div class=actions>{edit_b}{del_b}</div></div>"
+        h=f"""
+        <div style='display:flex;justify-content:flex-end'><div style='width:100%;max-width:450px'>
+          <div class=card><h3>🗼 الأبراج - منطقة فقط</h3><form data-ajax method=post action=/add_tower class=form-col><input name=name required placeholder='اسم البرج'><input name=area required placeholder='المنطقة فقط'><button class=btn-gold>اضافة</button></form></div>
+          <div style='display:flex;flex-direction:column;align-items:flex-end;gap:8px'>{cards}</div>
+        </div></div>
+        <div id=editTowerModal class=modal><div class=modal-content><h3>تعديل برج</h3><form id=editTowerForm method=post><input name=name id=edit_tower_name required placeholder='اسم'><input name=area id=edit_tower_area required placeholder='منطقة'><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editTowerModal').style.display='none'">الغاء</button></div></form></div></div>
+        <script>
+        function editTower(id,name,area){{document.getElementById('edit_tower_name').value=name;document.getElementById('edit_tower_area').value=area;document.getElementById('editTowerModal').style.display='flex';document.getElementById('editTowerForm').action='/edit_tower/'+id}}
+        </script>
         """
         return h
     elif v=='ledger':
         rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
         rows_html=""
         for r in rs:
-            cur_icon = "💵 $" if (r.get('currency') or 'USD')=='USD' else "💷 ل.س"
+            cur_icon = "$" if (r.get('currency') or 'USD')=='USD' else "ل.س"
+            typ = esc(r.get('typ') or 'دين')
             name_js = js_esc(r.get('name') or '')
             note_js = js_esc(r.get('note') or '')
-            rows_html+=f"<div class='card' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r.get('name') or 'بدون اسم')}</b> - {r['amount']} {cur_icon} <small>({esc(r.get('typ') or '')})</small><br><small>📝 {esc(r.get('note') or '')}</small></div><div class=actions><button class=btn-blue onclick='editLedger({r['id']}, {name_js}, \"{r['amount']}\", {note_js}, \"{r.get('currency') or 'USD'}\")'>تعديل</button><a href=/del_ledger/{r['id']} data-del class=btn-red>حذف</a></div></div>"
-        # 6- دفتر حسابات اسم مبلغ ملاحظة عملة ايقونة دولار وسوري تعديل وحذف
+            amount = r['amount']
+            # 5- دفتر حسابات خلي مربعات فوق بعض وبنص شاشه ظغر حجم شوي وجدل منضاف اسم مبلغ نوع عمله
+            edit_b = f"<button class=btn-blue style='padding:4px 8px;font-size:11px' onclick='editLedger({r['id']}, {name_js}, \"{amount}\", \"{typ}\", \"{r.get('currency') or 'USD'}\")' {edit_btn_attr}>تعديل</button>" if can else ""
+            del_b = f"<a href=/del_ledger/{r['id']} data-del class=btn-red style='padding:4px 8px;font-size:11px'>حذف</a>" if can else ""
+            rows_html+=f"<div class='card' style='max-width:420px;margin:6px auto;padding:10px;font-size:13px;display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r.get('name') or '')}</b> | {amount} {cur_icon} | {typ}</div><div class=actions>{edit_b}{del_b}</div></div>"
         h=f"""
-        <div class=card><h3>📒 دفتر الحسابات</h3>
-        <form data-ajax method=post action=/add_ledger class=form-row style='grid-template-columns:1fr 1fr 1fr 1fr auto'>
-          <input name=name required placeholder='الاسم'>
-          <input name=amount type=number step=0.01 required placeholder='مبلغ'>
-          <select name=currency><option value=USD>💵 دولار</option><option value=SYP>💷 سوري</option></select>
-          <input name=note placeholder='ملاحظة'>
-          <button class=btn-gold>اضافة</button>
-        </form></div>
-        <div>{rows_html if rows_html else '<div class=card>لا يوجد</div>'}</div>
-        <div id=editLedgerModal class=modal><div class=modal-content><h3>تعديل حساب</h3><form id=editLedgerForm method=post><input name=name id=edit_ledger_name required placeholder='الاسم'><input name=amount id=edit_ledger_amount type=number step=0.01 required><select name=currency id=edit_ledger_cur><option value=USD>💵 دولار</option><option value=SYP>💷 سوري</option></select><input name=note id=edit_ledger_note placeholder='ملاحظة'><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editLedgerModal').style.display='none'">الغاء</button></div></form></div></div>
-        <script>function editLedger(id,name,amount,note,cur){{document.getElementById('edit_ledger_name').value=name;document.getElementById('edit_ledger_amount').value=amount;document.getElementById('edit_ledger_note').value=note;document.getElementById('edit_ledger_cur').value=cur;document.getElementById('editLedgerModal').style.display='flex';document.getElementById('editLedgerForm').action='/edit_ledger/'+id}}</script>
+        <div style='max-width:500px;margin:0 auto'>
+          <div class=card style='text-align:center;padding:12px'><h3 style='margin:0 0 10px'>📒 دفتر الحسابات</h3>
+            <form data-ajax method=post action=/add_ledger style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:6px'>
+              <input name=name required placeholder='الاسم' style='font-size:12px'>
+              <input name=amount type=number step=0.01 required placeholder='مبلغ' style='font-size:12px'>
+              <select name=typ style='font-size:12px'><option>دين</option><option>دفع</option></select>
+              <select name=currency style='font-size:12px'><option value=USD>$</option><option value=SYP>ل.س</option></select>
+              <button class=btn-gold style='font-size:12px'>اضافة</button>
+            </form>
+          </div>
+          <div>{rows_html if rows_html else '<div class=card style=max-width:420px;margin:6px auto>لا يوجد</div>'}</div>
+        </div>
+        <div id=editLedgerModal class=modal><div class=modal-content><h3>تعديل</h3><form id=editLedgerForm method=post><input name=name id=edit_ledger_name required><input name=amount id=edit_ledger_amount type=number step=0.01 required><select name=typ id=edit_ledger_typ><option>دين</option><option>دفع</option></select><select name=currency id=edit_ledger_cur><option value=USD>$ دولار</option><option value=SYP>ل.س سوري</option></select><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editLedgerModal').style.display='none'">الغاء</button></div></form></div></div>
+        <script>function editLedger(id,name,amount,typ,cur){{document.getElementById('edit_ledger_name').value=name;document.getElementById('edit_ledger_amount').value=amount;document.getElementById('edit_ledger_typ').value=typ;document.getElementById('edit_ledger_cur').value=cur;document.getElementById('editLedgerModal').style.display='flex';document.getElementById('editLedgerForm').action='/edit_ledger/'+id}}</script>
         """
         return h
     elif v=='map':
-        towers = qall("SELECT * FROM towers")
-        towers_js = json.dumps([{"id": t['id'], "name": t['name'], "lat": float(t.get('lat') or 35.13), "lng": float(t.get('lng') or 36.75), "loc": str(t.get('location') or ''), "area": str(t.get('area') or ''), "fixed": bool(t.get('fixed'))} for t in towers], ensure_ascii=False)
-        # 7- الخريطة فقط + قمر صناعي دقة عالية + حماة مركز + بحث + نقاط مع اسم تعديل وحذف + شيل خطوط طول وعرض
+        # 6- الخرطيه رايحا كتير يسار خليها للمين ضلي تاخد موقعي من تفتح حزف لنقاط ودقه ظبطا وشلي دبوث تحت حماه مركز
         h=f"""
-        <div class=card>
-          <h3>🗺 الخريطة</h3>
-          <div style='display:flex;gap:8px;margin-bottom:10px'>
-            <input id=mapSearch placeholder='ابحث عن موقع... حماة، حمص' style='flex:1'>
-            <button class=btn-blue onclick='searchMap()'>بحث</button>
-            <button class=btn-gold onclick='calcDistMode()'>📏 قياس مسافة</button>
-          </div>
-          <div id=map style='height:480px;border-radius:12px'></div>
-          <div id=distResult class=dist-result style='margin-top:10px'>اضغط على نقطتين بالخريطة لقياس المسافة</div>
-          <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-          <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-          <script>
-            let map = L.map('map').setView([35.1318, 36.7578], 10);
-            // قمر صناعي دقة عالية
-            let sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ attribution: 'Esri Satellite - OMAIA', maxZoom: 19 }}).addTo(map);
-            let streets = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{ attribution: 'OMAIA ISP' }});
-            L.control.layers({{"قمر صناعي": sat, "خريطة عادية": streets}}).addTo(map);
-            let towers = {towers_js};
-            let distPoints = [];
-            let distLine = null;
-            towers.forEach(t=>{{
-              let m = L.marker([t.lat, t.lng]).addTo(map);
-              m.bindPopup(`<b>${{t.name}}</b><br>📍 ${{t.loc}}<br>🗺 ${{t.area}}<br><div style='margin-top:6px;display:flex;gap:4px'><button onclick='editTowerMap(${{t.id}}, "${{t.name}}", "${{t.loc}}", "${{t.area}}")' style='background:#3b82f6;color:#fff;border:0;padding:4px 8px;border-radius:6px'>تعديل</button><a href='/del_tower/${{t.id}}' onclick='return confirm("حذف؟")' style='background:#ef4444;color:#fff;padding:4px 8px;border-radius:6px;text-decoration:none'>حذف</a></div>`);
-            }});
-            map.on('click', function(e){{
-              if(window.distMode){{
-                distPoints.push(e.latlng);
-                L.marker(e.latlng).addTo(map);
-                if(distPoints.length==2){{
-                  let d = map.distance(distPoints[0], distPoints[1]);
-                  document.getElementById('distResult').innerHTML = `📍 المسافة: <b style='color:{COLORS['gold']}'>${{(d/1000).toFixed(3)}} كم (${{d.toFixed(0)}} متر)</b> <button onclick='clearDist()' style='margin-right:10px'>مسح</button>`;
-                  if(distLine) map.removeLayer(distLine);
-                  distLine = L.polyline(distPoints, {{color: '{COLORS['gold']}', weight: 3}}).addTo(map);
-                  distPoints = [];
-                  window.distMode = false;
-                }}
+        <div style='display:flex;justify-content:flex-end'><div style='width:100%;max-width:650px'>
+          <div class=card>
+            <h3>🗺 الخريطة</h3>
+            <div id=map style='height:500px;border-radius:12px'></div>
+            <div style='margin-top:8px;display:flex;gap:6px'>
+              <button class=btn-blue onclick='getMyLocation()'>📍 موقعي</button>
+              <button class=btn-gold onclick='calcDistMode()'>📏 قياس</button>
+              <span id=distResult style='margin-right:10px;font-size:12px'>اضغط نقطتين للقياس</span>
+            </div>
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+            <script>
+              let map = L.map('map').setView([35.1318, 36.7578], 12);
+              L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ attribution: 'OMAIA ISP Satellite', maxZoom: 19 }}).addTo(map);
+              let userMarker = null;
+              // اخد موقعي تلقائي من تفتح
+              if(navigator.geolocation){{
+                navigator.geolocation.getCurrentPosition(pos=>{{
+                  let lat=pos.coords.latitude, lng=pos.coords.longitude;
+                  map.setView([lat,lng], 14);
+                  if(userMarker) map.removeLayer(userMarker);
+                  userMarker = L.marker([lat,lng]).addTo(map).bindPopup('📍 أنت هنا').openPopup();
+                }});
               }}
-            }});
-            window.calcDistMode = function(){{window.distMode=true; document.getElementById('distResult').innerHTML='📍 اضغط نقطتين على الخريطة'; distPoints=[]; if(distLine) map.removeLayer(distLine);}}
-            window.clearDist = function(){{document.getElementById('distResult').innerHTML='اضغط على نقطتين بالخريطة لقياس المسافة'; distPoints=[]; window.distMode=false; if(distLine) map.removeLayer(distLine);}}
-            window.searchMap = async function(){{
-              let q = document.getElementById('mapSearch').value;
-              if(!q) return;
-              try{{let r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${{encodeURIComponent(q)}}`); let j=await r.json(); if(j[0]){{map.setView([j[0].lat, j[0].lon], 13); L.marker([j[0].lat, j[0].lon]).addTo(map).bindPopup(j[0].display_name).openPopup();}} }}catch(e){{alert('خطأ بحث')}}
-            }}
-            window.editTowerMap = function(id,name,loc,area){{ let nn=prompt('اسم البرج', name); if(!nn) return; let ll=prompt('الموقع', loc); let aa=prompt('المنطقة', area); fetch('/edit_tower/'+id, {{method:'POST', body: new URLSearchParams({{name: nn, location: ll, area: aa}})}}).then(()=>location.reload()) }}
-          </script>
-        </div>
-        <div class=card><h3>📌 النقاط - حماة مركز</h3>
+              window.getMyLocation = function(){{
+                if(navigator.geolocation){{
+                  navigator.geolocation.getCurrentPosition(pos=>{{
+                    let lat=pos.coords.latitude, lng=pos.coords.longitude;
+                    map.setView([lat,lng], 15);
+                    if(userMarker) map.removeLayer(userMarker);
+                    userMarker = L.marker([lat,lng]).addTo(map).bindPopup('📍 موقعك الحالي').openPopup();
+                  }}, err=>{{alert('فشل تحديد الموقع')}});
+                }} else {{alert('المتصفح لا يدعم تحديد الموقع')}}
+              }}
+              let distPoints=[], distLine=null; window.distMode=false;
+              map.on('click', e=>{{
+                if(window.distMode){{
+                  distPoints.push(e.latlng);
+                  L.marker(e.latlng).addTo(map);
+                  if(distPoints.length==2){{
+                    let d=map.distance(distPoints[0], distPoints[1]);
+                    document.getElementById('distResult').innerHTML = `📍 ${{(d/1000).toFixed(2)}} كم`;
+                    if(distLine) map.removeLayer(distLine);
+                    distLine = L.polyline(distPoints, {{color: '{COLORS['gold']}', weight:3}}).addTo(map);
+                    distPoints=[]; window.distMode=false;
+                  }}
+                }}
+              }});
+              window.calcDistMode = function(){{window.distMode=true; document.getElementById('distResult').textContent='اضغط نقطتين'; distPoints=[]; if(distLine) map.removeLayer(distLine);}}
+            </script>
+          </div>
+        </div></div>
         """
-        fixed = qall("SELECT * FROM towers ORDER BY id DESC")
-        for t in fixed:
-            h+=f"<div class=fixed-item style='display:flex;justify-content:space-between;align-items:center'><div><b>🔒 {esc(t['name'])}</b> - {esc(t['location'])} - {esc(t.get('area') or '')}</div><div class=actions><button class=btn-blue onclick='editTowerMap({t['id']}, {js_esc(t['name'])}, {js_esc(t.get('location') or '')}, {js_esc(t.get('area') or '')})'>تعديل</button><a href=/del_tower/{t['id']} data-del class=btn-red>حذف</a></div></div>"
-        h+="</div>"
         return h
     elif v=='logs':
         rs=qall("SELECT * FROM activity_log ORDER BY id DESC LIMIT 200")
         rows="".join([f"<div class=log-row><span class=log-time>{esc(r['time'])}</span><span class=log-phone>👤 {esc(r['phone'])}</span><span>{esc(r['action'])}</span></div>" for r in rs])
-        h=f"<div class=card><h3>📜 سجل النشاطات</h3><div class=logs-container>{rows}</div></div>"
+        h=f"<div class=card style='max-width:600px;margin:0 auto'><h3>📜 سجل النشاطات</h3><div class=logs-container>{rows}</div></div>"
         return h
     elif v=='notifications':
         rs=qall("SELECT * FROM notifications ORDER BY id DESC LIMIT 100")
-        rows="".join([f"<div class='card notif-card'><div><b>{esc(r['title'])}</b><br><small>{esc(r['time'])}</small><p>{esc(r['msg'])}</p></div></div>" for r in rs])
-        h=f"<div class=card><h3>🔔 الإشعارات</h3><button class=btn-blue onclick='fetch(\"/clear_notifs\").then(()=>loadPage(\"notifications\"))'>مسح الكل</button></div>{rows if rows else '<div class=card>لا يوجد اشعارات</div>'}"
+        rows="".join([f"<div class='card notif-card' style='max-width:500px;margin:8px auto'><div><b>{esc(r['title'])}</b><br><small>{esc(r['time'])}</small><p>{esc(r['msg'])}</p></div></div>" for r in rs])
+        h=f"<div style='max-width:600px;margin:0 auto'><div class=card style='text-align:center'><h3>🔔 الإشعارات - مفعلة</h3><button class=btn-blue onclick='fetch(\"/clear_notifs\").then(()=>loadPage(\"notifications\"))'>مسح الكل</button></div>{rows if rows else '<div class=card style=max-width:500px;margin:8px auto>لا يوجد اشعارات - سيتم اشعارك عند أي نشاط</div>'}</div>"
         return h
     elif v=='support':
-        # 8- دعم فني OMAIA ورقم وانستا
         h=f"""
         <div class=card style='text-align:center;border:2px solid {COLORS['gold']};max-width:500px;margin:20px auto'>
           <h2 style='margin:0'>{logo_html()}</h2>
-          <p>الدعم الفني 24/7</p>
+          <p>الدعم الفني</p>
           <div style='font-size:22px;margin:12px;font-weight:bold' dir=ltr>+90 534 485 10 45</div>
           <a href='https://wa.me/905344851045' target=_blank class=btn-wa style='margin:6px'>💬 واتساب</a>
           <a href='tel:+905344851045' class=btn-blue style='margin:6px;display:inline-block;text-decoration:none;padding:10px 18px;border-radius:20px'>📞 اتصال</a>
-          <div style='margin-top:18px;border-top:1px solid #334155;padding-top:12px'>
-            <a href='https://instagram.com/af_20_1999' target='_blank' style='display:inline-flex;align-items:center;gap:8px;background:linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5);color:#fff;padding:10px 18px;border-radius:20px;text-decoration:none;font-weight:bold'>
-              <span style='font-size:20px'>📸</span> Instagram: af_20_1999
-            </a>
+          <div style='margin-top:18px;border-top:1px solid {COLORS['border_dark']};padding-top:12px'>
+            <a href='https://instagram.com/af_20_1999' target=_blank style='display:inline-flex;align-items:center;gap:8px;background:linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5);color:#fff;padding:10px 18px;border-radius:20px;text-decoration:none;font-weight:bold'>📸 Instagram: af_20_1999</a>
           </div>
         </div>
         """
         return h
     elif v=='settings':
-        us=qall("SELECT phone,username,role FROM users ORDER BY phone");uh=""
+        us=qall("SELECT phone,username,role FROM users ORDER BY phone")
+        uh=""
         for u in us: 
             ph=esc(u['phone']);un=esc(u.get('username') or u['phone']);role=esc(u.get('role') or '')
-            un_js = js_esc(u.get('username') or u['phone'])
             ph_js = js_esc(u['phone'])
-            uh+=f"<div class='card user-card'><div style='display:flex;align-items:center;gap:10px'><div class=avatar>{un[:1]}</div><div><b>{un}</b><br><small>📞 {ph} - {role}</small></div></div><div class=actions><button class=btn-blue onclick='editUser({ph_js}, {un_js})'>تعديل</button><a href=/del_user/{ph} data-del class=btn-red>حذف</a></div></div>"
+            un_js = js_esc(u.get('username') or u['phone'])
+            # 8- الاعدادات تعديل يوزر وحزف يوزر - الفني بس يضيف لا يحسن يمسح ولا يعدل شي
+            if tech:
+                # فني لا يرى حذف وتعديل
+                uh+=f"<div class='card user-card' style='max-width:500px;margin:6px auto'><div style='display:flex;align-items:center;gap:10px'><div class=avatar>{un[:1]}</div><div><b>{un}</b><br><small>📞 {ph} - {role}</small></div></div></div>"
+            else:
+                uh+=f"<div class='card user-card' style='max-width:500px;margin:6px auto'><div style='display:flex;align-items:center;gap:10px'><div class=avatar>{un[:1]}</div><div><b>{un}</b><br><small>📞 {ph} - {role}</small></div></div><div class=actions><button class=btn-blue onclick='editUser({ph_js}, {un_js})'>تعديل</button><a href=/del_user/{ph} data-del class=btn-red>حذف</a></div></div>"
+        # 9- زر لغه مو شغال - خطلي زر لغه بالإعدادات كمان
         h=f"""
-        <div class=card style='max-width:600px;margin:10px auto'><h3>⚙ إعدادات المستخدمين</h3>
-        <form data-ajax method=post action=/change_pass><input name=newpass type=password required placeholder='كلمة السر الجديدة للجاري'><button class=btn-gold style='width:100%'>تغيير كلمة السر</button></form></div>
-        <div class=card style='max-width:600px;margin:10px auto'><h3>➕ اضافة يوزر</h3><form data-ajax method=post action=/add_user class=form-row><input name=phone required placeholder='يوزر / رقم'><input name=password type=password required placeholder='كلمة السر'><select name=role><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>اضافة</button></form></div>
-        <div style='max-width:600px;margin:10px auto'><h3>المستخدمين - تعديل وحذف</h3>{uh}</div>
+        <div style='max-width:600px;margin:0 auto'>
+          <div class=card><h3>⚙ إعدادات - User / Phone</h3>
+            <div style='display:grid;grid-template-columns:1fr 1fr;gap:8px'>
+              <form data-ajax method=post action=/change_pass><input name=newpass type=password required placeholder='كلمة السر الجديدة'><button class=btn-gold style='width:100%'>تغيير كلمة السر</button></form>
+              <div style='display:flex;flex-direction:column;gap:6px'>
+                <button class=btn onclick='toggleTheme()' style='width:100%'>🌓 ليل/نهار</button>
+                <button class=btn-blue onclick='toggleLang()' style='width:100%'>🌐 تغيير اللغة (عربي/EN)</button>
+              </div>
+            </div>
+          </div>
+          {"<div class=card><h3>➕ اضافة مستخدم</h3><form data-ajax method=post action=/add_user class=form-col><input name=phone required placeholder='يوزر / رقم'><input name=password type=password required placeholder='كلمة السر'><select name=role><option value=tech>فني - يضيف فقط</option><option value=manager>مدير - كل الصلاحيات</option></select><button class=btn-gold>اضافة</button></form></div>" if not tech else "<div class=card><p>🔒 الفني لا يمكنه اضافة مستخدمين - للمدراء فقط</p></div>" if False else f"<div class=card><h3>➕ اضافة مستخدم</h3><form data-ajax method=post action=/add_user class=form-col><input name=phone required placeholder='يوزر / رقم'><input name=password type=password required placeholder='كلمة السر'><select name=role><option value=tech>فني - يضيف فقط</option><option value=manager>مدير - كل الصلاحيات</option></select><button class=btn-gold>اضافة</button></form></div>"}
+          <div><h3>المستخدمين</h3>{uh}</div>
+        </div>
         <div id=editUserModal class=modal><div class=modal-content><h3>تعديل يوزر</h3><form id=editUserForm method=post><input name=newphone id=edit_user_phone placeholder='يوزر جديد'><div style="display:flex;gap:8px;margin-top:10px"><button class=btn-gold>حفظ</button><button type=button class=btn onclick="document.getElementById('editUserModal').style.display='none'">الغاء</button></div></form></div></div>
         <script>function editUser(phone, username){{document.getElementById('edit_user_phone').value=username;document.getElementById('editUserModal').style.display='flex';document.getElementById('editUserForm').action='/edit_user/'+phone}}</script>
         """
@@ -399,53 +420,43 @@ def layout(c,v='home'):
     th=cur_theme()
     bg=COLORS['bg_dark'] if th=='dark' else COLORS['bg_light']
     card=COLORS['card_dark'] if th=='dark' else COLORS['card_light']
-    txt='#fff' if th=='dark' else '#0f172a'
+    txt=COLORS['white'] if th=='dark' else COLORS['black']
+    # 11- سرعه نار - كاش وتحسين
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1,maximum-scale=1'>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-:root{{--gold:{COLORS['gold']};--bg:{bg};--card:{card};--text:{txt};--border:{COLORS['border_dark']};--input:{COLORS['input_dark']};--blue:{COLORS['btn_blue']};--red:{COLORS['btn_red']}}}
+:root{{--gold:{COLORS['gold']};--bg:{bg};--card:{card};--text:{txt};--border:{COLORS['border_dark']};--input:{COLORS['input_dark']};--blue:{COLORS['btn_blue']};--red:{COLORS['btn_red']};--wa:{COLORS['btn_wa']}}}
 *{{box-sizing:border-box;font-family:'Cairo',system-ui,sans-serif}}body{{margin:0;background:var(--bg);color:var(--text);overflow-x:hidden;overscroll-behavior-y:contain}}
-/* 10- نار وسريع - بدون لودر بطيء */
-#loader-line{{position:fixed;top:0;left:0;height:3px;background:var(--gold);width:0;z-index:9999;transition:width .2s}}
-.loader{{display:none !important}}
-/* 12- قائمة يمين صغيرة */
-.sidebar{{position:fixed;right:-280px;top:0;width:250px;height:100%;background:{COLORS['menu_bg']};transition:right .25s ease;z-index:1000;padding-top:60px;box-shadow:-5px 0 20px rgba(0,0,0,0.5);overflow-y:auto}}
+#loader-line{{position:fixed;top:0;left:0;height:3px;background:var(--gold);width:0;z-index:9999;transition:width .15s ease-out}}
+.sidebar{{position:fixed;right:-280px;top:0;width:250px;height:100%;background:{COLORS['menu_bg']};transition:right .2s ease;z-index:1000;padding-top:60px;box-shadow:-5px 0 20px rgba(0,0,0,0.5);overflow-y:auto}}
 .sidebar.active{{right:0}}
-.sidebar a{{display:flex;align-items:center;gap:10px;padding:11px 14px;color:#fff;text-decoration:none;transition:all .15s;border-right:3px solid transparent;margin:2px 6px;border-radius:8px;font-size:13px}}
-.sidebar a:hover{{background:#ffffff12;border-right-color:var(--gold)}}.sidebar a.active{{background:var(--gold);color:#000;font-weight:bold}}
-.overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;z-index:999;opacity:0;transition:opacity .2s}}.overlay.active{{display:block;opacity:1}}
-.top{{position:fixed;top:0;left:0;right:0;background:{COLORS['top_bg']};padding:10px 14px;z-index:101;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 10px rgba(0,0,0,0.2);border-bottom:1px solid var(--border);height:56px}}
-.menu-btn{{font-size:20px;cursor:pointer;background:var(--input);width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:.15s}}
-.menu-btn:hover{{background:var(--gold);color:#000}}
-.main{{margin-right:250px;margin-top:56px;padding:12px;min-height:100vh;transition:margin .25s}}
-.stats-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}}
-.stat-card{{display:flex;align-items:center;gap:10px;padding:12px !important}}
-.stat-card h3{{font-size:11px;color:#94a3b8;margin:0}} .stat-card h2{{font-size:22px;color:var(--gold);margin:2px 0 0}} .stat-icon{{font-size:22px;background:var(--input);width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px}}
-.card{{background:{card};padding:14px;border-radius:12px;margin-bottom:10px;border:1px solid {COLORS['border_dark']};box-shadow:0 2px 8px rgba(0,0,0,0.15)}}
+.sidebar a{{display:flex;align-items:center;gap:10px;padding:11px 14px;color:{COLORS['white']};text-decoration:none;transition:all .1s;border-right:3px solid transparent;margin:2px 6px;border-radius:8px;font-size:13px}}
+.sidebar a:hover{{background:{COLORS['input_dark']};border-right-color:var(--gold)}}.sidebar a.active{{background:var(--gold);color:{COLORS['black']};font-weight:bold}}
+.overlay{{position:fixed;inset:0;background:{COLORS['black']}80;display:none;z-index:999}}.overlay.active{{display:block}}
+.top{{position:fixed;top:0;left:0;right:0;background:{COLORS['top_bg']};padding:10px 14px;z-index:101;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 10px {COLORS['black']}33;border-bottom:1px solid var(--border);height:56px}}
+.menu-btn{{font-size:20px;cursor:pointer;background:var(--input);width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:8px}}
+.main{{margin-right:250px;margin-top:56px;padding:12px;min-height:100vh;transition:margin .2s}}
+.card{{background:{card};padding:14px;border-radius:12px;margin-bottom:10px;border:1px solid {COLORS['border_dark']};box-shadow:0 2px 8px {COLORS['black']}22;will-change:transform}}
 .btn{{background:var(--input);border:none;color:var(--text);padding:7px 12px;border-radius:7px;cursor:pointer;font-weight:bold;font-size:13px}}
-.btn-gold{{background:var(--gold);color:#000;padding:8px 14px;border-radius:7px;border:none;font-weight:bold;cursor:pointer;font-size:13px}}
-.btn-blue{{background:var(--blue);color:#fff;padding:7px 12px;border-radius:7px;border:none;cursor:pointer;font-size:13px}}
-.btn-red{{background:var(--red);color:#fff;padding:7px 12px;border-radius:7px;border:none;cursor:pointer;text-decoration:none;font-size:13px}}
-.btn-wa{{background:#25D366;color:#fff;padding:8px 16px;border-radius:18px;text-decoration:none;display:inline-block;font-weight:bold;font-size:13px}}
+.btn-gold{{background:var(--gold);color:{COLORS['black']};padding:8px 14px;border-radius:7px;border:none;font-weight:bold;cursor:pointer;font-size:13px}}
+.btn-blue{{background:var(--blue);color:{COLORS['white']};padding:7px 12px;border-radius:7px;border:none;cursor:pointer;font-size:13px}}
+.btn-red{{background:var(--red);color:{COLORS['white']};padding:7px 12px;border-radius:7px;border:none;cursor:pointer;text-decoration:none;font-size:13px}}
+.btn-wa{{background:var(--wa);color:{COLORS['white']};padding:8px 16px;border-radius:18px;text-decoration:none;display:inline-block;font-weight:bold;font-size:13px}}
 input,select{{width:100%;padding:10px;background:var(--input);border:1px solid var(--border);border-radius:8px;color:var(--text);margin:3px 0;font-size:13px}}
-input:focus{{outline:none;border-color:var(--gold)}}
-.form-row{{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end}}
-@media(max-width:900px){{.main{{margin-right:0}}.form-row{{grid-template-columns:1fr}}.dishes-grid{{grid-template-columns:1fr !important}} .sidebar{{width:230px}}}}
-.dishes-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}
-.dish-card{{border-right:3px solid var(--gold)}} .ip-badge{{background:#000;color:var(--gold);padding:4px 10px;border-radius:16px;font-size:12px;font-family:monospace;border:1px solid var(--gold)}}
-.fixed-badge{{background:var(--gold);color:#000;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:bold}} .fixed-item{{background:var(--input);padding:8px;border-radius:8px;margin:5px 0;border-right:3px solid var(--gold);font-size:13px}}
+.form-col{{display:flex;flex-direction:column;gap:6px}}
+@media(max-width:900px){{.main{{margin-right:0}}}}
+.ip-badge{{background:{COLORS['black']};color:var(--gold);padding:4px 10px;border-radius:16px;font-size:12px;font-family:monospace;border:1px solid var(--gold);display:inline-block}}
 .sub-card,.tower-card{{display:flex;justify-content:space-between;align-items:center}}
 .actions{{display:flex;gap:5px;flex-wrap:wrap}} .ping-box{{display:flex;gap:6px;margin:8px 0}}
-pre{{background:#000;color:#0f0;padding:10px;border-radius:8px;min-height:40px;overflow:auto;font-size:11px}}
-.log-row{{display:flex;gap:6px;padding:6px;border-bottom:1px solid var(--border);font-size:11px}} .log-time{{color:#94a3b8;min-width:70px}} .log-phone{{color:var(--gold);font-weight:bold;min-width:90px}}
-.dist-grid{{display:grid;grid-template-columns:1fr 1fr;gap:6px}} .dist-result{{background:var(--input);padding:10px;border-radius:8px;margin-top:8px;text-align:center;border:1px dashed var(--gold);min-height:40px;font-size:13px}}
-.modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(4px)}} .modal-content{{background:var(--card);padding:16px;border-radius:12px;width:92%;max-width:360px}}
-.user-card{{display:flex;align-items:center;gap:8px;justify-content:space-between}} .avatar{{width:34px;height:34px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:bold;color:#000;font-size:14px}}
-/* 11- زر ليل ونهار ولغة */
-.top-actions{{display:flex;gap:6px;align-items:center}}
-.top-actions button{{width:34px;height:34px;border-radius:8px;border:none;background:var(--input);color:var(--text);cursor:pointer;font-size:14px}}
-/* 13- سحب لتحديث */
-#pullHint{{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-50px);background:var(--gold);color:#000;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:bold;transition:transform .25s;z-index:50}}
+pre{{background:{COLORS['black']};color:{COLORS['ping_text']};padding:10px;border-radius:8px;min-height:40px;overflow:auto;font-size:11px}}
+.log-row{{display:flex;gap:6px;padding:6px;border-bottom:1px solid var(--border);font-size:11px}} .log-time{{color:{COLORS['text_muted_dark']};min-width:70px}} .log-phone{{color:var(--gold);font-weight:bold;min-width:90px}}
+.dist-result{{background:var(--input);padding:8px;border-radius:8px;margin-top:8px;text-align:center;border:1px dashed var(--gold);font-size:12px}}
+.modal{{display:none;position:fixed;inset:0;background:{COLORS['black']}99;z-index:2000;align-items:center;justify-content:center}} .modal-content{{background:var(--card);padding:16px;border-radius:12px;width:92%;max-width:360px}}
+.user-card{{display:flex;align-items:center;gap:8px;justify-content:space-between}} .avatar{{width:34px;height:34px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:bold;color:{COLORS['black']};font-size:14px}}
+.top-actions{{display:flex;gap:6px;align-items:center}} .top-actions button{{width:34px;height:34px;border-radius:8px;border:none;background:var(--input);color:var(--text);cursor:pointer;font-size:14px}}
+#pullHint{{position:fixed;top:56px;left:50%;transform:translateX(-50%) translateY(-60px);background:var(--gold);color:{COLORS['black']};padding:6px 14px;border-radius:20px;font-size:12px;font-weight:bold;transition:transform .2s;z-index:50}}
 #pullHint.show{{transform:translateX(-50%) translateY(10px)}}
 </style></head><body>
 <div id=loader-line></div>
@@ -476,20 +487,32 @@ pre{{background:#000;color:#0f0;padding:10px;border-radius:8px;min-height:40px;o
 <div class=main id=main>{c}</div>
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
+// 11- سرعه نار - كاش وتحسين
+const pageCache = {{}}; // كاش الصفحات
 let currentPage='{v}';
 function toggleMenu(){{let s=document.getElementById('sidebar'), o=document.getElementById('overlay');s.classList.toggle('active');o.classList.toggle('active');}}
 function showLine(p){{document.getElementById('loader-line').style.width=p+'%';}}
-function hideLine(){{setTimeout(()=>{{document.getElementById('loader-line').style.width='0'}},400);}}
-window.loadPage=async function(v){{
+function hideLine(){{setTimeout(()=>{{document.getElementById('loader-line').style.width='0'}},200);}}
+window.loadPage=async function(v, force=false){{
   if(document.getElementById('sidebar').classList.contains('active'))toggleMenu();
   currentPage=v;
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let nav=document.getElementById('nav-'+v);if(nav)nav.classList.add('active');
-  showLine(40);
+  // 11- كاش - اذا موجودة بالكاش اعرضها فورا نار
+  if(pageCache[v] && !force){{
+    document.getElementById('main').innerHTML=pageCache[v];
+    bindAjax();
+    document.getElementById('main').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});
+    // تحديث بالخلفية
+    fetch('/api/page?v='+v).then(r=>r.text()).then(html=>{{pageCache[v]=html}});
+    return;
+  }}
+  showLine(30);
   try{{
-    let r=await fetch('/api/page?v='+v);
+    let r=await fetch('/api/page?v='+v, {{cache:'no-store'}});
     if(r.status==401){{location.href='/login';return}}
     let html=await r.text();
+    pageCache[v]=html;
     document.getElementById('main').innerHTML=html;
     bindAjax();
     document.getElementById('main').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});
@@ -499,37 +522,45 @@ window.loadPage=async function(v){{
 }}
 function bindAjax(){{
   document.querySelectorAll('form[data-ajax]').forEach(f=>{{
-    f.onsubmit=async e=>{{e.preventDefault();showLine(60);try{{let res=await fetch(f.action,{{method:'POST',body:new FormData(f)}});if(res.status==401){{location.href='/login';return}}if(!res.ok){{let t=await res.text();alert('خطأ: '+t);showLine(0);return}}loadPage(currentPage);}}catch(e){{alert('خطأ: '+e);showLine(0)}}}};
+    f.onsubmit=async e=>{{e.preventDefault();showLine(50);try{{let res=await fetch(f.action,{{method:'POST',body:new FormData(f),cache:'no-store'}});if(res.status==401){{location.href='/login';return}}if(!res.ok){{let t=await res.text();alert('خطأ: '+t);showLine(0);return}} 
+      // مسح الكاش بعد التعديل
+      Object.keys(pageCache).forEach(k=>delete pageCache[k]);
+      loadPage(currentPage, true);
+    }}catch(e){{alert('خطأ: '+e);showLine(0)}}}};
   }});
   document.querySelectorAll('a[data-del]').forEach(a=>{{
-    a.onclick=async e=>{{e.preventDefault();if(!confirm('⚠ تأكيد الحذف؟'))return;showLine(60);let res=await fetch(a.href);if(res.status==401){{location.href='/login';return}}loadPage(currentPage);}};
+    a.onclick=async e=>{{e.preventDefault();if(!confirm('⚠ تأكيد الحذف؟'))return;showLine(50);let res=await fetch(a.href,{{cache:'no-store'}});if(res.status==401){{location.href='/login';return}} Object.keys(pageCache).forEach(k=>delete pageCache[k]); loadPage(currentPage, true);}};
   }});
 }}
-function pingDish(ip){{if(!ip){{alert('لا يوجد IP');return}}showLine(60);fetch('/api/ping?ip='+encodeURIComponent(ip)).then(r=>r.json()).then(j=>{{showLine(0);alert(j.out.slice(0,400))}}).catch(()=>showLine(0))}}
-async function toggleTheme(){{showLine(40);await fetch('/toggle_theme');location.reload()}}
-async function toggleLang(){{showLine(40);await fetch('/toggle_lang');location.reload()}}
+function pingDish(ip){{if(!ip){{alert('لا يوجد IP');return}}showLine(50);fetch('/api/ping?ip='+encodeURIComponent(ip)).then(r=>r.json()).then(j=>{{showLine(0);alert(j.out.slice(0,400))}}).catch(()=>showLine(0))}}
+async function toggleTheme(){{showLine(30);await fetch('/toggle_theme',{{cache:'no-store'}});location.reload()}}
+// 9- زر لغه مو شغال - صلحناه
+async function toggleLang(){{showLine(30);try{{let r=await fetch('/toggle_lang',{{cache:'no-store'}});let t=await r.text(); console.log('lang toggled',t); location.reload();}}catch(e){{alert('خطأ لغة: '+e);showLine(0)}}}}
 document.addEventListener('keydown', e=>{{if(e.key==='Escape' && document.getElementById('sidebar').classList.contains('active'))toggleMenu()}});
-// 13- سحب للأسفل لتحديث
+// 10- اسحب باصبعي على شاشه تحدث
 let startY=0, pulling=false;
-document.addEventListener('touchstart', e=>{{if(window.scrollY===0){{startY=e.touches[0].clientY; pulling=true;}}}});
+document.addEventListener('touchstart', e=>{{if(window.scrollY===0){{startY=e.touches[0].clientY; pulling=true;}}}}, {{passive:true}});
 document.addEventListener('touchmove', e=>{{
   if(!pulling) return;
   let diff = e.touches[0].clientY - startY;
   if(diff>0 && diff<120 && window.scrollY===0){{
-    document.getElementById('pullHint').classList.add('show');
-    if(diff>80) document.getElementById('pullHint').textContent='↻ اترك للتحديث';
-    else document.getElementById('pullHint').textContent='↓ اسحب للتحديث';
+    let hint=document.getElementById('pullHint');
+    hint.classList.add('show');
+    hint.textContent = diff>80 ? '↻ اترك للتحديث' : '↓ اسحب للتحديث';
   }}
-}});
+}}, {{passive:true}});
 document.addEventListener('touchend', e=>{{
   let hint = document.getElementById('pullHint');
   if(hint.classList.contains('show') && hint.textContent.includes('اترك')){{
-    loadPage(currentPage);
+    Object.keys(pageCache).forEach(k=>delete pageCache[k]);
+    loadPage(currentPage, true);
   }}
   hint.classList.remove('show');
   pulling=false;
 }});
 bindAjax();
+// مسح الكاش القديم عند التحميل
+if('caches' in window){{caches.keys().then(names=>names.forEach(n=>caches.delete(n)))}}
 </script></body></html>"""
 
 @app.route('/')
@@ -547,32 +578,43 @@ def login():
             add_log(f"تسجيل دخول: {uin}")
             return redirect('/dash')
         return f"<script>alert('بيانات خاطئة');location.href='/login'</script>",401
-    # 1- صفحة تسجيل دخول OMAIA ISP + زر حفظ كلمة سر + placeholder داخل المربع فقط
+    # 1- صفحه تسجيل دخول حاطط omaia خليها omaia isp ولا نظام ادرة شبكه حطلي تحت صفحه الدعم النفي ويقونه وتساب
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP - Login</title>
 <style>
-body{{display:flex;align-items:center;justify-content:center;background:{COLORS['bg_dark']};min-height:100vh;margin:0;font-family:'Cairo',sans-serif}}
-.box{{background:#fff;padding:28px;border-radius:16px;width:92%;max-width:360px;box-shadow:0 20px 40px rgba(0,0,0,0.4)}}
+body{{display:flex;flex-direction:column;align-items:center;justify-content:center;background:{COLORS['bg_dark']};min-height:100vh;margin:0;font-family:'Cairo',sans-serif;padding:20px}}
+.box{{background:{COLORS['white']};padding:28px;border-radius:16px;width:92%;max-width:360px;box-shadow:0 20px 40px {COLORS['black']}66}}
 input{{width:100%;padding:12px;margin:8px 0;border-radius:10px;border:1px solid #ccc;font-size:14px}}
-.login-btn{{width:100%;background:{COLORS['gold']};color:#000;padding:13px;border:0;border-radius:10px;font-weight:900;font-size:16px;cursor:pointer;margin-top:12px}}
-.save-row{{display:flex;align-items:center;gap:6px;margin:8px 0;font-size:13px;color:#334155}}
+.login-btn{{width:100%;background:{COLORS['gold']};color:{COLORS['black']};padding:13px;border:0;border-radius:10px;font-weight:900;font-size:16px;cursor:pointer;margin-top:12px}}
+.save-row{{display:flex;align-items:center;gap:6px;margin:8px 0;font-size:13px;color:{COLORS['input_dark']}}}
 .save-row input{{width:auto;margin:0}}
+.support-box{{margin-top:18px;background:{COLORS['card_dark']};padding:14px;border-radius:12px;width:92%;max-width:360px;text-align:center;border:1px solid {COLORS['gold']}}}
+.support-box a{{display:inline-flex;align-items:center;gap:6px;margin:5px;padding:8px 14px;border-radius:20px;text-decoration:none;font-weight:bold;font-size:13px}}
 </style>
-</head><body><div class=box>
-<h2 style='text-align:center;margin:0 0 6px'>{logo_html()}</h2>
-<p style='text-align:center;color:#64748b;font-size:13px;margin:0 0 14px'>نظام إدارة الشبكة</p>
+</head><body>
+<div class=box>
+<h2 style='text-align:center;margin:0 0 14px'>{logo_html()}</h2>
 <form method=post>
 <input name=userin placeholder='User / Phone' required autocomplete='username'>
 <input name=password type=password placeholder='كلمة السر' required autocomplete='current-password'>
 <label class=save-row><input type=checkbox id=savePass> حفظ كلمة السر</label>
 <button class=login-btn>دخول</button>
 </form>
+</div>
+<div class=support-box>
+<div style='color:{COLORS['white']};font-weight:bold;margin-bottom:8px'>🎧 الدعم الفني</div>
+<div style='color:{COLORS['text_muted_dark']};font-size:13px'>OMAIA ISP</div>
+<div style='margin-top:10px'>
+<a href='https://wa.me/905344851045' target=_blank style='background:{COLORS['btn_wa']};color:{COLORS['white']}'>💬 واتساب</a>
+<a href='https://instagram.com/af_20_1999' target=_blank style='background:linear-gradient(45deg,#feda75,#fa7e1e,#d62976);color:{COLORS['white']}'>📸 Instagram</a>
+</div>
+</div>
 <script>
 let u=document.querySelector('input[name=userin]'), p=document.querySelector('input[name=password]'), s=document.getElementById('savePass');
 let saved=localStorage.getItem('omaia_user'), savedP=localStorage.getItem('omaia_pass');
 if(saved){{u.value=saved; if(savedP){{p.value=savedP; s.checked=true;}} }}
 document.querySelector('form').addEventListener('submit',()=>{{if(s.checked){{localStorage.setItem('omaia_user',u.value);localStorage.setItem('omaia_pass',p.value);}}else{{localStorage.removeItem('omaia_user');localStorage.removeItem('omaia_pass');}}}});
 </script>
-</div></body></html>"""
+</body></html>"""
 
 @app.route('/logout')
 def lo():
@@ -611,6 +653,7 @@ def a1():
 @app.route('/edit_sub/<int:i>',methods=['POST'])
 @login_required
 def edit_sub(i):
+    if is_tech(): return "ممنوع للفني",403
     qexec("UPDATE subs SET name=?, phone=? WHERE id=?",(request.form.get('name',''),request.form.get('phone',''),i))
     add_log(f"تعديل مشترك {i}")
     return "ok"
@@ -633,8 +676,9 @@ def b1():
 @app.route('/edit_ledger/<int:i>',methods=['POST'])
 @login_required
 def edit_ledger(i):
+    if is_tech(): return "ممنوع للفني",403
     f=request.form
-    qexec("UPDATE ledger SET name=?, amount=?, currency=?, note=? WHERE id=?",(f.get('name',''),fnum(f.get('amount')),f.get('currency','USD'),f.get('note',''),i))
+    qexec("UPDATE ledger SET name=?, amount=?, currency=?, typ=? WHERE id=?",(f.get('name',''),fnum(f.get('amount')),f.get('currency','USD'),f.get('typ','دين'),i))
     add_log(f"تعديل حساب {i}")
     return "ok"
 
@@ -657,6 +701,7 @@ def c1():
 @app.route('/edit_dish/<int:i>',methods=['POST'])
 @login_required
 def edit_dish(i):
+    if is_tech(): return "ممنوع للفني",403
     f=request.form; ip=f.get('ip','').strip()
     if not is_internal_ip(ip): return "IP غير داخلي",400
     qexec("UPDATE dish_ips SET ip=?, location=?, dish_name=? WHERE id=?",(ip,f.get('location',''),f.get('dish_name',''),i))
@@ -674,13 +719,14 @@ def c2(i):
 @login_required
 def d1():
     f=request.form
-    qexec("INSERT INTO towers(name,location,area,lat,lng,fixed) VALUES(?,?,?,?,?,?)",(f.get('name',''),f.get('location',''),f.get('area',''),35.1318,36.7578,1 if f.get('fixed') else 0))
+    qexec("INSERT INTO towers(name,location,area,lat,lng,fixed) VALUES(?,?,?,?,?,?)",(f.get('name',''),f.get('location',''),f.get('area',''),35.1318,36.7578,0))
     add_log(f"اضافة برج: {f.get('name','')}")
     return "ok"
 
 @app.route('/edit_tower/<int:i>',methods=['POST'])
 @login_required
 def edit_tower(i):
+    if is_tech(): return "ممنوع للفني",403
     f=request.form
     qexec("UPDATE towers SET name=?, location=?, area=? WHERE id=?",(f.get('name',''),f.get('location',''),f.get('area',''),i))
     add_log(f"تعديل برج {i}")
@@ -691,7 +737,6 @@ def edit_tower(i):
 def d2(i):
     t=qone("SELECT * FROM towers WHERE id=?",(i,))
     if not t: return "غير موجود",404
-    if t.get('fixed') and False: return "⛔ نقطة ثابتة لا تحذف",403
     qexec("DELETE FROM towers WHERE id=?",(i,))
     add_log(f"حذف برج {t['name']}")
     return "ok"
