@@ -135,7 +135,6 @@ def api_ping():
     ip=request.args.get('ip','').strip()
     if not ip:
         return jsonify(ok=False,out='لا يوجد IP')
-    # Ping حقيقي
     if is_internal_ip(ip):
         try:
             for port in [80,8291,8728,22,443]:
@@ -392,57 +391,63 @@ def page_content(v):
 <input name=location placeholder='موقع' style='flex:1'>
 <button class=btn-gold>➕ إضافة</button>
 </form>
-<input id=searchBox placeholder='🔍 بحث IP أو اسم + Enter' oninput="searchDishes(this.value)" onkeydown="if(event.key==='Enter')searchDishes(this.value)" style='margin-top:8px'>
+<input id=searchBox placeholder='🔍 بحث IP أو اسم + Enter' oninput="window.searchDishes(this.value)" onkeydown="if(event.key==='Enter')window.searchDishes(this.value)" style='margin-top:8px'>
 </div>
 <div id=dl></div>
+</div>
 <script>
-function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function escA(s){return String(s||'').replace(/'/g,"\\'");}
-async function ld(q=''){
-  let r=await fetch('/api/search?q='+encodeURIComponent(q));
+window.escH=function(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+window.doEditDish=function(id){
+  let card=document.getElementById('dish-'+id);
+  let n=card.dataset.name, ip=card.dataset.ip, loc=card.dataset.loc;
+  let nn=prompt('اسم:',n);if(nn==null)return;
+  let ii=prompt('IP:',ip);if(ii==null)return;
+  let ll=prompt('موقع:',loc);if(ll==null)return;
+  fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:ii,location:ll})}).then(()=>window.ld(document.getElementById('searchBox').value||''));
+}
+window.doPing=function(id){
+  let card=document.getElementById('dish-'+id);
+  let ip=card.dataset.ip;
+  let out=card.querySelector('.ping-out');
+  out.textContent='⏳...';
+  fetch('/api/ping?ip='+encodeURIComponent(ip)).then(r=>r.json()).then(j=>{
+    out.textContent=j.out.slice(0,250);
+    out.style.color=j.ok?'#22c55e':'#ef4444';
+  }).catch(()=>{out.textContent='خطأ';});
+}
+window.ld=async function(q){
+  let r=await fetch('/api/search?q='+encodeURIComponent(q||''));
   let d=await r.json();
   let h='';
   d.forEach(x=>{
-    h+=`<div class="card anim" style="display:flex;justify-content:space-between;align-items:center">
-      <div><b>${escH(x.dish_name)}</b><br><span style="background:#000;color:#ffbe4d;padding:3px 8px;border-radius:10px;font-family:monospace">${escH(x.ip)}</span><br><small>${escH(x.location||'')}</small></div>
+    let safeName=window.escH(x.dish_name||'');
+    let safeIp=window.escH(x.ip||'');
+    let safeLoc=window.escH(x.location||'');
+    h+=`<div class="card anim" id="dish-${x.id}" data-name="${(x.dish_name||'').replace(/"/g,'&quot;')}" data-ip="${x.ip}" data-loc="${(x.location||'').replace(/"/g,'&quot;')}" style="display:flex;justify-content:space-between;align-items:center">
+      <div><b>${safeName}</b><br><span style="background:#000;color:#ffbe4d;padding:3px 8px;border-radius:10px;font-family:monospace">${safeIp}</span><br><small>${safeLoc}</small><br><small class="ping-out" style="font-size:11px"></small></div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        <button class=btn-gold onclick="p1('${x.ip}',this)">📶 Ping</button><span style="font-size:11px"></span>
+        <button class=btn-gold onclick="window.doPing(${x.id})">📶 Ping</button>
         <div style="display:flex;gap:5px">
-          <button class=btn-gold onclick="editDish(${x.id},'${escA(x.dish_name)}','${escA(x.ip)}','${escA(x.location||'')}')">✏️ تعديل</button>
-          <button class=btn-del onclick="askDel('/del_dish/${x.id}')">🗑️</button>
+          <button class=btn-gold onclick="window.doEditDish(${x.id})">✏ تعديل</button>
+          <button class=btn-del onclick="askDel('/del_dish/${x.id}')">🗑</button>
         </div>
       </div>
     </div>`;
   });
   document.getElementById('dl').innerHTML=h||'<div class=card>لا يوجد صحون</div>';
 }
-async function p1(ip,b){
-  let s=b.nextElementSibling;
-  s.textContent='⏳...';
-  try{
-    let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));
-    let j=await r.json();
-    s.textContent=j.out.slice(0,200);
-    s.style.color=j.ok?'#22c55e':'#ef4444';
-  }catch(e){s.textContent='خطأ';}
-}
-function editDish(id,n,ip,loc){
-  let nn=prompt('اسم:',n);if(nn==null)return;
-  let ii=prompt('IP:',ip);if(ii==null)return;
-  let ll=prompt('موقع:',loc);if(ll==null)return;
-  fetch('/edit_dish/'+id,{method:'POST',body:new URLSearchParams({dish_name:nn,ip:ii,location:ll})}).then(()=>ld(document.getElementById('searchBox').value));
-}
-ld();
-window.searchDishes=ld;
+window.ld();
+window.searchDishes=window.ld;
 </script>
-</div>"""
+"""
     if v=='towers':
         rs=qall("SELECT * FROM towers ORDER BY id DESC")
         rows=""
         for r in rs:
-            nm=esc(r['name']).replace("'","\\'")
-            ar=esc(r['area'] or '').replace("'","\\'")
-            rows+=f"<div class='card anim' style='display:flex;justify-content:space-between;align-items:center'><div><b>🗼 {esc(r['name'])}</b><br><small>{esc(r['area'] or '')}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"editTower({r['id']},'{nm}','{ar}')\">✏️ تعديل</button> <button class=btn-del onclick=\"askDel('/del_tower/{r['id']}')\">🗑️</button></div></div>"
+            safe_name=esc(r['name'])
+            safe_area=esc(r['area'] or '')
+            # use data attributes to avoid quote issues
+            rows+=f"<div class='card anim' id='tower-{r['id']}' data-name='{safe_name.replace(chr(34), '&quot;')}' data-area='{safe_area.replace(chr(34), '&quot;')}' style='display:flex;justify-content:space-between;align-items:center'><div><b>🗼 {safe_name}</b><br><small>{safe_area}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"window.doEditTower({r['id']})\">✏ تعديل</button> <button class=btn-del onclick=\"askDel('/del_tower/{r['id']}')\">🗑</button></div></div>"
         return f"""<div style='max-width:700px;margin:0 auto'>
 <div class=card><h3 data-l='towers'>الأبراج</h3>
 <form data-ajax method=post action=/add_tower style='display:flex;gap:6px'>
@@ -452,7 +457,9 @@ window.searchDishes=ld;
 </form></div>
 {rows or '<div class=card>لا يوجد أبراج</div>'}
 <script>
-function editTower(id,n,a){{
+window.doEditTower=function(id){{
+  let card=document.getElementById('tower-'+id);
+  let n=card.dataset.name, a=card.dataset.area;
   let nn=prompt('اسم البرج:',n);if(nn==null)return;
   let aa=prompt('المنطقة:',a);if(aa==null)return;
   fetch('/edit_tower/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,area:aa}})}}).then(()=>loadPage('towers',true));
@@ -462,7 +469,7 @@ function editTower(id,n,a){{
         rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
         rows=""
         for r in rs:
-            rows+=f"<div class='card anim' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r['name'])}</b><br>📞 {esc(r['phone'] or '')}<br><small>{esc(r['note'] or '')}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"editSub({r['id']})\">✏️</button><button class=btn-del onclick=\"askDel('/del_sub/{r['id']}')\">🗑️</button></div></div>"
+            rows+=f"<div class='card anim' id='sub-{r['id']}' data-name='{esc(r['name']).replace(chr(34),'&quot;')}' data-phone='{esc(r['phone'] or '').replace(chr(34),'&quot;')}' data-note='{esc(r['note'] or '').replace(chr(34),'&quot;')}' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r['name'])}</b><br>📞 {esc(r['phone'] or '')}<br><small>{esc(r['note'] or '')}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"window.doEditSub({r['id']})\">✏</button><button class=btn-del onclick=\"askDel('/del_sub/{r['id']}')\">🗑</button></div></div>"
         return f"""<div style='max-width:700px;margin:0 auto'>
 <div class=card><h3 data-l='subs'>المشتركين</h3>
 <form data-ajax method=post action=/add_sub style='display:flex;gap:5px;flex-wrap:wrap'>
@@ -473,18 +480,20 @@ function editTower(id,n,a){{
 </form></div>
 {rows or '<div class=card>لا يوجد</div>'}
 <script>
-function editSub(id){{
-  let n=prompt('الاسم:');if(n==null)return;
-  let p=prompt('رقم:');if(p==null)return;
-  let no=prompt('ملاحظة:')||'';
-  fetch('/edit_sub/'+id,{{method:'POST',body:new URLSearchParams({{name:n,phone:p,note:no}})}}).then(()=>loadPage('subs',true));
+window.doEditSub=function(id){{
+  let card=document.getElementById('sub-'+id);
+  let n=card.dataset.name, p=card.dataset.phone, no=card.dataset.note;
+  let nn=prompt('الاسم:',n);if(nn==null)return;
+  let pp=prompt('رقم:',p);if(pp==null)return;
+  let nno=prompt('ملاحظة:',no)||'';
+  fetch('/edit_sub/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,phone:pp,note:nno}})}}).then(()=>loadPage('subs',true));
 }}
 </script></div>"""
     if v=='ledger':
         rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 200")
         rows=""
         for r in rs:
-            rows+=f"<div class='card anim' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r['name'])}</b> - {r['amount']} {esc(r['currency'] or 'USD')}<br><small>{esc(r['note'] or '')}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"editL({r['id']})\">✏️</button><button class=btn-del onclick=\"askDel('/del_ledger/{r['id']}')\">🗑️</button></div></div>"
+            rows+=f"<div class='card anim' id='led-{r['id']}' data-name='{esc(r['name']).replace(chr(34),'&quot;')}' data-amount='{r['amount']}' data-note='{esc(r['note'] or '').replace(chr(34),'&quot;')}' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r['name'])}</b> - {r['amount']} {esc(r['currency'] or 'USD')}<br><small>{esc(r['note'] or '')}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"window.doEditL({r['id']})\">✏</button><button class=btn-del onclick=\"askDel('/del_ledger/{r['id']}')\">🗑</button></div></div>"
         return f"""<div style='max-width:700px;margin:0 auto'>
 <div class=card><h3 data-l='ledger'>الحسابات</h3>
 <form data-ajax method=post action=/add_ledger style='display:flex;gap:5px;flex-wrap:wrap'>
@@ -496,23 +505,25 @@ function editSub(id){{
 </form></div>
 {rows}
 <script>
-function editL(id){{
-  let n=prompt('الاسم:');if(n==null)return;
-  let a=prompt('المبلغ:');if(a==null)return;
-  fetch('/edit_ledger/'+id,{{method:'POST',body:new URLSearchParams({{name:n,amount:a,note:'',currency:'USD'}})}}).then(()=>loadPage('ledger',true));
+window.doEditL=function(id){{
+  let card=document.getElementById('led-'+id);
+  let n=card.dataset.name, a=card.dataset.amount;
+  let nn=prompt('الاسم:',n);if(nn==null)return;
+  let aa=prompt('المبلغ:',a);if(aa==null)return;
+  fetch('/edit_ledger/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,amount:aa,note:'',currency:'USD'}})}}).then(()=>loadPage('ledger',true));
 }}
 </script></div>"""
     if v=='map':
         towers=qall("SELECT * FROM towers")
         tj=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.1318),"lng":float(t.get('lng') or 36.7578)} for t in towers],ensure_ascii=False)
         return f"""<div class=card style='padding:6px'>
-<div style='display:flex;gap:6px;margin-bottom:6px'><input id=mapSearch placeholder='🔍 بحث برج + Enter' onkeydown="if(event.key==='Enter')mapGo(this.value)" style='flex:1'><button class=btn-gold onclick="mapGo(document.getElementById('mapSearch').value)">اذهب</button></div>
+<div style='display:flex;gap:6px;margin-bottom:6px'><input id=mapSearch placeholder='🔍 بحث برج + Enter' onkeydown="if(event.key==='Enter')window.mapGo(this.value)" style='flex:1'><button class=btn-gold onclick="window.mapGo(document.getElementById('mapSearch').value)">اذهب</button></div>
 <div id=map style='height:72vh;min-height:450px;border-radius:14px;background:#e5e7eb;z-index:1'></div>
 </div>
 <script>
 let _towers={tj};
 setTimeout(()=>{{
-  if(typeof L==='undefined'){{document.getElementById('map').innerHTML='<div style=text-align:center;padding:40px>⚠️ فشل تحميل الخريطة</div>';return;}}
+  if(typeof L==='undefined'){{document.getElementById('map').innerHTML='<div style=text-align:center;padding:40px>⚠ فشل تحميل الخريطة</div>';return;}}
   let map=L.map('map').setView([35.1318,36.7578],12);
   let osm=L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19,attribution:'© OSM'}}).addTo(map);
   let sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19}});
@@ -537,7 +548,7 @@ setTimeout(()=>{{
         us=qall("SELECT * FROM users ORDER BY phone DESC")
         uh=""
         for u in us:
-            uh+=f"<div class='card anim' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(u['username'] or u['phone'])}</b><br>📞 {esc(u['phone'])} | {esc(u['role'])} </div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"editU('{esc(u['phone'])}','{esc(u['username'] or '')}','{esc(u['role'])}')\">✏️</button><button class=btn-del onclick=\"askDel('/del_user/{esc(u['phone'])}')\">🗑️</button></div></div>"
+            uh+=f"<div class='card anim' id='user-{esc(u['phone'])}' data-phone='{esc(u['phone'])}' data-username='{esc(u['username'] or '').replace(chr(34),'&quot;')}' data-role='{esc(u['role'])}' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(u['username'] or u['phone'])}</b><br>📞 {esc(u['phone'])} | {esc(u['role'])} </div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"window.doEditU('{esc(u['phone'])}')\">✏</button><button class=btn-del onclick=\"askDel('/del_user/{esc(u['phone'])}')\">🗑</button></div></div>"
         return f"""<div style='max-width:600px;margin:0 auto'>
 <div class=card><h3>🔑 حفظ كلمة السر</h3>
 <form data-ajax method=post action=/change_pass style='display:flex;gap:6px'>
@@ -554,7 +565,10 @@ setTimeout(()=>{{
 </form></div>
 {uh}
 <script>
-function editU(old,n,rl){{
+window.doEditU=function(ph){{
+  let card=document.getElementById('user-'+ph);
+  if(!card){{card=document.querySelector('[data-phone="'+ph+'"]');}}
+  let old=ph, n=card?card.dataset.username:'', rl=card?card.dataset.role:'tech';
   let nn=prompt('اليوزر:',n);if(nn==null)return;
   let pp=prompt('رقم/يوزر جديد:',old);if(pp==null)return;
   fetch('/edit_user',{{method:'POST',body:new URLSearchParams({{old_phone:old,phone:pp,username:nn,role:rl}})}}).then(()=>loadPage('settings',true));
@@ -603,7 +617,7 @@ input,select{{padding:11px;margin:5px 0;border-radius:10px;border:1px solid {bor
 <div class=top>
 <div style='display:flex;gap:8px;align-items:center'>
 <span onclick="toggleSb()" style='font-size:24px;cursor:pointer'>☰</span>
-<input id=topsearch placeholder='🔍 بحث' oninput="if(cur=='dishes'&&window.searchDishes)searchDishes(this.value)" style='background:#1f2937;border:1px solid #374151;color:#fff;padding:7px 10px;border-radius:10px;width:110px'>
+<input id=topsearch placeholder='🔍 بحث' oninput="if(cur=='dishes'&&window.searchDishes)window.searchDishes(this.value)" style='background:#1f2937;border:1px solid #374151;color:#fff;padding:7px 10px;border-radius:10px;width:110px'>
 </div>
 <div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div style='display:flex;gap:6px;align-items:center'>
@@ -613,10 +627,9 @@ input,select{{padding:11px;margin:5px 0;border-radius:10px;border:1px solid {bor
 </div>
 </div>
 <div class=main id=mn>{c}</div>
-<div id=delModal><div id=delBox><div style='font-size:44px'>🗑️</div><h3>تأكيد الحذف؟</h3><p style='color:#aaa;font-size:13px'>لا يمكن التراجع</p><div style='display:flex;gap:10px;margin-top:12px'><button onclick="closeDel()" style='flex:1;padding:12px;border-radius:12px;border:1px solid {border};background:transparent;color:{txt};cursor:pointer'>تراجع</button><button id=delYes style='flex:1;padding:12px;border-radius:12px;background:#ef4444;color:#fff;border:0;cursor:pointer;font-weight:800'>حذف</button></div></div></div>
+<div id=delModal><div id=delBox><div style='font-size:44px'>🗑</div><h3>تأكيد الحذف؟</h3><p style='color:#aaa;font-size:13px'>لا يمكن التراجع</p><div style='display:flex;gap:10px;margin-top:12px'><button onclick="closeDel()" style='flex:1;padding:12px;border-radius:12px;border:1px solid {border};background:transparent;color:{txt};cursor:pointer'>تراجع</button><button id=delYes style='flex:1;padding:12px;border-radius:12px;background:#ef4444;color:#fff;border:0;cursor:pointer;font-weight:800'>حذف</button></div></div></div>
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
-// تنقل فوري بدون تحميل + دخول اول مرة سريع + كاش + القائمة يمين ثابت
 let cur='{v}';
 let pageCache=JSON.parse(localStorage.getItem('omaia_cache')||'{{}}');
 let lang=localStorage.getItem('omaia_lang')||'ar';
@@ -635,19 +648,14 @@ function applyLang(){{
   document.documentElement.dir=lang==='ar'?'rtl':'ltr';
   localStorage.setItem('omaia_lang',lang);
 }}
-function toggleLang(){{
-  lang=lang==='ar'?'en':'ar';
-  applyLang();
-}}
+function toggleLang(){{lang=lang==='ar'?'en':'ar';applyLang();}}
 applyLang();
-
 function toggleSb(force){{
   let sb=document.getElementById('sb'),ov=document.getElementById('overlay');
   let open=force!==undefined?force:!sb.classList.contains('active');
   sb.classList.toggle('active',open);
   ov.classList.toggle('show',open);
 }}
-
 async function loadPage(v,force=false){{
   cur=v;
   localStorage.setItem('omaia_last_page',v);
@@ -655,14 +663,12 @@ async function loadPage(v,force=false){{
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let nav=document.getElementById('nav-'+v);
   if(nav)nav.classList.add('active');
-
   if(pageCache[v] && !force){{
     document.getElementById('mn').innerHTML=pageCache[v];
     bind();execScripts();
     fetch('/api/page?v='+v).then(r=>r.text()).then(h=>{{pageCache[v]=h;saveCache();}});
     return;
   }}
-
   let mn=document.getElementById('mn');
   mn.style.opacity='0.7';
   try{{
@@ -677,11 +683,9 @@ async function loadPage(v,force=false){{
     mn.style.opacity='1';
   }}
 }}
-
 function execScripts(){{
-  document.getElementById('mn').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});
+  document.getElementById('mn').querySelectorAll('script').forEach(s=>{{try{{(0,eval)(s.textContent)}}catch(e){{console.error(e)}}}});
 }}
-
 function bind(){{
   document.querySelectorAll('form[data-ajax]').forEach(f=>{{
     f.onsubmit=async e=>{{
@@ -694,15 +698,12 @@ function bind(){{
         if(r.ok){{
           delete pageCache[cur];
           await loadPage(cur,true);
-        }}else{{
-          alert(await r.text());
-        }}
+        }}else{{alert(await r.text());}}
       }}catch(err){{alert(err);}}
       if(btn)btn.textContent=old;
     }};
   }});
 }}
-
 function askDel(u){{window._delUrl=u;document.getElementById('delModal').classList.add('show');}}
 function closeDel(){{document.getElementById('delModal').classList.remove('show');window._delUrl=null;}}
 document.getElementById('delYes').onclick=async()=>{{
@@ -713,22 +714,18 @@ document.getElementById('delYes').onclick=async()=>{{
     loadPage(cur,true);
   }}
 }};
-
 async function toggleTheme(){{
   let stay=cur;
   try{{
     await fetch('/toggle_theme');
-    // ما يرجع للرئيسية - يضل بنفس الصفحة
     location.reload();
     localStorage.setItem('omaia_last_page',stay);
   }}catch(e){{location.reload();}}
 }}
-
 let lastPage=localStorage.getItem('omaia_last_page');
 if(lastPage && lastPage!==cur && cur==='home'){{
   loadPage(lastPage);
 }}
-
 bind();
 execScripts();
 </script>
