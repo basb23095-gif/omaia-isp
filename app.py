@@ -52,7 +52,7 @@ def qall(q,a=()):
             cc(c)
             return rs
     except Exception as e:
-        print(e);cc(c);return []
+        print(f"qall error: {e} | q={q} | a={a}");cc(c);return []
 
 def qone(q,a=()):
     r=qall(q,a)
@@ -65,7 +65,7 @@ def qexec(q,a=()):
             cur=c.cursor();cur.execute(q.replace("?","%s"),a);cur.close()
         else:
             c.execute(q,a);c.commit();cc(c)
-    except Exception as e: print(f"qexec error: {e}");cc(c)
+    except Exception as e: print(f"qexec error: {e} | q={q} | a={a}");cc(c)
 
 def fnum(v):
     try:return float(v or 0)
@@ -104,8 +104,9 @@ def init():
     safe_alter("ledger","name","TEXT")
     if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username,active) VALUES(?,?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin',1))
+    # FIXED: 5 placeholders, 5 params
     if not qone("SELECT * FROM towers WHERE fixed=1"):
-        qexec("INSERT INTO towers(name,lat,lng,location,area,fixed) VALUES(?,?,?,?,?,1)",('نقطة حماة الرئيسية',35.1318,36.7578,'حماة','حماة',1))
+        qexec("INSERT INTO towers(name,lat,lng,location,area,fixed) VALUES(?,?,?,?,?,?)",('نقطة حماة الرئيسية',35.1318,36.7578,'حماة','حماة',1))
 init()
 
 def add_log(action):
@@ -186,11 +187,9 @@ def page_content(v):
     edit_btn_attr = "" if can else "disabled style='opacity:.3;pointer-events:none'"
     
     if v=='home':
-        # 7- صفحه رئيسه خلي 4 كروت مشتركين صحون أبراج خرطيه ويبن عدد الينضاف فيهن
         ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0)
         nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0)
         nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0)
-        # 9- كل الإضافات بنص شاشه
         h=f"""
         <div style='max-width:700px;margin:0 auto;text-align:center'>
           <div style='margin:20px 0'><div style='font-size:32px'>{logo_html()}</div><p style='color:{COLORS['text_muted_dark']};margin:5px 0'>OMAIA ISP</p></div>
@@ -243,7 +242,6 @@ def page_content(v):
             tname_js = js_esc(r['name'])
             tarea_js = js_esc(r.get('area') or '')
             area = esc(r.get('area') or '')
-            # 4- الأبراج زر تعديل مو شغال وظعر أيقونات حزف وتعديل - 9 بنص شاشه
             edit_b = f"<button class='btn-icon edit' onclick='editTower({r['id']}, {tname_js}, {tarea_js})' title='تعديل' {edit_btn_attr}>✏️</button>" if can else ""
             del_b = f"<button class='btn-icon del' onclick='delItem(\"/del_tower/{r['id']}\")' title='حذف'>🗑️</button>" if can else ""
             cards+=f"<div class='card' style='max-width:500px;margin:8px auto;display:flex;justify-content:space-between;align-items:center'><div><b>🗼 {esc(r['name'])}</b><br><small>🗺 المنطقة: {area}</small></div><div class=actions>{edit_b}{del_b}</div></div>"
@@ -264,7 +262,6 @@ def page_content(v):
             typ = esc(r.get('typ') or 'دين')
             name_js = js_esc(r.get('name') or '')
             amount = r['amount']
-            # 3- دفتر حسابات ظعير كتير كبرو شوي زر تعديل مو شغال فعلو
             edit_b = f"<button class='btn-icon edit' onclick='editLedger({r['id']}, {name_js}, \"{amount}\", \"{typ}\", \"{r.get('currency') or 'USD'}\")' title='تعديل' {edit_btn_attr}>✏️</button>" if can else ""
             del_b = f"<button class='btn-icon del' onclick='delItem(\"/del_ledger/{r['id']}\")' title='حذف'>🗑️</button>" if can else ""
             rows_html+=f"<div class='card' style='max-width:520px;margin:10px auto;padding:14px;font-size:15px;display:flex;justify-content:space-between;align-items:center'><div><b style='font-size:16px'>{esc(r.get('name') or '')}</b> | <span style='color:{COLORS['gold']};font-weight:bold'>{amount} {cur_icon}</span> | <span style='background:{COLORS['input_dark']};padding:2px 8px;border-radius:10px;font-size:12px'>{typ}</span></div><div class=actions>{edit_b}{del_b}</div></div>"
@@ -286,65 +283,38 @@ def page_content(v):
         """
         return h
     elif v=='map':
-        # 5- الخريطه مافي حزف لنقاط تنضاف وخليها ثابته ما تترحك شاشه كلها وقت حرك وخلي دقه عالي جدآ جدا
         towers = qall("SELECT * FROM towers")
         towers_js = json.dumps([{"id": t['id'], "name": t['name'], "lat": float(t.get('lat') or 35.1318), "lng": float(t.get('lng') or 36.7578), "area": str(t.get('area') or '')} for t in towers], ensure_ascii=False)
         h=f"""
-        <div style='max-width:750px;margin:0 auto'>
-          <div class=card>
-            <h3 style='text-align:center'>🗺 الخريطة - دقة عالية جداً جداً</h3>
-            <div id=map style='height:550px;border-radius:16px;touch-action:none'></div>
-            <div style='margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap'>
+        <div style='width:100%;max-width:100%;margin:0 auto;padding:0'>
+          <div class=card style='padding:6px;margin:0;width:100%;max-width:100%'>
+            <div id=map style='height:calc(100vh - 140px);min-height:550px;width:100%;border-radius:14px;touch-action:none;z-index:1'></div>
+            <div style='margin-top:8px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap'>
               <button class=btn-blue onclick='getMyLocation()'>📍 موقعي</button>
               <button class=btn-gold onclick='calcDistMode()'>📏 قياس</button>
-              <span id=distResult style='font-size:13px;background:{COLORS['input_dark']};padding:6px 12px;border-radius:20px'>اضغط نقطتين للقياس</span>
+              <span id=distResult style='font-size:12px;background:{COLORS['input_dark']};padding:6px 12px;border-radius:20px'>اضغط نقطتين للقياس</span>
             </div>
             <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
             <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
             <script>
-              // ثابتة ما تتحرك الشاشة كلها
-              let map = L.map('map', {{zoomControl:true, dragging:true, scrollWheelZoom:true, doubleClickZoom:true, boxZoom:true, keyboard:false, tap:true, touchZoom:true}}).setView([35.1318, 36.7578], 14);
-              // دقة عالية جدا جدا - Esri World Imagery maxZoom 19 + HD
-              L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ attribution: 'OMAIA ISP - Satellite HD', maxZoom: 22, maxNativeZoom: 19, tileSize:256 }}).addTo(map);
-              // منع تحريك الصفحة وقت تحريك الخريطة
+              let map = L.map('map', {{zoomControl:true, dragging:!L.Browser.mobile, scrollWheelZoom:true, doubleClickZoom:true, boxZoom:true, keyboard:false, tap:true, touchZoom:true, bounceAtZoomLimits:false}}).setView([35.1318, 36.7578], 16);
+              L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ attribution: 'OMAIA ISP - Ultra HD', maxZoom: 23, maxNativeZoom: 19, tileSize:256, detectRetina:true }}).addTo(map);
+              setTimeout(()=>{{map.invalidateSize();}}, 400);
               let mapEl = document.getElementById('map');
-              mapEl.addEventListener('touchstart', e=>{{e.stopPropagation()}}, {{passive:false}});
-              mapEl.addEventListener('touchmove', e=>{{e.stopPropagation()}}, {{passive:false}});
-              let towers = {towers_js};
-              towers.forEach(t=>{{
-                let m = L.marker([t.lat, t.lng]).addTo(map);
-                m.bindPopup(`<div style='text-align:center'><b>${{t.name}}</b><br>🗺 ${{t.area}}</div>`);
+              ['touchstart','touchmove','touchend'].forEach(ev=>{{
+                mapEl.addEventListener(ev, e=>{{e.stopPropagation(); window.mapActive=true;}}, {{passive:false}});
               }});
+              mapEl.addEventListener('mouseenter', ()=>{{window.mapActive=true}});
+              mapEl.addEventListener('mouseleave', ()=>{{window.mapActive=false}});
+              let towers = {towers_js};
+              towers.forEach(t=>{{let m = L.marker([t.lat, t.lng]).addTo(map); m.bindPopup(`<div style='text-align:center'><b>${{t.name}}</b><br>🗺 ${{t.area}}</div>`);}});
               let userMarker=null;
               if(navigator.geolocation){{
-                navigator.geolocation.getCurrentPosition(pos=>{{
-                  map.setView([pos.coords.latitude, pos.coords.longitude], 15);
-                  userMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup('📍 أنت هنا').openPopup();
-                }}, null, {{enableHighAccuracy:true, timeout:10000, maximumAge:0}});
+                navigator.geolocation.getCurrentPosition(pos=>{{map.setView([pos.coords.latitude, pos.coords.longitude], 17); userMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup('📍 أنت هنا').openPopup();}}, null, {{enableHighAccuracy:true, timeout:10000, maximumAge:0}});
               }}
-              window.getMyLocation = function(){{
-                if(navigator.geolocation){{
-                  navigator.geolocation.getCurrentPosition(pos=>{{
-                    map.setView([pos.coords.latitude, pos.coords.longitude], 16);
-                    if(userMarker) map.removeLayer(userMarker);
-                    userMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup('📍 موقعك - دقة عالية').openPopup();
-                  }}, null, {{enableHighAccuracy:true, timeout:10000, maximumAge:0}});
-                }}
-              }}
+              window.getMyLocation = function(){{if(navigator.geolocation){{navigator.geolocation.getCurrentPosition(pos=>{{map.setView([pos.coords.latitude, pos.coords.longitude], 18); if(userMarker) map.removeLayer(userMarker); userMarker = L.marker([pos.coords.latitude, pos.coords.longitude]).addTo(map).bindPopup('📍 موقعك - دقة عالية جدا').openPopup();}}, null, {{enableHighAccuracy:true}});}}}}
               let distPoints=[], distLine=null; window.distMode=false;
-              map.on('click', e=>{{
-                if(window.distMode){{
-                  distPoints.push(e.latlng);
-                  L.marker(e.latlng).addTo(map);
-                  if(distPoints.length==2){{
-                    let d=map.distance(distPoints[0], distPoints[1]);
-                    document.getElementById('distResult').innerHTML = `📍 ${{(d/1000).toFixed(3)}} كم (${{d.toFixed(1)}} م)`;
-                    if(distLine) map.removeLayer(distLine);
-                    distLine = L.polyline(distPoints, {{color: '{COLORS['gold']}', weight:4}}).addTo(map);
-                    distPoints=[]; window.distMode=false;
-                  }}
-                }}
-              }});
+              map.on('click', e=>{{if(window.distMode){{distPoints.push(e.latlng); L.marker(e.latlng).addTo(map); if(distPoints.length==2){{let d=map.distance(distPoints[0], distPoints[1]); document.getElementById('distResult').innerHTML = `📍 ${{(d/1000).toFixed(3)}} كم`; if(distLine) map.removeLayer(distLine); distLine = L.polyline(distPoints, {{color: '{COLORS['gold']}', weight:4}}).addTo(map); distPoints=[]; window.distMode=false;}}}}}});
               window.calcDistMode = function(){{window.distMode=true; document.getElementById('distResult').textContent='اضغط نقطتين'; distPoints=[]; if(distLine) map.removeLayer(distLine);}}
             </script>
           </div>
@@ -383,7 +353,6 @@ def page_content(v):
                 uh+=f"<div class='card' style='max-width:550px;margin:8px auto;display:flex;justify-content:space-between;align-items:center'><div style='display:flex;align-items:center;gap:10px'><div class=avatar>{un[:1]}</div><div><b>{un}</b><br><small>📞 {ph} - {role}</small></div></div></div>"
             else:
                 uh+=f"<div class='card' style='max-width:550px;margin:8px auto;display:flex;justify-content:space-between;align-items:center'><div style='display:flex;align-items:center;gap:10px'><div class=avatar>{un[:1]}</div><div><b>{un}</b><br><small>📞 {ph} - {role}</small></div></div><div class=actions><button class='btn-icon edit' onclick='editUser({ph_js}, {un_js})' title='تعديل'>✏️</button><button class='btn-icon del' onclick='delItem(\"/del_user/{ph}\")' title='حذف'>🗑️</button></div></div>"
-        # 8- الاعدادات شغل زر تعديل والحزف ولغه خليها أيقونه محترمه
         h=f"""
         <div style='max-width:650px;margin:0 auto'>
           <div class=card style='text-align:center'><h3>⚙ إعدادات</h3>
@@ -409,7 +378,6 @@ def layout(c,v='home'):
     bg=COLORS['bg_dark'] if th=='dark' else COLORS['bg_light']
     card=COLORS['card_dark'] if th=='dark' else COLORS['card_light']
     txt=COLORS['white'] if th=='dark' else COLORS['black']
-    # 10- شريط القائمه الرئيسيه خلي أيقونات احترافيه كلاسكيه وسلاسه بالتحرك + 6 نار بالنقل
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -418,42 +386,33 @@ def layout(c,v='home'):
 *{{box-sizing:border-box;font-family:'Cairo',system-ui,sans-serif; -webkit-tap-highlight-color:transparent}}
 body{{margin:0;background:var(--bg);color:var(--text);overflow-x:hidden;overscroll-behavior:none}}
 #loader-line{{position:fixed;top:0;left:0;height:3px;background:var(--gold);width:0;z-index:9999;transition:width .15s ease-out;pointer-events:none}}
-.sidebar{{position:fixed;right:-300px;top:0;width:280px;height:100%;background:{COLORS['menu_bg']};transition:right .35s cubic-bezier(0.4,0,0.2,1);z-index:1000;padding-top:70px;box-shadow:-8px 0 30px rgba(0,0,0,0.6);overflow-y:auto;will-change:transform}}
+.sidebar{{position:fixed;right:-300px;top:0;width:280px;height:100%;background:{COLORS['menu_bg']};transition:right .35s cubic-bezier(0.4,0,0.2,1);z-index:1000;padding-top:70px;box-shadow:-8px 0 30px rgba(0,0,0,0.6);overflow-y:auto}}
 .sidebar.active{{right:0}}
-.sidebar a{{display:flex;align-items:center;gap:12px;padding:13px 16px;color:{COLORS['white']};text-decoration:none;transition:all .25s cubic-bezier(0.4,0,0.2,1);border-right:3px solid transparent;margin:3px 8px;border-radius:12px;font-size:14px;font-weight:500;will-change:transform}}
-.sidebar a:hover{{background:{COLORS['input_dark']};border-right-color:var(--gold);transform:translateX(-4px)}}.sidebar a.active{{background:var(--gold);color:{COLORS['black']};font-weight:bold;transform:translateX(-2px)}}
-.sidebar a .icon{{font-size:18px;width:24px;text-align:center}}
+.sidebar a{{display:flex;align-items:center;gap:12px;padding:13px 16px;color:{COLORS['white']};text-decoration:none;transition:all .25s cubic-bezier(0.4,0,0.2,1);border-right:3px solid transparent;margin:3px 8px;border-radius:12px;font-size:14px;font-weight:500}}
+.sidebar a:hover{{background:{COLORS['input_dark']};border-right-color:var(--gold);transform:translateX(-4px)}}.sidebar a.active{{background:var(--gold);color:{COLORS['black']};font-weight:bold}}
 .overlay{{position:fixed;inset:0;background:{COLORS['black']}70;backdrop-filter:blur(3px);display:none;z-index:999;opacity:0;transition:opacity .35s}}.overlay.active{{display:block;opacity:1}}
-.top{{position:fixed;top:0;left:0;right:0;background:{COLORS['top_bg']};padding:0 16px;z-index:101;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 20px {COLORS['black']}44;border-bottom:1px solid var(--border);height:60px;backdrop-filter:blur(10px)}}
-.menu-btn{{font-size:22px;cursor:pointer;background:var(--input);width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:12px;transition:all .25s}}
-.menu-btn:hover{{background:var(--gold);color:#000;transform:scale(1.05)}}
-.main{{margin-right:280px;margin-top:60px;padding:16px;min-height:100vh;transition:all .35s cubic-bezier(0.4,0,0.2,1);will-change:transform,opacity}}
-@media(max-width:900px){{.main{{margin-right:0}}}}
-.card{{background:{card};padding:16px;border-radius:14px;margin-bottom:12px;border:1px solid {COLORS['border_dark']};box-shadow:0 4px 12px {COLORS['black']}22;transition:transform .2s;will-change:transform}}
-.card:hover{{transform:translateY(-1px)}}
-.btn{{background:var(--input);border:none;color:var(--text);padding:8px 14px;border-radius:10px;cursor:pointer;font-weight:bold;font-size:13px;transition:all .2s}}
-.btn-gold{{background:var(--gold);color:{COLORS['black']};padding:10px 18px;border-radius:10px;border:none;font-weight:bold;cursor:pointer;font-size:14px;transition:all .2s}}
-.btn-gold:hover{{transform:scale(1.02);background:{COLORS['gold_hover']}}}
-.btn-blue{{background:var(--blue);color:{COLORS['white']};padding:8px 14px;border-radius:10px;border:none;cursor:pointer;font-size:13px;transition:all .2s}}
+.top{{position:fixed;top:0;left:0;right:0;background:{COLORS['top_bg']};padding:0 16px;z-index:101;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 20px {COLORS['black']}44;border-bottom:1px solid var(--border);height:60px}}
+.menu-btn{{font-size:22px;cursor:pointer;background:var(--input);width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:12px}}
+.main{{margin-right:280px;margin-top:60px;padding:12px;min-height:100vh;transition:all .35s cubic-bezier(0.4,0,0.2,1)}}
+@media(max-width:900px){{.main{{margin-right:0;padding:4px}}}}
+.card{{background:{card};padding:16px;border-radius:14px;margin-bottom:12px;border:1px solid {COLORS['border_dark']};box-shadow:0 4px 12px {COLORS['black']}22}}
+.btn{{background:var(--input);border:none;color:var(--text);padding:8px 14px;border-radius:10px;cursor:pointer;font-weight:bold;font-size:13px}}
+.btn-gold{{background:var(--gold);color:{COLORS['black']};padding:10px 18px;border-radius:10px;border:none;font-weight:bold;cursor:pointer;font-size:14px}}
+.btn-blue{{background:var(--blue);color:{COLORS['white']};padding:8px 14px;border-radius:10px;border:none;cursor:pointer;font-size:13px}}
 .btn-red{{background:var(--red);color:{COLORS['white']};padding:8px 14px;border-radius:10px;border:none;cursor:pointer;text-decoration:none;font-size:13px}}
 .btn-wa{{background:var(--wa);color:{COLORS['white']};padding:10px 20px;border-radius:24px;text-decoration:none;display:inline-block;font-weight:bold;font-size:14px}}
-.btn-icon{{width:34px;height:34px;border-radius:10px;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:16px;transition:all .2s;margin:0 2px}}
+.btn-icon{{width:34px;height:34px;border-radius:10px;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:16px;margin:0 2px}}
 .btn-icon.edit{{background:{COLORS['blue']}22;color:{COLORS['blue']};border:1px solid {COLORS['blue']}44}}
-.btn-icon.edit:hover{{background:{COLORS['blue']};color:#fff;transform:scale(1.1)}}
 .btn-icon.del{{background:{COLORS['red']}22;color:{COLORS['red']};border:1px solid {COLORS['red']}44}}
-.btn-icon.del:hover{{background:{COLORS['red']};color:#fff;transform:scale(1.1)}}
-input,select{{width:100%;padding:12px;background:var(--input);border:1px solid var(--border);border-radius:10px;color:var(--text);margin:4px 0;font-size:14px;transition:all .2s}}
-input:focus,select:focus{{outline:none;border-color:var(--gold);box-shadow:0 0 0 2px {COLORS['gold']}33}}
+input,select{{width:100%;padding:12px;background:var(--input);border:1px solid var(--border);border-radius:10px;color:var(--text);margin:4px 0;font-size:14px}}
 .ip-badge{{background:{COLORS['black']};color:var(--gold);padding:5px 12px;border-radius:20px;font-size:12px;font-family:monospace;border:1px solid var(--gold);display:inline-block}}
 .actions{{display:flex;gap:6px;flex-wrap:wrap;align-items:center}}
-.modal{{display:none;position:fixed;inset:0;background:{COLORS['black']}88;backdrop-filter:blur(5px);z-index:2000;align-items:center;justify-content:center}} .modal-content{{background:var(--card);padding:20px;border-radius:16px;width:92%;max-width:400px;animation:pop .25s ease}}
-@keyframes pop{{0%{{transform:scale(0.9);opacity:0}}100%{{transform:scale(1);opacity:1}}}}
-.user-card{{display:flex;align-items:center;gap:8px;justify-content:space-between}} .avatar{{width:38px;height:38px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:bold;color:{COLORS['black']};font-size:15px}}
-.top-actions{{display:flex;gap:8px;align-items:center}} .top-actions button{{width:38px;height:38px;border-radius:11px;border:none;background:var(--input);color:var(--text);cursor:pointer;font-size:16px;transition:all .25s}}
-.top-actions button:hover{{background:var(--gold);color:#000;transform:scale(1.05)}}
-#pullHint{{position:fixed;top:60px;left:50%;transform:translateX(-50%) translateY(-60px);background:var(--gold);color:{COLORS['black']};padding:8px 16px;border-radius:24px;font-size:13px;font-weight:bold;transition:transform .3s cubic-bezier(0.4,0,0.2,1);z-index:50;box-shadow:0 4px 12px rgba(0,0,0,0.3)}}
+.modal{{display:none;position:fixed;inset:0;background:{COLORS['black']}88;backdrop-filter:blur(5px);z-index:2000;align-items:center;justify-content:center}} .modal-content{{background:var(--card);padding:20px;border-radius:16px;width:92%;max-width:400px}}
+.avatar{{width:38px;height:38px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:bold;color:{COLORS['black']};font-size:15px}}
+.top-actions{{display:flex;gap:8px;align-items:center}} .top-actions button{{width:38px;height:38px;border-radius:11px;border:none;background:var(--input);color:var(--text);cursor:pointer;font-size:16px}}
+#pullHint{{position:fixed;top:60px;left:50%;transform:translateX(-50%) translateY(-60px);background:var(--gold);color:{COLORS['black']};padding:8px 16px;border-radius:24px;font-size:13px;font-weight:bold;transition:transform .3s;z-index:50}}
 #pullHint.show{{transform:translateX(-50%) translateY(10px)}}
-.log-row{{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--border);font-size:12px}} .log-time{{color:{COLORS['text_muted_dark']};min-width:80px}} .log-phone{{color:var(--gold);font-weight:bold;min-width:100px}}
+.log-row{{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--border);font-size:12px}}
 </style></head><body>
 <div id=loader-line></div>
 <div id=pullHint>↓ اسحب للتحديث</div>
@@ -483,10 +442,10 @@ input:focus,select:focus{{outline:none;border-color:var(--gold);box-shadow:0 0 0
 <div class=main id=main>{c}</div>
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
-// 6- وقت قلب بالصفحات في تعليقا يحدث موقع كلو ما بدي هاي حركه بدي يا نار بالنقل وسلاسه فل
 const pageCache = {{}};
 let currentPage='{v}';
 let isLoading=false;
+window.mapActive=false;
 function toggleMenu(){{let s=document.getElementById('sidebar'), o=document.getElementById('overlay');s.classList.toggle('active');o.classList.toggle('active');}}
 function showLine(p){{document.getElementById('loader-line').style.width=p+'%';}}
 function hideLine(){{setTimeout(()=>{{document.getElementById('loader-line').style.width='0'}},250);}}
@@ -498,32 +457,24 @@ window.loadPage=async function(v, force=false){{
   isLoading=true;
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let nav=document.getElementById('nav-'+v);if(nav)nav.classList.add('active');
-  // نار - من الكاش فورا بدون تعليق
   if(pageCache[v] && !force){{
-    document.getElementById('main').style.opacity='0.7';
-    setTimeout(()=>{{
-      document.getElementById('main').innerHTML=pageCache[v];
-      document.getElementById('main').style.opacity='1';
-      bindAjax();
-      document.getElementById('main').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});
-      isLoading=false;
-    }},50);
-    // تحديث خفي
+    document.getElementById('main').innerHTML=pageCache[v];
+    bindAjax();
+    document.getElementById('main').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});
+    isLoading=false;
     fetch('/api/page?v='+v, {{cache:'no-store'}}).then(r=>r.text()).then(html=>{{pageCache[v]=html}});
     return;
   }}
   showLine(20);
-  document.getElementById('main').style.opacity='0.8';
   try{{
-    let r=await fetch('/api/page?v='+v, {{cache:'no-store', headers:{{'X-Requested-With':'fetch'}}}});
+    let r=await fetch('/api/page?v='+v, {{cache:'no-store'}});
     if(r.status==401){{location.href='/login';return}}
     let html=await r.text();
     pageCache[v]=html;
     document.getElementById('main').innerHTML=html;
-    document.getElementById('main').style.opacity='1';
     bindAjax();
     document.getElementById('main').querySelectorAll('script').forEach(s=>{{try{{eval(s.textContent)}}catch(e){{}}}});
-  }}catch(e){{document.getElementById('main').innerHTML='<div class=card style=color:red;text-align:center>خطأ: '+e+'<br><button class=btn-gold onclick=loadPage(currentPage,true)>اعادة محاولة</button></div>';document.getElementById('main').style.opacity='1';}}
+  }}catch(e){{document.getElementById('main').innerHTML='<div class=card style=color:red;text-align:center>خطأ: '+e+'<br><button class=btn-gold onclick=loadPage(currentPage,true)>اعادة محاولة</button></div>';}}
   showLine(100); hideLine();
   isLoading=false;
   window.scrollTo({{top:0,behavior:'instant'}});
@@ -536,43 +487,12 @@ function bindAjax(){{
 window.delItem=async function(url){{if(!confirm('⚠ تأكيد الحذف؟'))return;showLine(40);try{{let res=await fetch(url,{{cache:'no-store'}});if(res.status==401){{location.href='/login';return}} Object.keys(pageCache).forEach(k=>delete pageCache[k]); loadPage(currentPage, true);}}catch(e){{alert(e)}}}}
 function pingDish(ip){{if(!ip){{alert('لا يوجد IP');return}}showLine(40);fetch('/api/ping?ip='+encodeURIComponent(ip),{{cache:'no-store'}}).then(r=>r.json()).then(j=>{{showLine(0);alert(j.out.slice(0,400))}}).catch(()=>showLine(0))}}
 async function toggleTheme(){{showLine(30);await fetch('/toggle_theme',{cache:'no-store'});location.reload()}}
-// 2- زر لغه ما يبدل - صلحناه نار
-async function toggleLang(){{
-  showLine(30);
-  try{{
-    let r=await fetch('/toggle_lang',{{cache:'no-store', method:'POST'}});
-    if(r.ok){{
-      // مسح كاش اللغة واعادة تحميل الصفحة الحالية فقط بدون ريفرش كامل
-      Object.keys(pageCache).forEach(k=>delete pageCache[k]);
-      location.reload();
-    }} else {{
-      alert('فشل تبديل اللغة');
-      showLine(0);
-    }}
-  }}catch(e){{alert('خطأ: '+e);showLine(0);}}
-}}
+async function toggleLang(){{showLine(30);try{{let r=await fetch('/toggle_lang',{{cache:'no-store', method:'POST'}});if(r.ok){{Object.keys(pageCache).forEach(k=>delete pageCache[k]); location.reload();}}else{{alert('فشل');showLine(0);}}}}catch(e){{alert('خطأ: '+e);showLine(0);}}}}
 document.addEventListener('keydown', e=>{{if(e.key==='Escape' && document.getElementById('sidebar').classList.contains('active'))toggleMenu()}});
-// سحب للتحديث - سلس
 let startY=0, pulling=false;
-document.addEventListener('touchstart', e=>{{if(window.scrollY===0){{startY=e.touches[0].clientY; pulling=true;}}}}, {{passive:true}});
-document.addEventListener('touchmove', e=>{{
-  if(!pulling) return;
-  let diff = e.touches[0].clientY - startY;
-  if(diff>0 && diff<100 && window.scrollY===0){{
-    let hint=document.getElementById('pullHint');
-    hint.classList.add('show');
-    hint.textContent = diff>70 ? '↻ اترك للتحديث' : '↓ اسحب للتحديث';
-  }}
-}}, {{passive:true}});
-document.addEventListener('touchend', e=>{{
-  let hint = document.getElementById('pullHint');
-  if(hint.classList.contains('show') && hint.textContent.includes('اترك')){{
-    Object.keys(pageCache).forEach(k=>delete pageCache[k]);
-    loadPage(currentPage, true);
-  }}
-  hint.classList.remove('show');
-  pulling=false;
-}});
+document.addEventListener('touchstart', e=>{{if(window.mapActive) return; if(window.scrollY===0){{startY=e.touches[0].clientY; pulling=true;}}}}, {{passive:true}});
+document.addEventListener('touchmove', e=>{{if(window.mapActive) return; if(!pulling) return; let diff = e.touches[0].clientY - startY; if(diff>0 && diff<100 && window.scrollY===0){{let hint=document.getElementById('pullHint'); hint.classList.add('show'); hint.textContent = diff>70 ? '↻ اترك للتحديث' : '↓ اسحب للتحديث';}}}}, {{passive:true}});
+document.addEventListener('touchend', e=>{{if(window.mapActive) return; let hint = document.getElementById('pullHint'); if(hint.classList.contains('show') && hint.textContent.includes('اترك')){{Object.keys(pageCache).forEach(k=>delete pageCache[k]); loadPage(currentPage, true);}} hint.classList.remove('show'); pulling=false;}});
 bindAjax();
 </script></body></html>"""
 
@@ -591,19 +511,16 @@ def login():
             add_log(f"تسجيل دخول: {uin}")
             return redirect('/dash')
         return f"<script>alert('بيانات خاطئة');location.href='/login'</script>",401
-    # 1- صفحه تسجيل دخول خلي بس الدعم الفني وتساب بلا انستا
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP - Login</title>
 <style>
 body{{display:flex;flex-direction:column;align-items:center;justify-content:center;background:{COLORS['bg_dark']};min-height:100vh;margin:0;font-family:'Cairo',sans-serif;padding:20px}}
 .box{{background:{COLORS['white']};padding:28px;border-radius:18px;width:92%;max-width:360px;box-shadow:0 20px 40px {COLORS['black']}66}}
 input{{width:100%;padding:12px;margin:8px 0;border-radius:12px;border:1px solid #ccc;font-size:14px}}
-.login-btn{{width:100%;background:{COLORS['gold']};color:{COLORS['black']};padding:14px;border:0;border-radius:12px;font-weight:900;font-size:16px;cursor:pointer;margin-top:12px;transition:all .2s}}
-.login-btn:hover{{transform:scale(1.02)}}
+.login-btn{{width:100%;background:{COLORS['gold']};color:{COLORS['black']};padding:14px;border:0;border-radius:12px;font-weight:900;font-size:16px;cursor:pointer;margin-top:12px}}
 .save-row{{display:flex;align-items:center;gap:6px;margin:8px 0;font-size:13px;color:{COLORS['input_dark']}}}
 .save-row input{{width:auto;margin:0}}
 .support-box{{margin-top:18px;background:{COLORS['card_dark']};padding:16px;border-radius:14px;width:92%;max-width:360px;text-align:center;border:1px solid {COLORS['gold']}33}}
-.support-box a{{display:inline-flex;align-items:center;gap:8px;margin:5px;padding:10px 18px;border-radius:24px;text-decoration:none;font-weight:bold;font-size:14px;transition:all .2s}}
-.support-box a:hover{{transform:scale(1.05)}}
+.support-box a{{display:inline-flex;align-items:center;gap:8px;margin:5px;padding:10px 18px;border-radius:24px;text-decoration:none;font-weight:bold;font-size:14px}}
 </style>
 </head><body>
 <div class=box>
