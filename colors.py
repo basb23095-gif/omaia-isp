@@ -1,8 +1,2 @@
-COLORS={
-'bg':'#0a1938','bg1':'#0a1938','bg2':'#0f2a5c','bg3':'#1a3a7a',
-'card':'rgba(15,42,92,0.85)','text':'#ffffff',
-'blue':'#2eb5ff','gold':'#ffbe4d','gold_light':'#ffdf9e',
-'green':'#25d366','pink':'#e1306c','muted':'#b8c6e0','purple':'#8e44ad'
-}
-def logo_html():
-    return "<div style='text-align:center'><div style='font-size:42px'>🌐</div><div style='color:#ffbe4d;font-weight:bold'>شركة أمية للإنترنت</div></div>"
+COLORS={'bg':'#0a1938','bg_dark':'#0a1938','bg_light':'#f5f5f5','card_dark':'#1e1e1e','card_light':'#ffffff','white':'#ffffff','black':'#000000','text':'#ffffff','gold':'#ffbe4d','blue':'#2196F3','input_dark':'#111','border_dark':'#333','btn_blue':'#2196F3','btn_red':'#F44336','btn_wa':'#25D366','menu_bg':'#111','top_bg':'#1a1a1a','text_muted_dark':'#aaa'}
+def logo_html(): return "<div style='text-align:center'><div style='font-size:38px'>🌐</div><div style='color:#ffbe4d;font-weight:bold'>شركة أمية للإنترنت</div></div>"
