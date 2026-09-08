@@ -10,8 +10,11 @@ import traceback
 import sqlite3
 app=Flask(__name__)
 app.secret_key=os.environ.get("SECRET_KEY","omia-sec-2026-CHANGE-ME")
-DATABASE_URL=os.environ.get("DATABASE_URL","").strip().replace("postgresql://","postgres://")
-USE_PG=bool(DATABASE_URL.startswith("postgres://") and psycopg2)
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+if DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgres://")
+
+USE_PG = bool(DATABASE_URL and DATABASE_URL.startswith("postgres://"))
 _pg=None
 def esc(s): return html.escape(str(s or ''), quote=True)
 def db():
