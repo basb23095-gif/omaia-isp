@@ -6,6 +6,7 @@ try:
     import psycopg2, psycopg2.extras
 except:
     psycopg2=None
+import traceback
 import sqlite3
 app=Flask(__name__)
 app.secret_key=os.environ.get("SECRET_KEY","omia-sec-2026-CHANGE-ME")
@@ -130,8 +131,6 @@ def is_valid_ip(ip):
 @app.route('/ping')
 @app.route('/health')
 def public_ping():
-    import psycopg2
-    import traceback
     try:
         conn = psycopg2.connect(os.getenv('DATABASE_URL'))
         conn.close()
