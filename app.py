@@ -2,10 +2,7 @@ from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 import os, html, ipaddress, subprocess, json, socket, platform, io, csv, datetime, re
-try:
-    import psycopg2, psycopg2.extras
-except:
-    psycopg2=None
+import psycopg2, psycopg2.extras
 import traceback
 import sqlite3
 app=Flask(__name__)
