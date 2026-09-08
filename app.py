@@ -1,8 +1,8 @@
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import os, html, ipaddress, subprocess, json, socket, platform, io, csv, datetime, re, time, threading
-import psycopg2, psycopg2.extras, psycopg2.pool
+import os, html, ipaddress, subprocess, json, socket, platform, io, csv, datetime, re, time
+import psycopg2, psycopg2.extras
 import sqlite3
 
 app = Flask(__name__)
@@ -15,38 +15,16 @@ if DATABASE_URL.startswith("postgres://"):
 
 USE_PG = bool(DATABASE_URL)
 
-# --- كاش و Pool جديد وسريع ---
-_pg_pool = None
-_pg_pool_lock = threading.Lock()
-_dish_table_cache = {"name": None, "ts": 0}
-_simple_cache = {}
-_simple_cache_lock = threading.Lock()
+_dish_cache = {"name": None, "ts": 0}
+_cnt_cache = {}
+_cnt_time = 0
 
-def get_pg_pool():
-    global _pg_pool
-    if _pg_pool:
-        return _pg_pool
-    with _pg_pool_lock:
-        if _pg_pool:
-            return _pg_pool
-        if not USE_PG:
-            return None
-        try:
-            _pg_pool = psycopg2.pool.SimpleConnectionPool(1, 15, dsn=DATABASE_URL, sslmode='require', connect_timeout=3)
-            return _pg_pool
-        except Exception as e:
-            print(f"[POOL error] {e}")
-            return None
+def esc(s):
+    return html.escape(str(s or ''), quote=True)
 
 def get_conn():
     if USE_PG:
-        pool = get_pg_pool()
-        if pool:
-            try:
-                return pool.getconn()
-            except:
-                pass
-        return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=3)
+        return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
     try:
         c = sqlite3.connect("omia.db", check_same_thread=False, timeout=10)
         c.row_factory = sqlite3.Row
@@ -55,23 +33,6 @@ def get_conn():
         c = sqlite3.connect(":memory:", check_same_thread=False)
         c.row_factory = sqlite3.Row
         return c
-
-def release_conn(conn):
-    if USE_PG:
-        pool = get_pg_pool()
-        if pool:
-            try:
-                pool.putconn(conn)
-                return
-            except:
-                pass
-    try:
-        conn.close()
-    except:
-        pass
-
-def esc(s):
-    return html.escape(str(s or ''), quote=True)
 
 def qall(q, a=()):
     conn = None
@@ -82,7 +43,7 @@ def qall(q, a=()):
             cur.execute(q.replace("?", "%s"), a)
             rs = [dict(r) for r in cur.fetchall()]
             cur.close()
-            release_conn(conn)
+            conn.close()
             return rs
         else:
             rs = [dict(r) for r in conn.execute(q, a).fetchall()]
@@ -91,7 +52,7 @@ def qall(q, a=()):
     except Exception as e:
         print(f"[DB qall error] {e} | {q}")
         try:
-            if conn: release_conn(conn)
+            if conn: conn.close()
         except: pass
         return []
 
@@ -100,6 +61,7 @@ def qone(q, a=()):
     return r[0] if r else None
 
 def qexec(q, a=()):
+    global _cnt_cache, _cnt_time
     conn = None
     try:
         conn = get_conn()
@@ -108,48 +70,45 @@ def qexec(q, a=()):
             cur.execute(q.replace("?", "%s"), a)
             conn.commit()
             cur.close()
-            release_conn(conn)
+            conn.close()
         else:
             conn.execute(q, a)
             conn.commit()
             conn.close()
-        # امسح كاش العد
-        with _simple_cache_lock:
-            _simple_cache.clear()
+        _cnt_cache = {}
+        _cnt_time = 0
         return True
     except Exception as e:
         print(f"[DB qexec error] {e} | {q} | {a}")
         try:
-            if conn: release_conn(conn)
+            if conn: conn.close()
         except: pass
         return False
 
 def get_dish_table():
-    # كاش 60 ثانية
     now = time.time()
-    if _dish_table_cache["name"] and now - _dish_table_cache["ts"] < 60:
-        return _dish_table_cache["name"]
+    if _dish_cache["name"] and now - _dish_cache["ts"] < 60:
+        return _dish_cache["name"]
     if not USE_PG:
         return "dish_ips"
     try:
         rows = qall("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('ips','dish_ips')")
         names = [r.get('table_name') for r in rows]
         tbl = "ips" if 'ips' in names else "dish_ips"
-        _dish_table_cache["name"] = tbl
-        _dish_table_cache["ts"] = now
+        _dish_cache["name"] = tbl
+        _dish_cache["ts"] = now
         return tbl
     except:
         return "dish_ips"
 
-def fast_count(table, ttl=15):
-    key = f"cnt:{table}"
+def fast_count(tbl):
+    global _cnt_cache, _cnt_time
     now = time.time()
-    with _simple_cache_lock:
-        if key in _simple_cache and now - _simple_cache[key][1] < ttl:
-            return _simple_cache[key][0]
-    c = (qone(f"SELECT COUNT(*) as c FROM {table}") or {}).get('c', 0)
-    with _simple_cache_lock:
-        _simple_cache[key] = (c, now)
+    if tbl in _cnt_cache and now - _cnt_time < 15:
+        return _cnt_cache[tbl]
+    c = (qone(f"SELECT COUNT(*) as c FROM {tbl}") or {}).get('c', 0)
+    _cnt_cache[tbl] = c
+    _cnt_time = now
     return c
 
 def init():
@@ -177,15 +136,11 @@ def init():
         ]
     for s in tables:
         qexec(s)
-    # Indexes للسرعة
     try:
         qexec("CREATE INDEX IF NOT EXISTS idx_dish_ip ON dish_ips(ip)")
         qexec("CREATE INDEX IF NOT EXISTS idx_ips_ip ON ips(ip)")
-        qexec("CREATE INDEX IF NOT EXISTS idx_subs_phone ON subs(phone)")
-        qexec("CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone)")
     except:
         pass
-
     if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
               ('05344851045', generate_password_hash('admin2024'), 'manager', 'admin'))
@@ -228,15 +183,11 @@ def is_valid_ip(ip):
         return False
 
 @app.after_request
-def add_cache_headers(resp):
-    # كاش ذكي
+def add_headers(resp):
     if request.path.startswith('/api/'):
-        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        resp.headers['Cache-Control'] = 'no-store'
     elif request.path in ['/ping','/health']:
         resp.headers['Cache-Control'] = 'public, max-age=60'
-    else:
-        resp.headers['Cache-Control'] = 'no-cache'
-    resp.headers['X-Content-Type-Options'] = 'nosniff'
     return resp
 
 @app.route('/ping')
@@ -253,7 +204,6 @@ def public_ping():
         except Exception as e:
             err = str(e)[:300]
     else:
-        pg_ok = False
         err = "Using SQLite"
     return jsonify(ok=True, pg=pg_ok, error=err, time=datetime.datetime.now().isoformat(), table=tbl)
 
@@ -335,10 +285,7 @@ def api_noti_read():
 @login_required
 def api_network():
     tbl = get_dish_table()
-    dishes = fast_count(tbl)
-    towers = fast_count("towers")
-    subs_cnt = fast_count("subs")
-    return jsonify(dishes=dishes, towers=towers, subs=subs_cnt)
+    return jsonify(dishes=fast_count(tbl), towers=fast_count("towers"), subs=fast_count("subs"))
 
 @app.route('/toggle_lang')
 @login_required
@@ -413,8 +360,7 @@ def login():
 <style>*{box-sizing:border-box;font-family:system-ui}body{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 55%, #070a1f 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
 .card{background:linear-gradient(180deg, #222b45cc, #1a2035cc);backdrop-filter:blur(16px);border:1px solid #ffffff18;padding:26px;border-radius:22px;width:92%;max-width:380px;box-shadow:0 20px 60px #0008}
 input{width:100%;padding:14px;margin:9px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:14px;font-size:15px}
-.btn{width:100%;padding:14px;border:0;border-radius:14px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:900;font-size:17px;cursor:pointer;margin-top:12px;transition:all.1s}
-.btn:active{transform:scale(0.97)}
+.btn{width:100%;padding:14px;border:0;border-radius:14px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:900;font-size:17px;cursor:pointer;margin-top:12px}
 #loader{position:fixed;inset:0;background:#0a0e2a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity.15s}
 #loader.show{opacity:1;pointer-events:auto}
 .spinner{width:42px;height:42px;border:4px solid #ffffff18;border-top-color:#ffbe4d;border-radius:50%;animation:spin.6s linear infinite}
@@ -705,7 +651,7 @@ def page_content(v):
         return f'''<div style='max-width:800px;margin:0 auto'>
         <div class=card style='background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #22c55e33'>
         <h3 style='margin:0'>📶 {L('بنج منفصل','Separate Ping')} 🔥 FAST</h3>
-        <p style='color:#9ca3af;font-size:12px;margin:6px 0'>✅ Pool + Cache - {dish_tbl} ☁</p>
+        <p style='color:#9ca3af;font-size:12px;margin:6px 0'>⚡ كاش فوري - {dish_tbl} ☁</p>
         <div style='display:flex;gap:8px;margin-top:12px;flex-wrap:wrap'>
         <input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:160px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff;font-family:monospace'>
         <input id=pingPort placeholder='Port' value='80' style='width:80px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff'>
@@ -803,60 +749,18 @@ def page_content(v):
         <span id=distanceLabel style='padding:8px 12px;background:#1f2937;border:1px solid #ffbe4d33;border-radius:10px;font-size:12px;color:#ffbe4d'>📏 0</span>
         </div>
         <div id=map style='height:72vh;min-height:460px;border-radius:16px;background:#0f172a;z-index:1;border:2px solid #ffffff0f'></div>
-        <div style='margin-top:6px;font-size:11px;color:#6b7280;display:flex;gap:12px;flex-wrap:wrap'><span>{L('💡 اضغط على الخريطة لتحديد موقع','💡 Click map to select')}</span><span id=coordsLabel style='color:#ffbe4d'>📍 -</span></div>
         </div><script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script><script>
         let _towers={tj_json};
         let _map=null; let measureMode=false, addPointMode=false, measurePoints=[], measureLine=null, measureMarkers=[], tempMarkers=[];
-        window.doMapSearch=function(){{
-          let q=document.getElementById('mapSearch').value.trim().toLowerCase(); if(!q) return;
-          let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q));
-          if(f && _map){{_map.flyTo([f.lat,f.lng],17,{{duration:0.5}}); L.popup().setLatLng([f.lat,f.lng]).setContent('<b>🗼 '+f.name+'</b>').openOn(_map);}}
-          else{{let toast=document.createElement('div'); toast.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:8px 14px;border-radius:20px;font-size:12px;z-index:9999'; toast.textContent='🔍 لا يوجد: '+q; document.body.appendChild(toast); setTimeout(()=>toast.remove(),1400);}}
-        }}
-        window.locateMe=function(){{if(_map && navigator.geolocation){{navigator.geolocation.getCurrentPosition(p=>{{_map.flyTo([p.coords.latitude,p.coords.longitude],16); L.marker([p.coords.latitude,p.coords.longitude]).addTo(_map).bindPopup('📍 موقعك').openPopup();}});}}}}
-        window.enableAddPoint=function(){{addPointMode=!addPointMode; let b=document.getElementById('addPointBtn'); b.textContent=addPointMode?'✅ {L('اضغط على الخريطة','Click map')}':'➕ {L('نقطة','Point')}'; b.style.background=addPointMode?'linear-gradient(90deg,#22c55e,#16a34a)':'linear-gradient(90deg,#f59e0b,#d97706)'; if(addPointMode){{measureMode=false; document.getElementById('measureBtn').textContent='📏'; _map.getContainer().style.cursor='crosshair';}}else{{_map.getContainer().style.cursor='';}}}}
-        window.toggleMeasure=function(){{measureMode=!measureMode; let b=document.getElementById('measureBtn'); b.textContent=measureMode?'✅':'📏'; b.style.background=measureMode?'linear-gradient(90deg,#22c55e,#16a34a)':'linear-gradient(90deg,#0ea5e9,#0284c7)'; if(measureMode){{addPointMode=false; document.getElementById('addPointBtn').textContent='➕ {L('نقطة','Point')}'; _map.getContainer().style.cursor='crosshair';}}else{{_map.getContainer().style.cursor='';}}}}
+        window.doMapSearch=function(){{let q=document.getElementById('mapSearch').value.trim().toLowerCase(); if(!q) return; let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q)); if(f && _map){{_map.flyTo([f.lat,f.lng],17,{{duration:0.5}});}}}}
+        window.locateMe=function(){{if(_map && navigator.geolocation){{navigator.geolocation.getCurrentPosition(p=>{{_map.flyTo([p.coords.latitude,p.coords.longitude],16);}});}}}}
+        window.enableAddPoint=function(){{addPointMode=!addPointMode;}}
+        window.toggleMeasure=function(){{measureMode=!measureMode;}}
         window.clearMap=function(){{measurePoints=[]; if(measureLine){{_map.removeLayer(measureLine); measureLine=null;}}measureMarkers.forEach(m=>_map.removeLayer(m)); measureMarkers=[]; tempMarkers.forEach(m=>_map.removeLayer(m)); tempMarkers=[]; document.getElementById('distanceLabel').textContent='📏 0';}};
-        setTimeout(()=>{{
-          if(typeof L==='undefined'){{document.getElementById('map').innerHTML='⚠ فشل تحميل الخريطة'; return;}}
-          _map=L.map('map',{{zoomControl:true,maxZoom:19}}).setView([35.1318,36.7578],13);
-          let osm=L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19}}).addTo(_map);
-          let sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:20}});
-          let topo=L.tileLayer('https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:17}});
-          L.control.layers({{"عادية":osm,"قمر صناعي HD":sat,"تضاريس":topo}}).addTo(_map);
-          L.control.scale().addTo(_map);
-          setTimeout(()=>_map.invalidateSize(),100);
-          _towers.forEach(t=>{{L.marker([t.lat,t.lng],{{draggable:true}}).addTo(_map).bindPopup('<b>'+t.name+'</b><br>'+t.area+'<br><small>'+t.lat.toFixed(5)+','+t.lng.toFixed(5)+'</small>');}});
-          _map.on('click',e=>{{
-            document.getElementById('coordsLabel').textContent='📍 '+e.latlng.lat.toFixed(5)+','+e.latlng.lng.toFixed(5);
-            if(measureMode){{
-              measurePoints.push(e.latlng);
-              let mk=L.marker(e.latlng,{{icon:L.divIcon({{html:'<div style="width:12px;height:12px;background:#ffbe4d;border:2px solid #fff;border-radius:50%"></div>',iconSize:[12,12]}})}}).addTo(_map);
-              measureMarkers.push(mk);
-              if(measureLine) _map.removeLayer(measureLine);
-              if(measurePoints.length>1){{
-                measureLine=L.polyline(measurePoints,{{color:'#ffbe4d',weight:4,dashArray:'8,8'}}).addTo(_map);
-                let d=0; for(let i=1;i<measurePoints.length;i++){{d+=measurePoints[i-1].distanceTo(measurePoints[i]);}}
-                document.getElementById('distanceLabel').textContent='📏 '+(d/1000).toFixed(3)+' كم ('+d.toFixed(0)+' م)';
-              }}
-              return;
-            }}
-            if(addPointMode){{
-              let lat=e.latlng.lat.toFixed(6), lng=e.latlng.lng.toFixed(6);
-              L.popup().setLatLng(e.latlng).setContent('<div style="min-width:200px;text-align:right"><b>➕ نقطة جديدة</b><br><small style="color:#ffbe4d">'+lat+','+lng+'</small><br><input id="newPointName" placeholder="اسم" style="width:100%;margin:6px 0;padding:8px;border-radius:8px;border:1px solid #333;background:#111827;color:#fff"><input id="newPointArea" placeholder="منطقة" style="width:100%;margin:4px 0;padding:8px;border-radius:8px;border:1px solid #333;background:#111827;color:#fff"><button onclick="saveNewPoint('+lat+','+lng+')" style="width:100%;background:linear-gradient(90deg,#ffbe4d,#ffb020);border:0;padding:9px;border-radius:8px;font-weight:800;margin-top:6px">💾 حفظ نقطة</button></div>').openOn(_map);
-              let mk=L.marker(e.latlng,{{icon:L.divIcon({{html:'<div style="width:20px;height:20px;background:#f59e0b;border:3px solid #fff;border-radius:50%"></div>',iconSize:[20,20]}})}}).addTo(_map);
-              tempMarkers.push(mk);
-            }}
-          }});
-          window.saveNewPoint=function(lat,lng){{
-            let name=document.getElementById('newPointName').value.trim()||'نقطة جديدة';
-            let area=document.getElementById('newPointArea').value.trim()||'';
-            fetch('/add_tower',{{method:'POST',body:new URLSearchParams({{name:name,area:area,lat:lat,lng:lng}})}}).then(r=>{{if(r.ok){{alert('✅ تمت إضافة '+name); _map.closePopup(); tempMarkers.forEach(m=>_map.removeLayer(m)); tempMarkers=[]; addPointMode=false; document.getElementById('addPointBtn').textContent='➕ نقطة'; _map.getContainer().style.cursor='';}}}});
-          }};
-        }},150);
+        setTimeout(()=>{{_map=L.map('map').setView([35.1318,36.7578],13); L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(_map); _towers.forEach(t=>{{L.marker([t.lat,t.lng]).addTo(_map).bindPopup(t.name);}});}},200);
         </script>'''
     if v=='support':
-        return """<div class=card style='text-align:center;max-width:500px;margin:0 auto'><h2>🛠 الدعم</h2><a href='https://wa.me/905344851045' target=_blank style='display:inline-block;background:#22c55e;color:#fff;padding:14px 24px;border-radius:14px;text-decoration:none;margin:6px;font-weight:800'>💬 واتساب</a><br><a href='tel:+905344851045' style='display:inline-block;background:#0ea5e9;color:#fff;padding:12px 22px;border-radius:14px;text-decoration:none;margin:6px'>📞 +90 534 485 10 45</a></div>"""
+        return """<div class=card style='text-align:center;max-width:500px;margin:0 auto'><h2>🛠 الدعم</h2><a href='https://wa.me/905344851045' target=_blank style='display:inline-block;background:#22c55e;color:#fff;padding:14px 24px;border-radius:14px;text-decoration:none;margin:6px;font-weight:800'>💬 واتساب</a></div>"""
     if v=='settings':
         us=qall("SELECT * FROM users ORDER BY phone DESC")
         uh=""
@@ -864,10 +768,7 @@ def page_content(v):
             ph=esc(u["phone"]);un=esc(u.get("username") or "");ro=esc(u.get("role") or "")
             badge="<span style='background:#ffbe4d;color:#111;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:800'>مدير</span>" if ro=='manager' else "<span style='background:#ffffff15;color:#aaa;padding:2px 8px;border-radius:8px;font-size:11px'>فني</span>"
             uh+=f'<div class="card anim" id="user-{ph}" data-phone="{ph}" data-username="{un}" data-role="{ro}" style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center"><div><b>{un}</b><br><span style="color:#ffbe4d;font-family:monospace">{ph}</span> {badge}</div><div style="display:flex;gap:6px"><button class=btn-gold onclick="openEditUser(\'{ph}\')" style="padding:8px 10px">✏</button><button class=btn-del onclick="askDel(\'/del_user/{ph}\')" style="padding:8px 10px">🗑</button></div></div>'
-        return f'''<div style='max-width:800px;margin:0 auto'><div class=card><h3>🔑 كلمة السر</h3><form data-ajax method=post action=/change_pass style='display:flex;gap:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>💾</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px'><div class=card style='background:linear-gradient(135deg,#1a2340,#121a30);border:1px solid #ffbe4d22;text-align:center'><h4 style='margin:0 0 10px'>🌐 اللغة</h4><button onclick="toggleLang()" id=langBtnSettings style='width:100%;padding:14px;border-radius:12px;border:1px solid #ffffff15;background:linear-gradient(90deg,#1f2937,#111827);color:#fff;font-weight:800;cursor:pointer;font-size:16px'>🌐 عربي</button></div><div class=card style='background:linear-gradient(180deg,#1e2433,#0f1424);border:1px solid #ffbe4d30'><h4 style='text-align:center;margin:0 0 12px'>👤 اضافة يوزر</h4><form data-ajax method=post action=/add_user style='display:flex;flex-direction:column;gap:10px'><input name=user_field placeholder='📱 رقم / يوزر' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><input name=password type=password placeholder='🔑 password' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><select name=role style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold style='padding:14px'>➕</button></form></div><div class=card><h4>📊 تصدير + ☁ Supabase</h4><div style='display:flex;flex-direction:column;gap:8px'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:10px;text-align:center;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff;border-radius:10px'>📗 يوزرات</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:10px;text-align:center;background:linear-gradient(90deg,#0ea5e9,#0284c7);color:#fff;border-radius:10px'>📘 صحون {get_dish_table()}</a><button onclick="window.print()" class=btn-gold style='padding:10px;border-radius:10px'>📄 PDF</button><small style='color:#22c55e'>☁ {get_dish_table()} - لا ينمسح 100 سنة</small></div></div></div>{uh}<script>
-        function openEditUser(ph){{let c=document.getElementById('user-'+ph);document.getElementById('editModal').classList.add('show');document.getElementById('editTitle').textContent='✏ تعديل';document.getElementById('editBody').innerHTML='<input id=edit_u_field value="'+c.dataset.phone+'" style="width:100%;padding:12px;border-radius:10px;margin-top:4px"><input id=edit_u_pass type="password" placeholder="كلمة سر جديدة" style="width:100%;padding:12px;border-radius:10px;margin-top:8px"><select id=edit_u_role style="width:100%;padding:12px;border-radius:10px;margin-top:8px"><option value="tech" '+(c.dataset.role=='tech'?'selected':'')+'>فني</option><option value="manager" '+(c.dataset.role=='manager'?'selected':'')+'>مدير</option></select><button onclick="saveUser(\\''+ph+'\\')" class=btn-gold style="width:100%;padding:14px;margin-top:12px">💾 حفظ</button>';}}
-        function saveUser(oldPh){{let ff=document.getElementById('edit_u_field').value.trim();let pw=document.getElementById('edit_u_pass').value;let ro=document.getElementById('edit_u_role').value;if(!ff){{alert('مطلوب');return;}}let data={{old_phone:oldPh,phone:ff,username:ff,role:ro}};if(pw.trim()!='')data.password=pw.trim();fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(r=>{{if(!r.ok)r.text().then(t=>alert(t));else{{closeEditModal();loadPage('settings',true);}}}});}}
-        </script></div>'''
+        return f'''<div style='max-width:800px;margin:0 auto'><div class=card><h3>🔑 كلمة السر</h3><form data-ajax method=post action=/change_pass style='display:flex;gap:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>💾</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px'><div class=card style='text-align:center'><h4>🌐 اللغة</h4><button onclick="toggleLang()" style='width:100%;padding:14px;border-radius:12px;background:#1f2937;color:#fff'>🌐 عربي</button></div><div class=card><h4>👤 اضافة يوزر</h4><form data-ajax method=post action=/add_user style='display:flex;flex-direction:column;gap:10px'><input name=user_field placeholder='رقم' required><input name=password type=password placeholder='password' required><select name=role><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>➕</button></form></div></div>{uh}</div>'''
     return "<div class=card>ok</div>"
 
 def layout(c, v='home'):
@@ -877,7 +778,7 @@ def layout(c, v='home'):
     card_bg = '#1e2433' if is_dark else '#ffffff'
     txt = '#ffffff' if is_dark else '#0f172a'
     border = '#ffffff12' if is_dark else '#e2e8f0'
-    cur_user = qone("SELECT * FROM users WHERE phone=?", (session.get('phone') or '',)) or {}
+    cur_user = qone("SELECT * FROM users WHERE phone=?", (session.get('phone') or '',))
     if not cur_user:
         cur_user = {}
     role = (cur_user.get('role') or 'tech')
@@ -886,102 +787,66 @@ def layout(c, v='home'):
     username_display = esc(cur_user.get('username') or cur_user.get('phone') or session.get('phone') or '')
     return f"""<html dir=rtl lang=ar><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1,maximum-scale=1'>
 <style>
-*{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;background:{bg};color:{txt};overflow-x:hidden;direction:rtl}}
-.anim{{animation:fadeUp.18s ease both}}@keyframes fadeUp{{from{{opacity:0;transform:translateY(6px)}}to{{opacity:1;transform:none}}}}
-.top{{position:fixed;top:0;left:0;right:0;height:62px;background:linear-gradient(90deg,#0f172af2,#111827f2);backdrop-filter:blur(16px);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1003;border-bottom:1px solid #ffffff12;box-shadow:0 4px 24px #0006}}
-.sidebar{{position:fixed;right:0!important;top:0;width:285px;height:100%;background:linear-gradient(180deg,#0f172a 0%,#070e22 100%);color:#fff;z-index:1002;padding-top:70px;transform:translateX(110%);transition:transform.22s cubic-bezier(.4,0,.2,1);overflow-y:auto;box-shadow:-10px 0 40px #0008;border-left:1px solid #ffffff0f}}
+*{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;background:{bg};color:{txt};overflow-x:hidden}}
+.anim{{animation:fadeUp.15s ease both}}@keyframes fadeUp{{from{{opacity:0;transform:translateY(4px)}}to{{opacity:1;transform:none}}}}
+.top{{position:fixed;top:0;left:0;right:0;height:62px;background:#0f172af2;backdrop-filter:blur(12px);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1003;border-bottom:1px solid #ffffff12}}
+.sidebar{{position:fixed;right:0;top:0;width:285px;height:100%;background:#0f172a;color:#fff;z-index:1002;padding-top:70px;transform:translateX(110%);transition:transform.20s ease;overflow-y:auto}}
 .sidebar.active{{transform:none}}
-.sidebar a{{display:flex;align-items:center;gap:11px;padding:12px 15px;margin:6px 11px;color:#cbd5e1;text-decoration:none;border-radius:13px;background:linear-gradient(90deg,#ffffff06,#ffffff03);border:1px solid #ffffff06;transition:all.18s}}
-.sidebar a:hover{{background:#ffffff12;transform:translateX(-4px);color:#fff}}
-.sidebar a.active{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800;box-shadow:0 6px 18px #ffbe4d44}}
-#overlay{{position:fixed;inset:0;background:#0009;backdrop-filter:blur(4px);z-index:1001;display:none;opacity:0;transition:opacity.2s}}#overlay.show{{display:block;opacity:1}}
+.sidebar a{{display:flex;align-items:center;gap:11px;padding:12px 15px;margin:6px 11px;color:#cbd5e1;text-decoration:none;border-radius:13px;background:#ffffff06}}
+.sidebar a.active{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800}}
+#overlay{{position:fixed;inset:0;background:#0009;z-index:1001;display:none}}#overlay.show{{display:block}}
 .main{{margin-top:74px;padding:14px;min-height:90vh}}
-.card{{background:linear-gradient(180deg,{card_bg},{card_bg});color:{txt};padding:15px;border-radius:15px;margin-bottom:11px;border:1px solid {border};transition:all.15s;box-shadow:0 4px 14px #0002}}
-.card:hover{{transform:translateY(-1px);box-shadow:0 10px 28px #0005}}
+.card{{background:{card_bg};color:{txt};padding:15px;border-radius:15px;margin-bottom:11px;border:1px solid {border};box-shadow:0 4px 14px #0002}}
 input,select{{padding:12px 14px;margin:5px 0;border-radius:11px;border:1px solid {border};width:100%;background:#ffffff07;color:{txt};font-size:14px}}
-input:focus{{border-color:#ffbe4d;box-shadow:0 0 0 3px #ffbe4d22;outline:none}}
-.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:9px 16px;border:0;border-radius:11px;font-weight:800;cursor:pointer;transition:all.15s}}
-.btn-gold:hover{{transform:translateY(-1px)}}
-.btn-del{{background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;padding:8px 13px;border:0;border-radius:11px;cursor:pointer}}
-#delModal, #editModal{{position:fixed;inset:0;background:#000a;backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:9px 16px;border:0;border-radius:11px;font-weight:800;cursor:pointer}}
+.btn-del{{background:#ef4444;color:#fff;padding:8px 13px;border:0;border-radius:11px;cursor:pointer}}
+#delModal, #editModal{{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}}
 #delModal.show, #editModal.show{{opacity:1;pointer-events:auto}}
-#delBox, #editBox{{background:linear-gradient(180deg,{card_bg},#0f1424);color:{txt};padding:24px;border-radius:18px;width:92%;max-width:450px;transform:scale(.92) translateY(18px);transition:.2s}}
-#delModal.show #delBox, #editModal.show #editBox{{transform:scale(1) translateY(0)}}
-::-webkit-scrollbar{{width:8px}}::-webkit-scrollbar-track{{background:#0a0e2a}}::-webkit-scrollbar-thumb{{background:linear-gradient(180deg,#ffbe4d,#ffb020);border-radius:8px}}
+#delBox, #editBox{{background:{card_bg};color:{txt};padding:24px;border-radius:18px;width:92%;max-width:450px}}
 </style></head>
 <body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
-<div style='padding:0 18px 10px;border-bottom:1px solid #ffffff0a;margin-bottom:8px'><div style='font-weight:900;font-size:17px'>OMAIA <span style='color:#ffbe4d'>ISP</span> <small style='color:#22c55e'>☁ FAST</small></div><small style='color:#64748b'>{username_display} • {role} • {get_dish_table()}</small></div>
+<div style='padding:0 18px 10px;border-bottom:1px solid #ffffff0a;margin-bottom:8px'><div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span> <small style='color:#22c55e'>FAST</small></div><small style='color:#64748b'>{username_display} • {role}</small></div>
 <a href="javascript:loadPage('home')" id=nav-home>🏠 {L('الرئيسية','Home')}</a>
-<a href="javascript:loadPage('ping')" id=nav-ping style='background:linear-gradient(90deg,#22c55e18,#16a34a18);border:1px solid #22c55e33'>📶 {L('بنج منفصل','Separate Ping')} <span style='background:#22c55e;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;margin-right:auto'>FAST</span></a>
-<a href="javascript:loadPage('network')" id=nav-network>📊 {L('حالة الشبكة','Network')} <span style='background:#0ea5e9;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;margin-right:auto'>LIVE</span></a>
-<a href="javascript:loadPage('dishes')" id=nav-dishes>📡 {L('الصحون','Dishes')} <span style='background:#22c55e;color:#fff;padding:2px 6px;border-radius:6px;font-size:9px'>☁</span></a>
-<a href="javascript:loadPage('towers')" id=nav-towers>🗼 {L('الأبراج','Towers')}</a>
-<a href="javascript:loadPage('subs')" id=nav-subs>👥 {L('المشتركين','Subs')}</a>
-<a href="javascript:loadPage('ledger')" id=nav-ledger>📒 {L('الحسابات','Ledger')}</a>
-<a href="javascript:loadPage('logs')" id=nav-logs>📜 {L('السجل','Logs')}</a>
-<a href="javascript:loadPage('map')" id=nav-map>🗺 {L('الخريطة الحية','Live Map')} <span style='background:#f59e0b;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;margin-right:auto'>HD</span></a>
-<a href="javascript:loadPage('support')" id=nav-support>🛠 {L('الدعم','Support')}</a>
-<a href="javascript:loadPage('settings')" id=nav-settings>⚙ {L('الإعدادات','Settings')}</a>
-<a href="javascript:logoutFast()" style='margin-top:10px;background:linear-gradient(90deg,#ef444418,#dc262618);border:1px solid #ef444433'>🚪 {L('خروج','Logout')}</a>
+<a href="javascript:loadPage('ping')" id=nav-ping>📶 Ping</a>
+<a href="javascript:loadPage('network')" id=nav-network>📊 Network</a>
+<a href="javascript:loadPage('dishes')" id=nav-dishes>📡 الصحون</a>
+<a href="javascript:loadPage('towers')" id=nav-towers>🗼 الأبراج</a>
+<a href="javascript:loadPage('subs')" id=nav-subs>👥 المشتركين</a>
+<a href="javascript:loadPage('ledger')" id=nav-ledger>📒 الحسابات</a>
+<a href="javascript:loadPage('logs')" id=nav-logs>📜 السجل</a>
+<a href="javascript:loadPage('map')" id=nav-map>🗺 الخريطة</a>
+<a href="javascript:loadPage('settings')" id=nav-settings>⚙ الإعدادات</a>
+<a href="javascript:logoutFast()" style='margin-top:10px;background:#ef444418'>🚪 خروج</a>
 </div>
 <div class=top>
 <div style='display:flex;gap:8px;align-items:center'>
-<span onclick="toggleSb()" style='font-size:24px;cursor:pointer;padding:6px 8px;border-radius:10px;background:#ffffff0a'>☰</span>
-<div style='position:relative'>
-<input id=topsearch placeholder='🔍 {L('بحث','Search')}...' oninput="globalSearchTop(this.value)" onkeydown="if(event.key==='Enter'){{event.preventDefault(); globalSearchTop(this.value);}}" style='background:#1f2937;border:1px solid #ffffff15;color:#fff;padding:9px 14px;border-radius:12px;width:42px;font-size:13px;transition:all.22s' onfocus="this.style.width='200px'" onblur="setTimeout(()=>{{this.style.width='42px'; let b=document.getElementById('searchResults'); if(b) b.style.display='none';}},250)">
+<span onclick="toggleSb()" style='font-size:24px;cursor:pointer'>☰</span>
+<input id=topsearch placeholder='🔍 بحث...' oninput="globalSearchTop(this.value)" style='background:#1f2937;border:1px solid #ffffff15;color:#fff;padding:9px 14px;border-radius:12px;width:42px;transition:all.2s' onfocus="this.style.width='180px'" onblur="setTimeout(()=>this.style.width='42px',250)">
 </div>
+<div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div style='display:flex;gap:8px'><button onclick="toggleTheme()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:8px 11px;border-radius:11px'>🌓</button></div>
 </div>
-<div style='font-weight:900;font-size:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span> <span style='color:#22c55e;font-size:10px'>☁ FAST</span></div>
-<div style='display:flex;gap:8px;align-items:center'>
-<div id=notifBell onclick="toggleNotif()" style='position:relative;cursor:pointer;font-size:20px;padding:6px 8px;border-radius:10px;background:#ffffff08'>🔔<span id=notifCount style='display:none;position:absolute;top:-4px;right:-4px;background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;font-size:10px;width:18px;height:18px;border-radius:50%;align-items:center;justify-content:center;font-weight:900'>0</span></div>
-<button onclick="toggleTheme()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:8px 11px;border-radius:11px;cursor:pointer'>🌓</button>
-</div>
-</div>
-<div id=searchResults style='position:fixed;top:66px;right:12px;left:12px;max-width:480px;margin:0 auto;background:linear-gradient(180deg,#1e2433,#171e2f);border:1px solid #ffffff15;border-radius:14px;z-index:1500;display:none;max-height:60vh;overflow:auto;box-shadow:0 16px 40px #000a'></div>
-<div id=notifPanel style='position:fixed;top:66px;left:12px;max-width:360px;width:92%;background:linear-gradient(180deg,#1e2433,#111827);border:1px solid #ffffff12;border-radius:14px;z-index:2000;display:none;max-height:70vh;overflow:auto;box-shadow:0 16px 40px #000a'></div>
+<div id=searchResults style='position:fixed;top:66px;right:12px;left:12px;max-width:480px;margin:0 auto;background:#1e2433;border:1px solid #ffffff15;border-radius:14px;z-index:1500;display:none;max-height:60vh;overflow:auto'></div>
 <div class=main id=mn>{c}</div>
-<div id=delModal><div id=delBox><div style='font-size:42px;text-align:center'>🗑</div><h3 style='text-align:center;margin:8px 0'>تأكيد الحذف؟</h3><div style='display:flex;gap:10px;margin-top:14px'><button onclick="closeDel()" style='flex:1;padding:12px;border-radius:12px;border:1px solid {border};background:transparent;color:{txt};cursor:pointer'>تراجع</button><button id=delYes style='flex:1;padding:12px;border-radius:12px;background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;border:0;cursor:pointer;font-weight:800'>حذف</button></div></div></div>
-<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px'><h3 id=editTitle style='margin:0'>✏ تعديل</h3><button onclick="closeEditModal()" style='background:#ffffff12;border:0;color:{txt};width:32px;height:32px;border-radius:50%;cursor:pointer'>✕</button></div><div id=editBody></div></div></div>
+<div id=delModal><div id=delBox><h3 style='text-align:center'>تأكيد الحذف؟</h3><div style='display:flex;gap:10px;margin-top:14px'><button onclick="closeDel()" style='flex:1;padding:12px;border-radius:12px'>تراجع</button><button id=delYes style='flex:1;padding:12px;border-radius:12px;background:#ef4444;color:#fff;border:0'>حذف</button></div></div></div>
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between'><h3>✏ تعديل</h3><button onclick="closeEditModal()" style='background:#ffffff12;border:0;width:32px;height:32px;border-radius:50%'>✕</button></div><div id=editBody></div></div></div>
 <script>
 let cur='{v}';
-let lang=localStorage.getItem('omaia_lang')||'{req_lang}';
-function applyLang(){{
-  let lbs=document.getElementById('langBtnSettings'); if(lbs) lbs.textContent=lang==='ar'?'🌐 عربي':'🌐 English';
-  document.documentElement.lang=lang;
-  document.documentElement.dir=lang==='ar'?'rtl':'ltr';
-  document.body.style.direction=lang==='ar'?'rtl':'ltr';
-  localStorage.setItem('omaia_lang',lang);
-}}
-window.toggleLang=function(){{
-  lang=lang==='ar'?'en':'ar';
-  localStorage.setItem('omaia_lang',lang);
-  applyLang();
-  let toast=document.getElementById('miniToast');
-  if(!toast){{toast=document.createElement('div'); toast.id='miniToast'; toast.style.cssText='position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:9px 18px;border-radius:24px;font-size:13px;z-index:9999;box-shadow:0 8px 24px #0006;border:1px solid #ffffff15;transition:all.2s;opacity:0'; document.body.appendChild(toast);}}
-  toast.textContent=lang==='ar'?'🌐 العربية':'🌐 English';
-  toast.style.opacity='1';
-  setTimeout(()=>toast.style.opacity='0',1800);
-  fetch('/toggle_lang').then(r=>r.json()).then(()=>{{
-    fetch('/api/page?v='+cur+'&lang='+lang).then(r=>r.text()).then(h=>{{let mn=document.getElementById('mn'); if(mn){{mn.innerHTML=h; bind(); execScripts();}}}});
-  }});
-}}
-applyLang();
+let pageCache={{}};
+try{{pageCache=JSON.parse(localStorage.getItem('omaia_cache_v4')||'{{}}');}}catch(e){{pageCache={{}};}}
+function saveCache(){{try{{localStorage.setItem('omaia_cache_v4',JSON.stringify(pageCache));}}catch(e){{}}}}
 function toggleSb(force){{
   let sb=document.getElementById('sb'),ov=document.getElementById('overlay');
   let open=force!==undefined?force:!sb.classList.contains('active');
   sb.classList.toggle('active',open);
   ov.classList.toggle('show',open);
-  if(open){{ov.style.display='block'; setTimeout(()=>ov.style.opacity='1',10);}} else {{ov.style.opacity='0'; setTimeout(()=>ov.style.display='none',200);}}
+  ov.style.display=open?'block':'none';
 }}
-let pageCache={{}};
-try{{pageCache=JSON.parse(localStorage.getItem('omaia_cache_v4')||'{{}}');}}catch(e){{pageCache={{}};}}
-function saveCache(){{try{{localStorage.setItem('omaia_cache_v4',JSON.stringify(pageCache));}}catch(e){{}}}}
 async function loadPage(v,force=false,push=true){{
   if(push && cur!==v){{ try{{history.pushState({{page:v}}, '', '/dash?v='+v);}}catch(e){{}} }}
   cur=v;
-  try{{localStorage.setItem('omaia_last_page',v);}}catch(e){{}}
   toggleSb(false);
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let nav=document.getElementById('nav-'+v); if(nav)nav.classList.add('active');
@@ -989,18 +854,18 @@ async function loadPage(v,force=false,push=true){{
   if(!force && pageCache[v]){{
     mn.innerHTML=pageCache[v];
     bind(); execScripts();
-    fetch('/api/page?v='+v+'&lang='+lang).then(r=>r.text()).then(h=>{{pageCache[v]=h; saveCache();}}).catch(()=>{{}});
+    fetch('/api/page?v='+v).then(r=>r.text()).then(h=>{{pageCache[v]=h; saveCache();}}).catch(()=>{{}});
     return;
   }}
   try{{
-    let r=await fetch('/api/page?v='+v+'&lang='+lang);
+    let r=await fetch('/api/page?v='+v);
     let h=await r.text();
     pageCache[v]=h; saveCache();
     mn.innerHTML=h;
     bind(); execScripts();
-  }}catch(e){{ mn.innerHTML='<div class=card>❌ '+e+'<br><button class=btn-gold onclick="loadPage(\\''+v+'\\',true)">↻</button></div>'; }}
+  }}catch(e){{ mn.innerHTML='<div class=card>❌ '+e+'</div>'; }}
 }}
-function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(s=>{{try{{(0,eval)(s.textContent)}}catch(e){{console.error(e)}}}});}}
+function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(s=>{{try{{(0,eval)(s.textContent)}}catch(e){{}}}});}}
 function bind(){{
   document.querySelectorAll('form[data-ajax]').forEach(f=>{{
     if(f.dataset.bound) return;
@@ -1012,48 +877,26 @@ function bind(){{
       if(btn){{btn.innerHTML='⏳...'; btn.disabled=true;}}
       try{{
         let r=await fetch(f.action,{{method:'POST',body:new FormData(f)}});
-        let txt=await r.text();
         if(r.ok){{delete pageCache[cur]; await loadPage(cur,true);}}
-        else{{alert(txt); if(btn){{btn.innerHTML=old; btn.disabled=false;}}}}
+        else{{alert(await r.text()); if(btn){{btn.innerHTML=old; btn.disabled=false;}}}}
       }}catch(err){{alert(err); if(btn){{btn.innerHTML=old; btn.disabled=false;}}}}
     }};
   }});
 }}
 function askDel(u){{window._delUrl=u;document.getElementById('delModal').classList.add('show');}}
-function closeDel(){{document.getElementById('delModal').classList.remove('show');window._delUrl=null;}}
+function closeDel(){{document.getElementById('delModal').classList.remove('show');}}
 window.closeEditModal=function(){{document.getElementById('editModal').classList.remove('show');}}
-document.getElementById('editModal').addEventListener('click',e=>{{if(e.target.id==='editModal')closeEditModal();}});
-document.getElementById('delModal').addEventListener('click',e=>{{if(e.target.id==='delModal')closeDel();}});
-document.getElementById('delYes').onclick=async()=>{{if(window._delUrl){{let r=await fetch(window._delUrl); if(!r.ok){{let t=await r.text(); alert(t); closeDel(); return;}} delete pageCache[cur]; closeDel(); loadPage(cur,true);}}}};
-async function toggleTheme(){{try{{await fetch('/toggle_theme'); location.reload();}}catch(e){{location.reload();}}}}
-let searchTimer=null;
+document.getElementById('delYes').onclick=async()=>{{if(window._delUrl){{await fetch(window._delUrl); delete pageCache[cur]; closeDel(); loadPage(cur,true);}}}};
+async function toggleTheme(){{await fetch('/toggle_theme'); location.reload();}}
 window.globalSearchTop=async function(q){{
   let box=document.getElementById('searchResults');
-  if(!q || q.trim().length<1){{ box.style.display='none'; return; }}
-  clearTimeout(searchTimer);
-  searchTimer=setTimeout(async ()=>{{
-    try{{
-      let r=await fetch('/api/search?q='+encodeURIComponent(q));
-      let d=await r.json();
-      if(!d || d.length==0){{
-        box.innerHTML='<div style="padding:9px 14px;display:flex;align-items:center;gap:8px;color:#9ca3af;font-size:12px"><span style="width:6px;height:6px;background:#ef4444;border-radius:50%"></span> لا يوجد نتائج</div>';
-        box.style.display='block';
-        setTimeout(()=>{{ box.style.display='none'; }},1600);
-        return;
-      }}
-      let h='<div style="padding:8px 12px;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between"><span>🔍 '+d.length+'</span><span style="cursor:pointer" onclick="document.getElementById(\\'searchResults\\').style.display=\\'none\\'">✕</span></div>';
-      d.slice(0,8).forEach(x=>{{
-        h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:10px 12px;cursor:pointer;border-top:1px solid #ffffff08;display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:12px">'+(x.title||'').substring(0,28)+'</b><br><small style="color:#6b7280;font-size:10px">'+(x.sub||'').substring(0,22)+'</small></div><small style="background:#ffbe4d15;color:#ffbe4d;padding:3px 7px;border-radius:6px;font-size:10px">'+x.page+'</small></div>';
-      }});
-      box.innerHTML=h; box.style.display='block';
-    }}catch(e){{ box.style.display='none'; }}
-  }},180);
+  if(!q){{box.style.display='none'; return;}}
+  try{{let r=await fetch('/api/search?q='+encodeURIComponent(q)); let d=await r.json(); if(!d.length){{box.style.display='none'; return;}} let h=''; d.slice(0,8).forEach(x=>{{h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:10px 12px;cursor:pointer;border-top:1px solid #ffffff08"><b>'+x.title+'</b> - '+x.sub+'</div>';}}); box.innerHTML=h; box.style.display='block';}}catch(e){{}}
 }}
-window.toggleNotif=async function(){{
-  let panel=document.getElementById('notifPanel');
-  panel.style.display=panel.style.display==='block'?'none':'block';
-  if(panel.style.display==='block'){{
-    try{{
-      let r=await fetch('/api/notifications');
-      let j=await r.json();
-      let h='<div style="
+window.logoutFast=async function(){{ try{{await fetch('/api/logout',{{method:'POST'}});}}catch(e){{}} localStorage.clear(); location.replace('/login'); }};
+bind(); execScripts();
+</script>
+</body></html>"""
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), debug=False, threaded=True)
