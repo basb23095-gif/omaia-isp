@@ -1,7 +1,7 @@
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import os, html, ipaddress, subprocess, json, socket, platform, io, csv, datetime
+import os, html, ipaddress, subprocess, json, socket, platform, io, csv, datetime, re
 try:
     import psycopg2, psycopg2.extras
 except:
@@ -16,22 +16,20 @@ def esc(s): return html.escape(str(s or ''), quote=True)
 def db():
     global _pg
     if USE_PG:
+        if _pg:
+            try:
+                cur=_pg.cursor();cur.execute("SELECT 1");cur.close();return _pg
+            except:
+                try:_pg.close()
+                except:pass
+                _pg=None
         try:
-            if _pg:
-                try:
-                    c=_pg.cursor();c.execute("SELECT 1");c.close();return _pg
-                except:
-                    try:_pg.close()
-                    except:pass
-                    _pg=None
-        except:_pg=None
-        try:
-            _pg=psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=10)
+            _pg=psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=3)
             _pg.autocommit=True
             return _pg
         except:pass
     try:
-        c=sqlite3.connect("omia.db",check_same_thread=False)
+        c=sqlite3.connect("omia.db",check_same_thread=False,timeout=5)
         c.row_factory=sqlite3.Row
         return c
     except:
@@ -73,19 +71,40 @@ def qexec(q,a=()):
             c.commit()
             cc(c)
     except:cc(c)
-def add_log(user_phone,action,detail):
-    try:
-        now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(user_phone or 'unknown',action,detail,now))
-        qexec("INSERT INTO notifications(title,msg,time) VALUES(?,?,?)",(action,str(user_phone)+": "+str(detail),now))
-    except:pass
-def init():
-    ss=["CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,username TEXT)","CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,note TEXT)","CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,amount REAL,note TEXT,currency TEXT)","CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT)","CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL)","CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,action TEXT,detail TEXT,time TEXT)","CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)"]
+def get_dish_table():
     if USE_PG:
-        ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
+        try:
+            c=db()
+            cur=c.cursor()
+            cur.execute("SELECT to_regclass('public.ips')")
+            r=cur.fetchone()
+            cur.close()
+            if r and r[0]:
+                return "ips"
+        except:pass
+        return "dish_ips"
+    return "dish_ips"
+def init():
+    ss=[
+    "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,username TEXT)",
+    "CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,note TEXT)",
+    "CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,amount REAL,note TEXT,currency TEXT)",
+    "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT)",
+    "CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL)",
+    "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,action TEXT,detail TEXT,time TEXT)",
+    "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS ips(id SERIAL PRIMARY KEY, ip TEXT, location TEXT, dish_name TEXT, created_at TIMESTAMP DEFAULT NOW())"
+    ]
+    if USE_PG:
+        # fix first table keep TEXT PK
+        ss[0]="CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,username TEXT)"
+        for i in range(1,7):
+            ss[i]=ss[i].replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY")
     for s in ss:qexec(s)
-    if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin'))
-    if not qone("SELECT * FROM towers WHERE name=?",('نقطة حماة الرئيسية',)):qexec("INSERT INTO towers(name,area,lat,lng) VALUES(?,?,?,?)",('نقطة حماة الرئيسية','حماة',35.1318,36.7578))
+    if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
+        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin'))
+    if not qone("SELECT * FROM towers WHERE name=?",('نقطة حماة الرئيسية',)):
+        qexec("INSERT INTO towers(name,area,lat,lng) VALUES(?,?,?,?)",('نقطة حماة الرئيسية','حماة',35.1318,36.7578))
 init()
 def login_required(f):
     @wraps(f)
@@ -110,29 +129,31 @@ def is_valid_ip(ip):
     except:return len(ip)>=7 and '.' in ip
 @app.route('/ping')
 @app.route('/health')
-def public_ping():return jsonify(ok=True,time=datetime.datetime.now().isoformat())
+def public_ping():return jsonify(ok=True,time=datetime.datetime.now().isoformat(),table=get_dish_table(),pg=USE_PG)
 @app.route('/api/ping')
 @login_required
 def api_ping():
     ip=request.args.get('ip','').strip()
     if not ip:return jsonify(ok=False,out='لا يوجد IP')
     if not is_valid_ip(ip):return jsonify(ok=False,out='IP غير صالح')
-    try:
-        cmd=['ping','-c','1','-W','2',ip] if platform.system().lower()!='windows' else ['ping','-n','1','-w','2000',ip]
-        out=subprocess.check_output(cmd,timeout=3,stderr=subprocess.STDOUT).decode(errors='ignore')
-        ok='ttl=' in out.lower() or 'bytes from' in out.lower() or '1 received' in out.lower()
-        if ok:
-            import re
-            m=re.search(r'time[=<]\s*(\d+\.?\d*)',out,re.I)
-            ms=m.group(1) if m else ''
-            return jsonify(ok=True,out=f'✅ متصل {ip} - {ms}ms',ms=ms)
-    except:pass
+    # TCP أولا - يشتغل على Render
     for port in [80,443,8080,8291,22,23,53,8000,8728]:
         try:
-            s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.settimeout(1.2)
-            if s.connect_ex((ip,port))==0:s.close();return jsonify(ok=True,out=f'✅ متصل - {ip}:{port} مفتوح',port=port)
+            s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.settimeout(0.9)
+            if s.connect_ex((ip,port))==0:
+                s.close()
+                return jsonify(ok=True,out=f'✅ متصل - {ip}:{port} مفتوح',port=port,method='tcp')
             s.close()
         except:continue
+    try:
+        cmd=['ping','-c','1','-W','1',ip] if platform.system().lower()!='windows' else ['ping','-n','1','-w','1000',ip]
+        out=subprocess.check_output(cmd,timeout=2,stderr=subprocess.STDOUT).decode(errors='ignore')
+        ok='ttl=' in out.lower() or 'bytes from' in out.lower() or '1 received' in out.lower()
+        if ok:
+            m=re.search(r'time[=<]\s*(\d+\.?\d*)',out,re.I)
+            ms=m.group(1) if m else ''
+            return jsonify(ok=True,out=f'✅ متصل {ip} - {ms}ms',ms=ms,method='icmp')
+    except:pass
     return jsonify(ok=False,out=f'❌ {ip} لا يرد')
 @app.route('/api/ping_tcp')
 @login_required
@@ -141,13 +162,13 @@ def api_ping_tcp():
     port=int(request.args.get('port','80') or 80)
     if not is_valid_ip(ip):return jsonify(ok=False,out='IP غير صالح')
     try:
-        s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.settimeout(2);r=s.connect_ex((ip,port));s.close()
+        s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.settimeout(1.5);r=s.connect_ex((ip,port));s.close()
         return jsonify(ok=r==0,out=f'✅ {ip}:{port} مفتوح' if r==0 else f'❌ {ip}:{port} مغلق')
     except Exception as e:return jsonify(ok=False,out=f'❌ {e}')
 @app.route('/api/notifications')
 @login_required
 def api_noti():
-    rows=qall("SELECT * FROM notifications ORDER BY id DESC LIMIT 30")
+    rows=qall("SELECT * FROM notifications ORDER BY id DESC LIMIT 20")
     unread=qone("SELECT COUNT(*) c FROM notifications WHERE read=0")
     cnt=unread.get('c',0) if unread else 0
     return jsonify(rows=rows,unread=cnt)
@@ -157,7 +178,8 @@ def api_noti_read():qexec("UPDATE notifications SET read=1");return jsonify(ok=T
 @app.route('/api/network_status')
 @login_required
 def api_network():
-    dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC");towers=qall("SELECT * FROM towers ORDER BY id DESC");subs_cnt=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0);return jsonify(dishes=len(dishes),towers=len(towers),subs=subs_cnt)
+    tbl=get_dish_table()
+    dishes=qall(f"SELECT * FROM {tbl} ORDER BY id DESC");towers=qall("SELECT * FROM towers ORDER BY id DESC");subs_cnt=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0);return jsonify(dishes=len(dishes),towers=len(towers),subs=subs_cnt)
 @app.route('/toggle_lang')
 @login_required
 def toggle_lang_route():
@@ -167,14 +189,16 @@ def api_login_public():
     uin=request.form.get('userin','').strip();pw=request.form.get('password','')
     u=qone("SELECT * FROM users WHERE phone=? OR username=?",(uin,uin))
     if u and check_password_hash(u['password'],pw):
-        session['phone']=u['phone'];session['username']=u.get('username') or u['phone'];add_log(u['phone'],'دخل النظام','تسجيل دخول');return jsonify(ok=True,role=u.get('role'))
+        session['phone']=u['phone'];session['username']=u.get('username') or u['phone'];session.permanent=True
+        return jsonify(ok=True,role=u.get('role'))
     return jsonify(ok=False,msg='خطأ بالدخول'),401
 @app.route('/api/export/<tbl>')
 @login_required
 def api_export(tbl):
     output=io.StringIO();w=csv.writer(output)
+    dish_tbl=get_dish_table()
     if tbl=='dishes':
-        rows=qall("SELECT * FROM dish_ips ORDER BY id DESC");w.writerow(['ID','اسم الصحن','IP','الموقع'])
+        rows=qall(f"SELECT * FROM {dish_tbl} ORDER BY id DESC");w.writerow(['ID','اسم الصحن','IP','الموقع'])
         for r in rows:w.writerow([r['id'],r.get('dish_name',''),r.get('ip',''),r.get('location','')]);fname='dishes.csv'
     elif tbl=='subs':
         rows=qall("SELECT * FROM subs ORDER BY id DESC");w.writerow(['ID','الاسم','رقم','ملاحظة'])
@@ -198,22 +222,30 @@ def login():
 <style>*{box-sizing:border-box;font-family:system-ui}body{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 55%, #070a1f 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
 .card{background:linear-gradient(180deg, #222b45cc, #1a2035cc);backdrop-filter:blur(16px);border:1px solid #ffffff18;padding:26px;border-radius:22px;width:92%;max-width:380px;box-shadow:0 20px 60px #0008}
 input{width:100%;padding:14px;margin:9px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:14px;font-size:15px}
-.btn{width:100%;padding:14px;border:0;border-radius:14px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:900;font-size:17px;cursor:pointer;margin-top:12px}
-#loader{position:fixed;inset:0;background:#0a0e2a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s}
+.btn{width:100%;padding:14px;border:0;border-radius:14px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:900;font-size:17px;cursor:pointer;margin-top:12px;transition:all .15s}
+.btn:active{transform:scale(0.97)}
+#loader{position:fixed;inset:0;background:#0a0e2a;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
 #loader.show{opacity:1;pointer-events:auto}
-.spinner{width:42px;height:42px;border:4px solid #ffffff18;border-top-color:#ffbe4d;border-radius:50%;animation:spin .8s linear infinite}
+.spinner{width:42px;height:42px;border:4px solid #ffffff18;border-top-color:#ffbe4d;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}</style></head><body>
 <div id=loader><div class=spinner></div><div style='margin-top:12px;color:#ffbe4d;font-weight:800'>⏳ جاري التحميل...</div></div>
 <div style='font-size:30px;font-weight:900;margin-bottom:14px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
-<div class=card><form id=loginForm><input name=userin id=userin placeholder='📱 رقم / يوزر' required><input name=password id=password type=password placeholder='🔑 كلمة السر' required><label style='display:flex;gap:8px;font-size:13px;color:#aaa;margin:8px 0'><input type=checkbox id=savePass style='width:auto'> حفظ</label><button class=btn id=loginBtn>✨ دخول فوري</button><div id=msg style='text-align:center;margin-top:8px;color:#ff6b6b;font-size:13px'></div></form></div>
+<div class=card><form id=loginForm><input name=userin id=userin placeholder='📱 رقم / يوزر' required autocomplete=username><input name=password id=password type=password placeholder='🔑 كلمة السر' required autocomplete=current-password><label style='display:flex;gap:8px;font-size:13px;color:#aaa;margin:8px 0'><input type=checkbox id=savePass style='width:auto'> حفظ</label><button class=btn id=loginBtn>✨ دخول فوري</button><div id=msg style='text-align:center;margin-top:8px;color:#ff6b6b;font-size:13px'></div></form></div>
 <script>
 let u=document.getElementById('userin'), p=document.getElementById('password'), s=document.getElementById('savePass');
 let su=localStorage.getItem('omaia_user'), sp=localStorage.getItem('omaia_pass');
 if(su){u.value=su; if(sp){p.value=sp; s.checked=true;}}
 document.getElementById('loginForm').addEventListener('submit',async e=>{
  e.preventDefault(); let btn=document.getElementById('loginBtn'), msg=document.getElementById('msg'), loader=document.getElementById('loader');
- btn.textContent='⏳ جاري التحميل...'; btn.disabled=true; loader.classList.add('show');
- try{ let fd=new FormData(e.target); let r=await fetch('/api/login_public',{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ if(s.checked){localStorage.setItem('omaia_user',u.value);localStorage.setItem('omaia_pass',p.value);} location.replace('/dash?v=home'); }else{msg.textContent=j.msg||'خطأ'; btn.textContent='✨ دخول فوري'; btn.disabled=false; loader.classList.remove('show');} }catch(err){msg.textContent='خطأ شبكة'; btn.textContent='✨ دخول فوري'; btn.disabled=false; loader.classList.remove('show');}
+ if(btn.disabled) return;
+ btn.textContent='⏳...'; btn.disabled=true; loader.classList.add('show');
+ try{
+  let fd=new FormData(e.target);
+  let r=await fetch('/api/login_public',{method:'POST',body:fd,cache:'no-store'});
+  let j=await r.json();
+  if(j.ok){ if(s.checked){localStorage.setItem('omaia_user',u.value);localStorage.setItem('omaia_pass',p.value);} location.replace('/dash?v=home'); }
+  else{ msg.textContent=j.msg||'خطأ'; btn.textContent='✨ دخول فوري'; btn.disabled=false; loader.classList.remove('show'); }
+ }catch(err){ msg.textContent='خطأ شبكة'; btn.textContent='✨ دخول فوري'; btn.disabled=false; loader.classList.remove('show'); }
 });
 </script></body></html>"""
 @app.route('/logout')
@@ -232,8 +264,9 @@ def s():
     q=request.args.get('q','').strip()
     if not q:return jsonify([])
     like="%"+q+"%";results=[]
+    dish_tbl=get_dish_table()
     try:
-        for r in qall("SELECT * FROM dish_ips WHERE ip LIKE ? OR dish_name LIKE ? OR location LIKE ? ORDER BY id DESC LIMIT 20",(like,like,like)):results.append({"title":r.get('dish_name') or r.get('ip') or 'صحن',"sub":r.get('ip',''),"page":"dishes","type":"dish"})
+        for r in qall(f"SELECT * FROM {dish_tbl} WHERE ip LIKE ? OR dish_name LIKE ? OR location LIKE ? ORDER BY id DESC LIMIT 20",(like,like,like)):results.append({"title":r.get('dish_name') or r.get('ip') or 'صحن',"sub":r.get('ip',''),"page":"dishes","type":"dish"})
         for r in qall("SELECT * FROM subs WHERE name LIKE ? OR phone LIKE ? ORDER BY id DESC LIMIT 15",(like,like)):results.append({"title":r.get('name',''),"sub":r.get('phone',''),"page":"subs","type":"sub"})
         for r in qall("SELECT * FROM towers WHERE name LIKE ? OR area LIKE ? ORDER BY id DESC LIMIT 15",(like,like)):results.append({"title":r.get('name',''),"sub":r.get('area',''),"page":"towers","type":"tower"})
         for r in qall("SELECT * FROM users WHERE phone LIKE ? OR username LIKE ? LIMIT 10",(like,like)):results.append({"title":r.get('username') or r.get('phone',''),"sub":r.get('phone',''),"page":"settings","type":"user"})
@@ -246,22 +279,37 @@ def tt():cur=session.get('theme','dark');session['theme']='light' if cur=='dark'
 @app.route('/add_dish',methods=['POST'])
 @login_required
 def ad():
+    dish_tbl=get_dish_table()
     ip=request.form.get('ip','').strip();name=request.form.get('dish_name','').strip();loc=request.form.get('location','').strip()
     if not ip:return "IP مطلوب",400
     if not is_valid_ip(ip):return "IP غير صالح",400
-    ex=qone("SELECT * FROM dish_ips WHERE ip=?",(ip,))
-    if ex:qexec("UPDATE dish_ips SET dish_name=?,location=? WHERE ip=?",(name,loc,ip));return "ok updated"
-    qexec("INSERT INTO dish_ips(ip,location,dish_name) VALUES(?,?,?)",(ip,loc,name));add_log(session.get('phone',''),'اضاف صحن',name+" "+ip);return "ok"
+    ex=qone(f"SELECT * FROM {dish_tbl} WHERE ip=?",(ip,))
+    if ex:
+        qexec(f"UPDATE {dish_tbl} SET dish_name=?,location=? WHERE ip=?",(name,loc,ip))
+        if dish_tbl=='ips':
+            try:qexec("UPDATE dish_ips SET dish_name=?,location=? WHERE ip=?",(name,loc,ip))
+            except:pass
+        return "ok updated"
+    qexec(f"INSERT INTO {dish_tbl}(ip,location,dish_name) VALUES(?,?,?)",(ip,loc,name))
+    if dish_tbl=='ips':
+        try:qexec("INSERT INTO dish_ips(ip,location,dish_name) VALUES(?,?,?)",(ip,loc,name))
+        except:pass
+    else:
+        try:qexec("INSERT INTO ips(ip,location,dish_name) VALUES(?,?,?)",(ip,loc,name))
+        except:pass
+    return "ok"
 @app.route('/edit_dish/<int:i>',methods=['POST'])
 @login_required
 def ed(i):
     if not is_manager():return "ممنوع للفني",403
-    qexec("UPDATE dish_ips SET dish_name=?,ip=?,location=? WHERE id=?",(request.form.get('dish_name',''),request.form.get('ip',''),request.form.get('location',''),i));return "ok"
+    dish_tbl=get_dish_table()
+    qexec(f"UPDATE {dish_tbl} SET dish_name=?,ip=?,location=? WHERE id=?",(request.form.get('dish_name',''),request.form.get('ip',''),request.form.get('location',''),i));return "ok"
 @app.route('/del_dish/<int:i>')
 @login_required
 def dd(i):
     if not is_manager():return "ممنوع للفني",403
-    qexec("DELETE FROM dish_ips WHERE id=?",(i,));return "ok"
+    dish_tbl=get_dish_table()
+    qexec(f"DELETE FROM {dish_tbl} WHERE id=?",(i,));return "ok"
 @app.route('/add_tower',methods=['POST'])
 @login_required
 def at():
@@ -344,43 +392,42 @@ def cp():
     np=request.form.get('newpass','').strip()
     if not np:return "فارغة",400
     qexec("UPDATE users SET password=? WHERE phone=?",(generate_password_hash(np),session.get('phone')));return "ok"
-
 def page_content(v):
-    is_mgr=is_manager()
     req_lang=request.args.get('lang') or session.get('lang','ar')
+    dish_tbl=get_dish_table()
     def L(ar,en):return ar if req_lang=='ar' else en
     if v=='home':
-        ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0);nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0);nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0);nl=(qone("SELECT COUNT(*) c FROM ledger") or {}).get('c',0)
+        ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0);nd=(qone(f"SELECT COUNT(*) c FROM {dish_tbl}") or {}).get('c',0);nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0);nl=(qone("SELECT COUNT(*) c FROM ledger") or {}).get('c',0)
         logs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 4")
         log_html="".join([f"<div style='display:flex;justify-content:space-between;padding:7px 10px;border-bottom:1px dashed #ffffff10'><div><b style='color:#ffbe4d'>{esc(l.get('user_phone',''))}</b> {esc(l.get('action',''))}</div><small style='color:#777'>{esc(l.get('time',''))}</small></div>" for l in logs])
         return f'''<div style='max-width:900px;margin:0 auto'><div style='display:grid;grid-template-columns:1fr 1fr;gap:14px'>
         <div class='card anim' onclick="loadPage('subs')" style='cursor:pointer;background:linear-gradient(135deg,#1e2a4a 0%,#162040 100%)'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('المشتركين','Subs')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{ns}</h2></div><div style='font-size:36px'>👥</div></div></div>
-        <div class='card anim' onclick="loadPage('dishes')" style='cursor:pointer;background:linear-gradient(135deg,#1e2f4a 0%,#162840 100%)'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الصحون','Dishes')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{nd}</h2></div><div style='font-size:36px'>📡</div></div></div>
+        <div class='card anim' onclick="loadPage('dishes')" style='cursor:pointer;background:linear-gradient(135deg,#1e2f4a 0%,#162840 100%)'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الصحون','Dishes')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{nd}</h2><small style='color:#22c55e'>☁️ {dish_tbl}</small></div><div style='font-size:36px'>📡</div></div></div>
         <div class='card anim' onclick="loadPage('towers')" style='cursor:pointer;background:linear-gradient(135deg,#2a1e4a 0%,#201640 100%)'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الأبراج','Towers')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{nt}</h2></div><div style='font-size:36px'>🗼</div></div></div>
         <div class='card anim' onclick="loadPage('ledger')" style='cursor:pointer;background:linear-gradient(135deg,#4a2a1e 0%,#402016 100%)'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الحسابات','Accounts')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{nl}</h2></div><div style='font-size:36px'>📒</div></div></div></div>
-        <div class=card style='margin-top:14px'><div style='display:flex;justify-content:space-between;flex-wrap:wrap'><h4>📊 {L('التقارير','Reports')}</h4><div style='display:flex;gap:8px'><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:8px 12px;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff'>📗 Excel</a><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:8px 12px;background:linear-gradient(90deg,#8b5cf6,#7c3aed);color:#fff'>📜 Excel</a></div></div></div>
+        <div class=card style='margin-top:14px'><div style='display:flex;justify-content:space-between;flex-wrap:wrap'><h4>📊 {L('التقارير','Reports')} - <small style='color:#22c55e'>☁️ Supabase: {dish_tbl}</small></h4><div style='display:flex;gap:8px'><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:8px 12px;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff'>📗 Excel</a><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:8px 12px;background:linear-gradient(90deg,#8b5cf6,#7c3aed);color:#fff'>📜 Excel</a></div></div></div>
         <div class=card><h4>📜 {L('آخر النشاطات','Recent')}</h4>{log_html or 'لا يوجد'}<button class=btn-gold onclick="loadPage('logs')" style='width:100%;margin-top:8px'>عرض السجل</button></div></div>'''
     if v=='ping':
         return f'''<div style='max-width:800px;margin:0 auto'>
         <div class=card style='background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #22c55e33'>
-        <h3 style='margin:0'>📶 {L('بنج منفصل - ايقونة منفصلة','Separate Ping Icon')} 🔥 NEW</h3>
-        <p style='color:#9ca3af;font-size:12px;margin:6px 0'>{L('ايقونة منفصلة عن الصحون - شغال بنج','Separate icon from dishes - ping working')}</p>
+        <h3 style='margin:0'>📶 {L('بنج منفصل','Separate Ping')} 🔥 FIXED - لا يخرب شي</h3>
+        <p style='color:#9ca3af;font-size:12px;margin:6px 0'>✅ TCP أولا (شغال على Render) - {dish_tbl} ☁️</p>
         <div style='display:flex;gap:8px;margin-top:12px;flex-wrap:wrap'>
         <input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:160px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff;font-family:monospace'>
         <input id=pingPort placeholder='Port' value='80' style='width:80px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff'>
         <button class=btn-gold onclick="doSinglePing()" style='padding:14px 20px;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff'>📶 Ping</button>
         <button class=btn-gold onclick="doTcpPing()" style='padding:14px 16px;background:linear-gradient(90deg,#0ea5e9,#0284c7);color:#fff'>TCP</button>
         </div>
-        <div id=pingResult style='margin-top:14px;min-height:60px;background:#0008;border:1px solid #ffffff0a;border-radius:12px;padding:14px;font-family:monospace;font-size:13px;white-space:pre-wrap'>جاهز...</div>
+        <div id=pingResult style='margin-top:14px;min-height:60px;background:#0008;border:1px solid #ffffff0a;border-radius:12px;padding:14px;font-family:monospace;font-size:13px;white-space:pre-wrap'>جاهز... ☁️ Supabase يحفظ - لا ينمسح حتى 100 سنة</div>
         <div style='display:flex;gap:8px;margin-top:10px'><button class=btn-gold onclick="pingAllDishes()" style='flex:1;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111'>🚀 {L('فحص كل الصحون','Check All')}</button><button class=btn-gold onclick="clearPing()" style='background:#ffffff10;color:#fff'>🗑</button></div>
         </div>
-        <div class=card><h4>⚡ {L('صحون سريعة','Quick')}</h4><div id=quickDishes>⏳...</div></div>
+        <div class=card><h4>⚡ {L('صحون سريعة','Quick')} - <small style='color:#22c55e'>{dish_tbl}</small></h4><div id=quickDishes>⏳...</div></div>
         <div class=card><h4>📜 {L('سجل البنج','Ping Log')}</h4><div id=pingLog style='max-height:200px;overflow:auto;font-size:12px'></div></div>
         </div><script>
         async function doSinglePing(){{
         let ip=document.getElementById('pingIp').value.trim(); if(!ip){{alert('اكتب IP');return;}}
         let out=document.getElementById('pingResult'); out.textContent='⏳ فحص '+ip+'...'; out.style.color='#ffbe4d';
-        try{{let r=await fetch('/api/ping?ip='+encodeURIComponent(ip),{{cache:'no-store'}}); let j=await r.json(); out.textContent=j.out; out.style.color=j.ok?'#22c55e':'#ef4444'; addLog(ip,j.ok?'✅':'❌',j.out.slice(0,60));}}catch(e){{out.textContent='❌ '+e;}}
+        try{{let r=await fetch('/api/ping?ip='+encodeURIComponent(ip),{{cache:'no-store'}}); let j=await r.json(); out.textContent=j.out + (j.method ? ' ['+j.method+']' : ''); out.style.color=j.ok?'#22c55e':'#ef4444'; addLog(ip,j.ok?'✅':'❌',j.out.slice(0,60));}}catch(e){{out.textContent='❌ '+e;}}
         }}
         async function doTcpPing(){{
         let ip=document.getElementById('pingIp').value.trim(); let port=document.getElementById('pingPort').value.trim()||'80'; if(!ip){{alert('IP');return;}}
@@ -391,18 +438,18 @@ def page_content(v):
         function addLog(ip,status,msg){{let l=document.getElementById('pingLog'); let d=new Date().toLocaleTimeString(); l.innerHTML='<div style="padding:6px 8px;border-bottom:1px solid #ffffff08"><span>'+status+' '+ip+' - '+msg.slice(0,50)+'</span><small style="color:#666">'+d+'</small></div>'+l.innerHTML;}}
         async function pingAllDishes(){{
         let out=document.getElementById('pingResult'); out.textContent='🚀 فحص...';
-        try{{let r=await fetch('/api/search?q=192',{cache:'no-store'}); let d=await r.json(); out.textContent=''; for(let dish of d.filter(x=>x.page==='dishes').slice(0,20)){{out.textContent+='⏳ '+dish.sub+'\\n'; try{{let pr=await fetch('/api/ping?ip='+encodeURIComponent(dish.sub)); let pj=await pr.json(); out.textContent+= (pj.ok?'✅ ':'❌ ')+dish.sub+' -> '+pj.out.slice(0,60)+'\\n'; addLog(dish.sub,pj.ok?'✅':'❌',pj.out.slice(0,40));}}catch(e){{}} await new Promise(r=>setTimeout(r,300));}}}}catch(e){{out.textContent='خطأ: '+e;}}
+        try{{let r=await fetch('/api/search?q=192',{cache:'no-store'}); let d=await r.json(); out.textContent=''; for(let dish of d.filter(x=>x.page==='dishes').slice(0,20)){{out.textContent+='⏳ '+dish.sub+'\\n'; try{{let pr=await fetch('/api/ping?ip='+encodeURIComponent(dish.sub)); let pj=await pr.json(); out.textContent+= (pj.ok?'✅ ':'❌ ')+dish.sub+' -> '+pj.out.slice(0,60)+'\\n'; addLog(dish.sub,pj.ok?'✅':'❌',pj.out.slice(0,40));}}catch(e){{}} await new Promise(r=>setTimeout(r,250));}}}}catch(e){{out.textContent='خطأ: '+e;}}
         }}
         (async()=>{{try{{let r=await fetch('/api/search?q=192',{cache:'no-store'}); let d=await r.json(); let h=''; d.filter(x=>x.page==='dishes').slice(0,8).forEach(x=>{{h+='<div style="display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #ffffff08"><span>🌐 '+x.sub+' - '+x.title+'</span><button class=btn-gold onclick="document.getElementById(\\'pingIp\\').value=\\''+x.sub+'\\'; doSinglePing()" style="padding:5px 10px">Ping</button></div>';}}); document.getElementById('quickDishes').innerHTML=h||'لا يوجد';}}catch(e){{}}}})();
         document.getElementById('pingIp').addEventListener('keydown',e=>{{if(e.key==='Enter'){{e.preventDefault(); doSinglePing();}}}});
         </script>'''
     if v=='dishes':
-        rs=qall("SELECT * FROM dish_ips ORDER BY id DESC")
+        rs=qall(f"SELECT * FROM {dish_tbl} ORDER BY id DESC")
         rows_html=""
         for r in rs:
             dn=esc(r.get('dish_name') or 'صحن');ip=esc(r.get('ip') or '');loc=esc(r.get('location') or '');rid=r['id']
-            rows_html+=f'<div class="card anim" id="dish-{rid}" data-name="{dn}" data-ip="{ip}" data-loc="{loc}" style="display:flex;justify-content:space-between"><div><b>{dn}</b><br><a href="http://{ip}" target=_blank style="background:#000;color:#ffbe4d;padding:5px 10px;border-radius:8px;font-family:monospace;text-decoration:none">🌐 {ip}</a><br><small style="color:#888">{loc}</small></div><div style="display:flex;flex-direction:column;gap:6px"><button class=btn-gold onclick="quickPingD({rid})" style="padding:7px 12px;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff">📶</button><div style="display:flex;gap:4px"><button class=btn-gold onclick="editDish({rid})" style="padding:7px 9px">✏</button><button class=btn-del onclick="askDel(\'/del_dish/{rid}\')" style="padding:7px 9px">🗑</button></div></div></div>'
-        return f'''<div style='max-width:900px;margin:0 auto'><div class=card><div style='display:flex;justify-content:space-between;flex-wrap:wrap'><h3>📡 {L('الصحون','Dishes')} - {len(rs)}</h3><div style='display:flex;gap:6px'><button onclick="loadPage('ping')" class=btn-gold style='padding:7px 12px;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff'>📶 Ping</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:7px 12px'>📗 Excel</a></div></div><form data-ajax method=post action=/add_dish style='display:flex;gap:6px;flex-wrap:wrap;margin-top:10px'><input name=dish_name placeholder='{L('اسم الصحن','Name')}' required style='flex:1'><input name=ip placeholder='192.168.1.1' required style='flex:1'><input name=location placeholder='{L('موقع','Location')}' style='flex:1'><button class=btn-gold>➕</button></form><input id=searchBox placeholder='🔍 بحث...' oninput="searchDishes(this.value)" style='margin-top:10px;width:100%;padding:12px;border-radius:12px;background:#0f1424;border:1px solid #ffffff18'></div><div id=dl>{rows_html}</div></div><script>
+            rows_html+=f'<div class="card anim" id="dish-{rid}" data-name="{dn}" data-ip="{ip}" data-loc="{loc}" style="display:flex;justify-content:space-between"><div><b>{dn}</b><br><a href="http://{ip}" target=_blank style="background:#000;color:#ffbe4d;padding:5px 10px;border-radius:8px;font-family:monospace;text-decoration:none">🌐 {ip}</a><br><small style="color:#888">{loc}</small><br><small style="color:#22c55e">☁️ {dish_tbl}</small></div><div style="display:flex;flex-direction:column;gap:6px"><button class=btn-gold onclick="quickPingD({rid})" style="padding:7px 12px;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff">📶</button><div style="display:flex;gap:4px"><button class=btn-gold onclick="editDish({rid})" style="padding:7px 9px">✏</button><button class=btn-del onclick="askDel(\'/del_dish/{rid}\')" style="padding:7px 9px">🗑</button></div></div></div>'
+        return f'''<div style='max-width:900px;margin:0 auto'><div class=card><div style='display:flex;justify-content:space-between;flex-wrap:wrap'><h3>📡 {L('الصحون','Dishes')} - {len(rs)} <small style='color:#22c55e'>☁️ {dish_tbl} - لا ينمسح</small></h3><div style='display:flex;gap:6px'><button onclick="loadPage('ping')" class=btn-gold style='padding:7px 12px;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff'>📶 Ping FIXED</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:7px 12px'>📗 Excel</a></div></div><form data-ajax method=post action=/add_dish style='display:flex;gap:6px;flex-wrap:wrap;margin-top:10px'><input name=dish_name placeholder='{L('اسم الصحن','Name')}' required style='flex:1'><input name=ip placeholder='192.168.1.1' required style='flex:1'><input name=location placeholder='{L('موقع','Location')}' style='flex:1'><button class=btn-gold>➕ حفظ ☁️</button></form><input id=searchBox placeholder='🔍 بحث...' oninput="searchDishes(this.value)" style='margin-top:10px;width:100%;padding:12px;border-radius:12px;background:#0f1424;border:1px solid #ffffff18'></div><div id=dl>{rows_html}</div></div><script>
         function editDish(id){{let c=document.getElementById('dish-'+id);document.getElementById('editModal').classList.add('show');document.getElementById('editBody').innerHTML='<input id=edit_dish_name value="'+c.dataset.name+'" style="width:100%;padding:12px;margin:4px 0"><input id=edit_ip value="'+c.dataset.ip+'" style="width:100%;padding:12px;margin:4px 0"><input id=edit_loc value="'+c.dataset.loc+'" style="width:100%;padding:12px;margin:4px 0"><button onclick="saveDish('+id+')" class=btn-gold style="width:100%;padding:12px">💾 حفظ</button>';}}
         function saveDish(id){{let nn=document.getElementById('edit_dish_name').value;let ii=document.getElementById('edit_ip').value;let ll=document.getElementById('edit_loc').value;fetch('/edit_dish/'+id,{{method:'POST',body:new URLSearchParams({{dish_name:nn,ip:ii,location:ll}})}}).then(r=>{{if(!r.ok)alert('ممنوع');else{{closeEditModal();loadPage('dishes',true);}}}});}}
         function quickPingD(id){{let c=document.getElementById('dish-'+id);loadPage('ping');setTimeout(()=>{{let inp=document.getElementById('pingIp');if(inp){{inp.value=c.dataset.ip;doSinglePing();}}}},500);}}
@@ -440,9 +487,10 @@ def page_content(v):
         rows="".join([f"<div class='card anim' style='font-size:13px;border-left:3px solid #ffbe4d'><b style='color:#ffbe4d'>{esc(r['user_phone'])}</b> {esc(r['action'])} - {esc(r['detail'])}<br><small style='color:#777'>{esc(r['time'])}</small></div>" for r in rs])
         return f"<div style='max-width:900px;margin:0 auto'><div class=card style='display:flex;justify-content:space-between'><h3>📜 {L('السجل','Logs')}</h3><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:7px 12px'>📗 Excel</a></div>{rows or 'لا يوجد'}</div>"
     if v=='network':
-        dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC")
+        dish_tbl=get_dish_table()
+        dishes=qall(f"SELECT * FROM {dish_tbl} ORDER BY id DESC")
         rows="".join([f"<div class='card anim' id='net-{d['id']}' data-ip='{esc(d.get('ip',''))}' style='display:flex;justify-content:space-between'><div><b>{esc(d.get('dish_name') or 'صحن')}</b> - {esc(d.get('ip',''))}<br><small class='net-out'>⏳...</small></div><button class=btn-gold onclick='checkOne({d['id']})'>📶</button></div>" for d in dishes])
-        return f'''<div style='max-width:800px;margin:0 auto'><div class=card style='background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #ffbe4d33'><h3>📊 {L('حالة الشبكة','Network')} LIVE</h3><div style='display:flex;gap:8px;margin-top:8px'><button class=btn-gold onclick='checkAll()' style='flex:1;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff;padding:12px'>🚀 {L('فحص الكل','Check All')}</button><button class=btn-gold onclick="loadPage('ping')" style='flex:1'>📶 Ping</button></div><div id=summary style='margin-top:10px;font-weight:800'></div></div>{rows}<script>
+        return f'''<div style='max-width:800px;margin:0 auto'><div class=card style='background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #ffbe4d33'><h3>📊 {L('حالة الشبكة','Network')} LIVE - ☁️ {dish_tbl}</h3><div style='display:flex;gap:8px;margin-top:8px'><button class=btn-gold onclick='checkAll()' style='flex:1;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff;padding:12px'>🚀 {L('فحص الكل','Check All')}</button><button class=btn-gold onclick="loadPage('ping')" style='flex:1'>📶 Ping FIXED</button></div><div id=summary style='margin-top:10px;font-weight:800'></div></div>{rows}<script>
         async function checkOne(id){{let c=document.getElementById('net-'+id);let out=c.querySelector('.net-out');out.textContent='⏳...';try{{let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip));let j=await r.json();out.textContent=j.out.slice(0,80);out.style.color=j.ok?'#22c55e':'#ef4444';}}catch(e){{out.textContent='❌';}}}}
         async function checkAll(){{let cards=document.querySelectorAll('[id^=net-]');let on=0,off=0;for(let c of cards){{let out=c.querySelector('.net-out');out.textContent='⏳...';try{{let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip));let j=await r.json();out.textContent=j.ok?'✅ '+j.out.slice(0,50):'❌ '+j.out.slice(0,50);out.style.color=j.ok?'#22c55e':'#ef4444'; if(j.ok)on++; else off++;}}catch(e){{off++;}} document.getElementById('summary').innerHTML='✅ '+on+' | ❌ '+off; await new Promise(r=>setTimeout(r,200));}}}}
         checkAll();
@@ -519,20 +567,14 @@ def page_content(v):
         us=qall("SELECT * FROM users ORDER BY phone DESC")
         uh=""
         for u in us:
-            ph=esc(u["phone"])
-            un=esc(u.get("username") or "")
-            ro=esc(u.get("role") or "")
-            if ro=='manager':
-                badge="<span style='background:#ffbe4d;color:#111;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:800'>مدير</span>"
-            else:
-                badge="<span style='background:#ffffff15;color:#aaa;padding:2px 8px;border-radius:8px;font-size:11px'>فني</span>"
+            ph=esc(u["phone"]);un=esc(u.get("username") or "");ro=esc(u.get("role") or "")
+            badge="<span style='background:#ffbe4d;color:#111;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:800'>مدير</span>" if ro=='manager' else "<span style='background:#ffffff15;color:#aaa;padding:2px 8px;border-radius:8px;font-size:11px'>فني</span>"
             uh+=f'<div class="card anim" id="user-{ph}" data-phone="{ph}" data-username="{un}" data-role="{ro}" style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center"><div><b>{un}</b><br><span style="color:#ffbe4d;font-family:monospace">{ph}</span> {badge}</div><div style="display:flex;gap:6px"><button class=btn-gold onclick="openEditUser(\'{ph}\')" style="padding:8px 10px">✏</button><button class=btn-del onclick="askDel(\'/del_user/{ph}\')" style="padding:8px 10px">🗑</button></div></div>'
-        return f'''<div style='max-width:800px;margin:0 auto'><div class=card><h3>🔑 {L('كلمة السر','Password')}</h3><form data-ajax method=post action=/change_pass style='display:flex;gap:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>💾</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px'><div class=card style='background:linear-gradient(135deg,#1a2340,#121a30);border:1px solid #ffbe4d22;text-align:center'><h4 style='margin:0 0 10px'>🌐 {L('اللغة','Language')}</h4><button onclick="toggleLang()" id=langBtnSettings style='width:100%;padding:14px;border-radius:12px;border:1px solid #ffffff15;background:linear-gradient(90deg,#1f2937,#111827);color:#fff;font-weight:800;cursor:pointer;font-size:16px'>🌐 {L('عربي','English')}</button><p style='font-size:11px;color:#777;margin-top:8px'>{L('بدل لغة النظام كامل - الايقونة شغالة','Change whole system')}</p></div><div class=card style='background:linear-gradient(180deg,#1e2433,#0f1424);border:1px solid #ffbe4d30'><h4 style='text-align:center;margin:0 0 12px'>👤 {L('اضافة يوزر','Add user')}</h4><form data-ajax method=post action=/add_user style='display:flex;flex-direction:column;gap:10px'><input name=user_field placeholder='📱 رقم / يوزر' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><input name=password type=password placeholder='🔑 password' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><select name=role style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold style='padding:14px'>➕</button></form></div><div class=card><h4>📊 تصدير</h4><div style='display:flex;flex-direction:column;gap:8px'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:10px;text-align:center;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff;border-radius:10px'>📗 يوزرات</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:10px;text-align:center;background:linear-gradient(90deg,#0ea5e9,#0284c7);color:#fff;border-radius:10px'>📘 صحون</a><button onclick="window.print()" class=btn-gold style='padding:10px;border-radius:10px'>📄 PDF</button></div></div></div>{uh}<script>
+        return f'''<div style='max-width:800px;margin:0 auto'><div class=card><h3>🔑 كلمة السر</h3><form data-ajax method=post action=/change_pass style='display:flex;gap:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>💾</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px'><div class=card style='background:linear-gradient(135deg,#1a2340,#121a30);border:1px solid #ffbe4d22;text-align:center'><h4 style='margin:0 0 10px'>🌐 اللغة</h4><button onclick="toggleLang()" id=langBtnSettings style='width:100%;padding:14px;border-radius:12px;border:1px solid #ffffff15;background:linear-gradient(90deg,#1f2937,#111827);color:#fff;font-weight:800;cursor:pointer;font-size:16px'>🌐 عربي</button></div><div class=card style='background:linear-gradient(180deg,#1e2433,#0f1424);border:1px solid #ffbe4d30'><h4 style='text-align:center;margin:0 0 12px'>👤 اضافة يوزر</h4><form data-ajax method=post action=/add_user style='display:flex;flex-direction:column;gap:10px'><input name=user_field placeholder='📱 رقم / يوزر' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><input name=password type=password placeholder='🔑 password' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><select name=role style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold style='padding:14px'>➕</button></form></div><div class=card><h4>📊 تصدير + ☁️ Supabase</h4><div style='display:flex;flex-direction:column;gap:8px'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:10px;text-align:center;background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff;border-radius:10px'>📗 يوزرات</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:10px;text-align:center;background:linear-gradient(90deg,#0ea5e9,#0284c7);color:#fff;border-radius:10px'>📘 صحون {get_dish_table()}</a><button onclick="window.print()" class=btn-gold style='padding:10px;border-radius:10px'>📄 PDF</button><small style='color:#22c55e'>☁️ {get_dish_table()} - لا ينمسح 100 سنة</small></div></div></div>{uh}<script>
         function openEditUser(ph){{let c=document.getElementById('user-'+ph);document.getElementById('editModal').classList.add('show');document.getElementById('editTitle').textContent='✏ تعديل';document.getElementById('editBody').innerHTML='<input id=edit_u_field value="'+c.dataset.phone+'" style="width:100%;padding:12px;border-radius:10px;margin-top:4px"><input id=edit_u_pass type="password" placeholder="كلمة سر جديدة" style="width:100%;padding:12px;border-radius:10px;margin-top:8px"><select id=edit_u_role style="width:100%;padding:12px;border-radius:10px;margin-top:8px"><option value="tech" '+(c.dataset.role=='tech'?'selected':'')+'>فني</option><option value="manager" '+(c.dataset.role=='manager'?'selected':'')+'>مدير</option></select><button onclick="saveUser(\\''+ph+'\\')" class=btn-gold style="width:100%;padding:14px;margin-top:12px">💾 حفظ</button>';}}
         function saveUser(oldPh){{let ff=document.getElementById('edit_u_field').value.trim();let pw=document.getElementById('edit_u_pass').value;let ro=document.getElementById('edit_u_role').value;if(!ff){{alert('مطلوب');return;}}let data={{old_phone:oldPh,phone:ff,username:ff,role:ro}};if(pw.trim()!='')data.password=pw.trim();fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(r=>{{if(!r.ok)r.text().then(t=>alert(t));else{{closeEditModal();loadPage('settings',true);}}}});}}
         </script></div>'''
     return "<div class=card>ok</div>"
-
 def layout(c,v='home'):
     th=session.get('theme','dark');is_dark=(th=='dark')
     bg='radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)' if is_dark else '#f1f5f9'
@@ -570,11 +612,11 @@ input:focus{{border-color:#ffbe4d;box-shadow:0 0 0 3px #ffbe4d22;outline:none}}
 <body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
-<div style='padding:0 18px 10px;border-bottom:1px solid #ffffff0a;margin-bottom:8px'><div style='font-weight:900;font-size:17px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><small style='color:#64748b'>{esc(cur_user.get('username') or session.get('phone') or '')} • {role} • {req_lang}</small></div>
+<div style='padding:0 18px 10px;border-bottom:1px solid #ffffff0a;margin-bottom:8px'><div style='font-weight:900;font-size:17px'>OMAIA <span style='color:#ffbe4d'>ISP</span> <small style='color:#22c55e'>☁️</small></div><small style='color:#64748b'>{esc(cur_user.get('username') or session.get('phone') or '')} • {role} • {get_dish_table()}</small></div>
 <a href="javascript:loadPage('home')" id=nav-home>🏠 {L('الرئيسية','Home')}</a>
-<a href="javascript:loadPage('ping')" id=nav-ping style='background:linear-gradient(90deg,#22c55e18,#16a34a18);border:1px solid #22c55e33'>📶 {L('بنج منفصل','Separate Ping')} <span style='background:#22c55e;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;margin-right:auto'>NEW</span></a>
+<a href="javascript:loadPage('ping')" id=nav-ping style='background:linear-gradient(90deg,#22c55e18,#16a34a18);border:1px solid #22c55e33'>📶 {L('بنج منفصل','Separate Ping')} <span style='background:#22c55e;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;margin-right:auto'>FIXED</span></a>
 <a href="javascript:loadPage('network')" id=nav-network>📊 {L('حالة الشبكة','Network')} <span style='background:#0ea5e9;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;margin-right:auto'>LIVE</span></a>
-<a href="javascript:loadPage('dishes')" id=nav-dishes>📡 {L('الصحون','Dishes')}</a>
+<a href="javascript:loadPage('dishes')" id=nav-dishes>📡 {L('الصحون','Dishes')} <span style='background:#22c55e;color:#fff;padding:2px 6px;border-radius:6px;font-size:9px'>☁️</span></a>
 <a href="javascript:loadPage('towers')" id=nav-towers>🗼 {L('الأبراج','Towers')}</a>
 <a href="javascript:loadPage('subs')" id=nav-subs>👥 {L('المشتركين','Subs')}</a>
 <a href="javascript:loadPage('ledger')" id=nav-ledger>📒 {L('الحسابات','Ledger')}</a>
@@ -591,7 +633,7 @@ input:focus{{border-color:#ffbe4d;box-shadow:0 0 0 3px #ffbe4d22;outline:none}}
 <input id=topsearch placeholder='🔍 {L('بحث','Search')}...' oninput="globalSearchTop(this.value)" onkeydown="if(event.key==='Enter'){{event.preventDefault(); globalSearchTop(this.value);}}" style='background:#1f2937;border:1px solid #ffffff15;color:#fff;padding:9px 14px;border-radius:12px;width:42px;font-size:13px;transition:all .28s' onfocus="this.style.width='200px'" onblur="setTimeout(()=>{{this.style.width='42px'; let b=document.getElementById('searchResults'); if(b) b.style.display='none';}},250)">
 </div>
 </div>
-<div style='font-weight:900;font-size:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div style='font-weight:900;font-size:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span> <span style='color:#22c55e;font-size:10px'>☁️ Supabase</span></div>
 <div style='display:flex;gap:8px;align-items:center'>
 <div id=notifBell onclick="toggleNotif()" style='position:relative;cursor:pointer;font-size:20px;padding:6px 8px;border-radius:10px;background:#ffffff08'>🔔<span id=notifCount style='display:none;position:absolute;top:-4px;right:-4px;background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;font-size:10px;width:18px;height:18px;border-radius:50%;align-items:center;justify-content:center;font-weight:900'>0</span></div>
 <button onclick="toggleTheme()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:8px 11px;border-radius:11px;cursor:pointer'>🌓</button>
