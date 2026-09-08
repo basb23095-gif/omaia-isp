@@ -129,7 +129,15 @@ def is_valid_ip(ip):
     except:return len(ip)>=7 and '.' in ip
 @app.route('/ping')
 @app.route('/health')
-def public_ping():return jsonify(ok=True,time=datetime.datetime.now().isoformat(),table=get_dish_table(),pg=USE_PG)
+def public_ping():
+    import psycopg2
+    import traceback
+    try:
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+        conn.close()
+        return jsonify(ok=True, pg=True, time=datetime.datetime.now().isoformat(), table=get_dish_table())
+    except Exception as e:
+        return jsonify(ok=True, pg=False, error=str(e), time=datetime.datetime.now().isoformat())
 @app.route('/api/ping')
 @login_required
 def api_ping():
