@@ -843,21 +843,40 @@ function toggleSb(force){{
   sb.classList.toggle('active',open);
   ov.classList.toggle('show',open);
   ov.style.display=open?'block':'none';
-}}
-let pageCache={};
-async function loadPage(v,force=false,push=true){
-if(cur==v&&!force)return;
-if(push&&cur!=v){try{history.pushState({page:v},'','/dash?v='+v)}catch(e){}}
-cur=v;toggleSb(false);
-document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
-let nav=document.getElementById('nav-'+v);if(nav)nav.classList.add('active');
-let mn=document.getElementById('mn');
-if(!force&&pageCache[v]){mn.innerHTML=pageCache[v];bind();execScripts();return}
-mn.innerHTML='<div style="text-align:center;padding:50px">⏳</div>';
-let res=await fetch('/api/page?v='+v+'&t='+Date.now());
-let html=await res.text();pageCache[v]=html;mn.innerHTML=html;bind();execScripts()
+<script>
+const pageCache = {};
+let currentPage = null;
+
+async function loadPage(page, forceReload = false) {
+  if (currentPage === page &&!forceReload) return;
+  currentPage = page;
+
+  // فعل الزر بالسايدبار
+  document.querySelectorAll('.sidebar a').forEach(link => link.classList.remove('active'));
+  const activeLink = document.getElementById('nav-' + page);
+  if (activeLink) activeLink.classList.add('active');
+
+  const main = document.getElementById('mn');
+
+  // جيبو من الكاش اذا موجود
+  if (!forceReload && pageCache[page]) {
+    main.innerHTML = pageCache[page];
+    return;
+  }
+
+  // لودينج
+  main.innerHTML = '<div style="text-align:center;padding:60px;font-size:20px">⏳ جاري التحميل...</div>';
+
+  try {
+    const response = await fetch('/api/page?v=' + page + '&t=' + Date.now());
+    const html = await response.text();
+    pageCache[page] = html;
+    main.innerHTML = html;
+  } catch (error) {
+    main.innerHTML = '<div style="text-align:center;padding:60px;color:red">❌ خطأ بالتحميل</div>';
+  }
 }
-  }}
+</script>
   try{{
     let r=await fetch('/api/page?v='+v);
     let h=await r.text();
