@@ -8,6 +8,8 @@ except:
     psycopg2=None
 import sqlite3
 app=Flask(__name__)
+from flask_caching import Cache
+cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache', 'CACHE_DEFAULT_TIMEOUT': 30})
 app.secret_key=os.environ.get("SECRET_KEY","omia-sec-2026-CHANGE-ME")
 DATABASE_URL=os.environ.get("DATABASE_URL","").strip().replace("postgresql://","postgres://")
 USE_PG=bool(DATABASE_URL.startswith("postgres://") and psycopg2)
