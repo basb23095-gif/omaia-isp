@@ -727,10 +727,9 @@ loadNotif(); setInterval(loadNotif,15000);
 window.logoutFast=async function(){{ try{{await fetch('/api/logout',{{method:'POST'}});}}catch(e){{}} localStorage.clear(); location.replace('/login'); }};
 window.addEventListener('popstate', (e)=>{{ let v='home'; if(e.state && e.state.page){{ v=e.state.page; }} else {{ let p=new URLSearchParams(window.location.search); v=p.get('v')||'home'; }} loadPage(v,false,false); }});
 bind(); execScripts();
-setTimeout(()=>{{ ['dishes','towers','ping','map'].forEach(p=>{{ if(!pageCache[p]) fetch('/api/page?v='+p+'&lang='+lang,{{cache:'no-store'}}).then(r=>r.text()).then(h=>{{pageCache[p]=h; saveCache();}}).catch(()=>{{}}); }}); }},1800);
-if(!history.state){{ try{{history.replaceState({{page:cur}}, '', '/dash?v='+cur);}}catch(e){{}} }}
+setTimeout(()=>{ ['dashboard','customers','invoices','payments'].forEach(p=>{ if(!pageCache[p]) fetch('/api/page?v='+p+'&lang='+lang,{cache: 'no-store'}).then(r=>r.text()).then(t=>{pageCache[p]=t;});}, 500);
 setInterval(()=>{{fetch('/ping').catch(()=>{{}});}}, 600000);
 </script>
 </body></html>"""
 if __name__=='__main__':
-    app.run(host='0.0.0.0',port=int(os.environ.get("PORT",10000)))
+  app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)), debug=False, threaded=True)
