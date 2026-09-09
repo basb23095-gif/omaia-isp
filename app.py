@@ -844,18 +844,19 @@ function toggleSb(force){{
   ov.classList.toggle('show',open);
   ov.style.display=open?'block':'none';
 }}
-async function loadPage(v,force=false,push=true){{
-  if(push && cur!==v){{ try{{history.pushState({{page:v}}, '', '/dash?v='+v);}}catch(e){{}} }}
-  cur=v;
-  toggleSb(false);
-  document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
-  let nav=document.getElementById('nav-'+v); if(nav)nav.classList.add('active');
-  let mn=document.getElementById('mn');
-  if(!force && pageCache[v]){{
-    mn.innerHTML=pageCache[v];
-    bind(); execScripts();
-    fetch('/api/page?v='+v).then(r=>r.text()).then(h=>{{pageCache[v]=h; saveCache();}}).catch(()=>{{}});
-    return;
+let pageCache={};
+async function loadPage(v,force=false,push=true){
+if(cur==v&&!force)return;
+if(push&&cur!=v){try{history.pushState({page:v},'','/dash?v='+v)}catch(e){}}
+cur=v;toggleSb(false);
+document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
+let nav=document.getElementById('nav-'+v);if(nav)nav.classList.add('active');
+let mn=document.getElementById('mn');
+if(!force&&pageCache[v]){mn.innerHTML=pageCache[v];bind();execScripts();return}
+mn.innerHTML='<div style="text-align:center;padding:50px">⏳</div>';
+let res=await fetch('/api/page?v='+v+'&t='+Date.now());
+let html=await res.text();pageCache[v]=html;mn.innerHTML=html;bind();execScripts()
+}
   }}
   try{{
     let r=await fetch('/api/page?v='+v);
