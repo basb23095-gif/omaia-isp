@@ -723,14 +723,13 @@ window.toggleNotif=async function(){{
     }}catch(e){{}}
   }}
 }}
-window.readAllNotif=async function(){{ try{{ await fetch('/api/notifications/read',{{method:'POST'}}); }}catch(e){{}} document.getElementById('notifCount').style.display='none'; document.getElementById('notifPanel').style.display='none'; }}
-async function loadNotif(){{ try{{ let r=await fetch('/api/notifications'); let j=await r.json(); let c=document.getElementById('notifCount'); if(j.unread>0){{ c.textContent=j.unread>99?'99+':j.unread; c.style.display='flex'; }} else {{ c.style.display='none'; }} }}catch(e){{}} }}
+window.readAllNotif=async function(){ try{ await fetch('/api/notifications/read',{method:'POST'}); }catch(e){} document.getElementById('notifCount').style.display='none' }
+async function loadNotif(){ try{ let r=await fetch('/api/notifications'); let j=await r.json(); let c=document.getElementById('notifCount'); if(j.unread>0){ c.textContent=j.unread; c.style.display='block'; }else{ c.style.display='none'; }catch(e){} }
 loadNotif(); setInterval(loadNotif,15000);
-window.logoutFast=async function(){{ try{{await fetch('/api/logout',{{method:'POST'}});}}catch(e){{}} localStorage.clear(); location.replace('/login'); }};
-window.addEventListener('popstate', (e)=>{{ let v='home'; if(e.state && e.state.page){{ v=e.state.page; }} else {{ let p=new URLSearchParams(window.location.search); v=p.get('v')||'home'; }} loadPage(v,false,false); }});
-bind(); execScripts();
-setTimeout(()=>{ ['dashboard','customers','invoices','payments'].forEach(p=>{ if(!pageCache[p]) fetch('/api/page?v='+p+'&lang='+lang,{cache: 'no-store'}).then(r=>r.text()).then(t=>{pageCache[p]=t;});}, 500);
-setInterval(()=>{{fetch('/ping').catch(()=>{{}});}}, 600000);
+window.logoutFast=async function(){ try{await fetch('/api/logout',{method:'POST'});}catch(e){} localStorage.clear(); location.replace('/login'); };
+window.addEventListener('popstate', (e)=>{ let v='home'; if(e.state && e.state.page){ v=e.state.page; } else { let p=new URLSearchParams(window.location.search); v=p.get('v')||'home'; } bind(); execScripts(); });
+setTimeout(()=>{ ['dashboard','customers','invoices','payments'].forEach(p=>{ if(!pageCache[p]) fetch('/api/page?v='+p+'&lang='+lang,{cache: 'no-store'}).then(r=>r.text()).then(t=>{pageCache[p]=t;});});}, 500);
+setInterval(()=>{fetch('/ping').catch(()=>{});}, 600000);
 </script>
 </body></html>"""
 if __name__=='__main__':
