@@ -734,4 +734,4 @@ setInterval(()=>{{fetch('/ping').catch(()=>{{}});}}, 600000);
 </script>
 </body></html>"""
 if __name__=='__main__':
-  app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)), debug=False, threaded=True)
+  app.run(host='0.0.0.0', port=10000, debug=False, threaded=True)
