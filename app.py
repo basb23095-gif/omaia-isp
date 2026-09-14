@@ -647,8 +647,8 @@ def layout(c,v='home'):
     sidebar_pos="right:0; left:auto; transform:translateX(110%);" if is_rtl else "left:0; right:auto; transform:translateX(-110%);"
     side="right" if is_rtl else "left"; dir_attr="rtl" if is_rtl else "ltr"
     return f"""<html dir={dir_attr} lang={req_lang}><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
-<link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel=stylesheet href='http://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
+<link href="http://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
 *{{box-sizing:border-box;font-family:'Cairo',system-ui}}body{{margin:0;background:{bg};color:{txt};overflow-x:hidden;direction:{dir_attr}}}
 .top{{position:fixed;top:0;left:0;right:0;height:60px;background:rgba(15,23,42,0.92);backdrop-filter:blur(16px);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid #ffffff12}}
@@ -697,7 +697,7 @@ def layout(c,v='home'):
 <div class=main id=mn>{c}</div>
 <div id=delModal><div id=delBox><div style='font-size:32px;text-align:center'>🗑️</div><h3 style='text-align:center;margin:10px 0'>تأكيد الحذف؟</h3><div style='display:flex;gap:10px;margin-top:14px'><button onclick="closeDel()" style='flex:1;padding:11px;border-radius:12px;background:transparent;color:{txt};border:1px solid {border}'>تراجع</button><button id=delYes style='flex:1;padding:11px;border-radius:12px;background:#ef4444;color:#fff;border:0;font-weight:800'>حذف</button></div></div></div>
 <div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;margin-bottom:12px'><h3 style='margin:0'>تعديل</h3><button onclick="closeEditModal()" style='background:#ffffff12;border:0;color:{txt};width:32px;height:32px;border-radius:50%'>✕</button></div><div id=editBody></div></div></div>
-<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
+<script src='http://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
 let cur='{v}';
 let sidebarCollapsed = localStorage.getItem('omaia_collapsed')==='1';
