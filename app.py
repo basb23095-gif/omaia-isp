@@ -170,16 +170,13 @@ def _log_sync(phone,action,detail):
     except Exception as e:
         print("[log] "+str(e))
 
-def add_log(phone,action,detail, background=True):
-    if background:
-        threading.Thread(target=_log_sync, args=(phone,action,detail), daemon=True).start()
-    else:
-        _log_sync(phone,action,detail)
+def add_log(phone,action,detail, background=False):
+    _log_sync(phone,action,detail)
 
 def get_counts():
     with _cache_lock:
         c=_cache.get('counts')
-        if c and time.time()-c[1]<30:
+        if c and time.time()-c[1]<10:
             return c[0]
     try:
         # استعلام واحد بدل 4 - أسرع 4 مرات
@@ -250,15 +247,23 @@ def role_required_manager(f):
         return f(*a,**kw)
     return w
 
+def is_valid_host(h):
+    h=(h or '').strip()
+    if not h: return False
+    try: ipaddress.ip_address(h); return True
+    except: pass
+    if len(h)>253: return False
+    if '.' not in h: return False
+    if not __import__('re').match(r'^[a-zA-Z0-9.\-]+$', h): return False
+    parts=h.split('.')
+    for p in parts:
+        if not p or len(p)>63: return False
+        if p.startswith('-') or p.endswith('-'): return False
+    if len(parts[-1])<2: return False
+    return True
+
 def is_valid_ip(ip):
-    ip=(ip or '').strip()
-    if not ip:
-        return False
-    try:
-        ipaddress.ip_address(ip)
-        return True
-    except:
-        return False
+    return is_valid_host(ip)
 
 @app.after_request
 def add_perf_headers(resp):
@@ -1080,8 +1085,8 @@ input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #fff
 let cur='{v}';
 function toggleSb(f){{ let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o); }}
 let pageCache={{}};
-try{{ pageCache=JSON.parse(localStorage.getItem('omaia_glass_cache')||'{{}}'); }}catch(e){{ pageCache={{}}; }}
-function saveCache(){{ try{{ localStorage.setItem('omaia_glass_cache',JSON.stringify(pageCache)); }}catch(e){{ try{{ localStorage.removeItem('omaia_glass_cache'); pageCache={{}}; }}catch(e){{}} }} }}
+function saveCache(){{}}
+
 async function loadPage(v,force=false,push=true){{
   if(push&&cur!==v){{ try{{ history.pushState({{page:v}},'', '/dash?v='+v); }}catch(e){{}} }}
   cur=v; toggleSb(false);
@@ -1095,7 +1100,7 @@ async function loadPage(v,force=false,push=true){{
   if(!force&&!noCache&&pageCache[cacheKey]){{
     mn.innerHTML=pageCache[cacheKey];
     execScripts();
-    fetch('/api/page?v='+v,{{credentials:'same-origin',cache:'no-store'}}).then(r=>r.text()).then(h=>{{ pageCache[cacheKey]=h; saveCache(); }}).catch(()=>{{}});
+    fetch('/api/page?v='+v,{{credentials:'same-origin',cache:'no-store'}}).then(r=>r.text()).then(h=>{{ pageCache[cacheKey]=h; }}).catch(()=>{{}});
     return;
   }}
   if(!noCache && pageCache[cacheKey] && !force){{
@@ -1107,7 +1112,7 @@ async function loadPage(v,force=false,push=true){{
   try{{
     let r=await fetch('/api/page?v='+v,{{credentials:'same-origin',cache:'no-store'}});
     let h=await r.text();
-    if(!noCache){{ pageCache[cacheKey]=h; saveCache(); }}
+    if(!noCache){{ pageCache[cacheKey]=h; }}
     mn.innerHTML=h;
     execScripts();
   }}catch(e){{ mn.innerHTML='<div class=card>خطأ: '+e+'</div>'; }}
@@ -1128,7 +1133,7 @@ document.getElementById('delYes').onclick=async()=>{{
       if(el) el.style.display='none';
       let lang=localStorage.getItem('omaia_lang')||'{req_lang}';
       delete pageCache[cur+'_'+lang];
-      saveCache();
+
     }}else{{
       if(el) el.style.opacity='1';
       alert(j.msg||'خطأ');
@@ -1141,27 +1146,8 @@ async function toggleThemeNoReload(){{
 }}
 window.toggleLangInstant=async function(){{
   let btn=document.getElementById('langBtn');
-  let old=btn.textContent;
   btn.textContent='...';
-  try{{
-    let r=await fetch('/toggle_lang',{{method:'GET',credentials:'same-origin',cache:'no-store'}});
-    let j=await r.json();
-    if(j.ok){{
-      localStorage.setItem('omaia_lang',j.lang);
-      btn.textContent='🌐 '+j.lang;
-      // امسح كاش اللغة القديمة واعرض فورا
-      let ck=cur+'_'+j.lang;
-      // لا تعتمد على الكاش القديم للغة الجديدة - جيب فريش فورا
-      let rr=await fetch('/api/page?v='+cur,{{credentials:'same-origin',cache:'no-store'}});
-      let h=await rr.text();
-      pageCache[ck]=h;
-      saveCache();
-      document.getElementById('mn').innerHTML=h;
-      execScripts();
-    }} else {{
-      btn.textContent=old;
-    }}
-  }}catch(e){{ btn.textContent=old; alert('خطأ لغة: '+e); }}
+  try{{ let r=await fetch('/toggle_lang',{{method:'GET',credentials:'same-origin',cache:'no-store'}}); let j=await r.json(); if(j.ok){{ localStorage.setItem('omaia_lang',j.lang); location.reload(); }} }}catch(e){{ btn.textContent='🌐'; }}
 }};
 window.globalSearchTop=async function(q){{
   let box=document.getElementById('searchResults');
@@ -1175,7 +1161,7 @@ window.globalSearchTop=async function(q){{
   }});
   box.innerHTML=h; box.style.display='block';
 }};
-window.logoutFast=async function(){{ await fetch('/api/logout',{{method:'POST',credentials:'same-origin'}}); try{{ localStorage.removeItem('omaia_glass_cache'); }}catch(e){{}} location.replace('/login'); }};
+window.logoutFast=async function(){{ await fetch('/api/logout',{{method:'POST',credentials:'same-origin'}}); location.replace('/login'); }};
 window.addEventListener('popstate',(e)=>{{ let v='home'; if(e.state&&e.state.page) v=e.state.page; else {{ let p=new URLSearchParams(location.search); v=p.get('v')||'home'; }} loadPage(v,false,false); }});
 loadPage(cur,true,false);
 </script></body></html>"""
