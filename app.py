@@ -21,7 +21,6 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 DATABASE_URL = os.environ.get("DATABASE_URL","").strip().replace("postgresql://","postgres://")
 USE_PG = bool(DATABASE_URL.startswith("postgres://") and psycopg2)
-
 _pg_pool=None
 _pool_lock=threading.Lock()
 _sqlite_conn=None
@@ -81,7 +80,8 @@ def qall(q,a=()):
             with _sqlite_lock:
                 rs=[dict(r) for r in conn.execute(q,a).fetchall()]
                 return rs
-    except:
+    except Exception as e:
+        print(f"[qall] {e}")
         if conn and USE_PG:
             try: put_conn(conn)
             except: pass
@@ -106,7 +106,8 @@ def qexec(q,a=()):
                 conn.execute(q,a)
                 conn.commit()
         return True
-    except:
+    except Exception as e:
+        print(f"[qexec] {e}")
         if conn and USE_PG:
             try: conn.rollback(); put_conn(conn)
             except: pass
@@ -146,7 +147,7 @@ def init():
     ]
     if USE_PG: ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
-    for idx in ["CREATE INDEX IF NOT EXISTS idx_dish_ips_ip ON dish_ips(ip)", "CREATE INDEX IF NOT EXISTS idx_towers_name ON towers(name)", "CREATE INDEX IF NOT EXISTS idx_logs_id ON logs(id DESC)"]:
+    for idx in ["CREATE INDEX IF NOT EXISTS idx_dish_ips_ip ON dish_ips(ip)", "CREATE INDEX IF NOT EXISTS idx_dish_ips_name ON dish_ips(dish_name)", "CREATE INDEX IF NOT EXISTS idx_towers_name ON towers(name)", "CREATE INDEX IF NOT EXISTS idx_logs_id ON logs(id DESC)", "CREATE INDEX IF NOT EXISTS idx_subs_name ON subs(name)"]:
         try: qexec(idx)
         except: pass
     if USE_PG:
@@ -191,7 +192,7 @@ def add_perf_headers(resp):
     return resp
 
 @app.route('/health')
-def public_ping(): return jsonify(ok=True,time=datetime.datetime.now().isoformat())
+def public_ping(): return jsonify(ok=True)
 
 def _check_port(args):
     ip, port = args
@@ -238,6 +239,24 @@ def api_ping_tcp():
     _,ok=_check_port((ip,port))
     return jsonify(ok=ok,out=f'{ip}:{port} مفتوح' if ok else f'{ip}:{port} مغلق')
 
+@app.route('/api/notifications')
+@login_required
+def api_noti():
+    rows=qall("SELECT * FROM notifications ORDER BY id DESC LIMIT 30")
+    unread=qone("SELECT COUNT(*) c FROM notifications WHERE read=0")
+    return jsonify(rows=rows,unread=unread.get('c',0) if unread else 0)
+
+@app.route('/api/notifications/read',methods=['POST'])
+@login_required
+def api_noti_read():
+    qexec("UPDATE notifications SET read=1")
+    return jsonify(ok=True)
+
+@app.route('/api/network_status')
+@login_required
+def api_network_status():
+    return jsonify(dishes=len(qall("SELECT id FROM dish_ips")),towers=len(qall("SELECT id FROM towers")),subs=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0))
+
 @app.route('/toggle_lang')
 @login_required
 def toggle_lang_route():
@@ -270,6 +289,16 @@ def api_export(tbl):
         w.writerow(['ID','اسم الصحن','IP','الموقع'])
         for r in rows: w.writerow([r['id'],r.get('dish_name',''),r.get('ip',''),r.get('location','')])
         fname='dishes.csv'
+    elif tbl=='subs':
+        rows=qall("SELECT * FROM subs ORDER BY id DESC")
+        w.writerow(['ID','الاسم','رقم','ملاحظة'])
+        for r in rows: w.writerow([r['id'],r.get('name',''),r.get('phone',''),r.get('note','')])
+        fname='subs.csv'
+    elif tbl=='users':
+        rows=qall("SELECT phone,username,role FROM users ORDER BY phone DESC")
+        w.writerow(['يوزر/رقم','اسم المستخدم','الرتبة'])
+        for r in rows: w.writerow([r.get('phone',''),r.get('username',''),r.get('role','')])
+        fname='users.csv'
     elif tbl=='towers':
         rows=qall("SELECT * FROM towers ORDER BY id DESC")
         w.writerow(['ID','اسم البرج','المنطقة','lat','lng'])
@@ -280,7 +309,13 @@ def api_export(tbl):
         w.writerow(['ID','المستخدم','العملية','التفاصيل','الوقت'])
         for r in rows: w.writerow([r['id'],r.get('user_phone',''),r.get('action',''),r.get('detail',''),r.get('time','')])
         fname='logs.csv'
-    else: fname='export.csv'; w.writerow(['ID'])
+    elif tbl=='ledger':
+        rows=qall("SELECT * FROM ledger ORDER BY id DESC")
+        w.writerow(['ID','الاسم','المبلغ','ملاحظة','عملة'])
+        for r in rows: w.writerow([r['id'],r.get('name',''),r.get('amount',''),r.get('note',''),r.get('currency','')])
+        fname='ledger.csv'
+    else:
+        fname='export.csv'; w.writerow(['ID'])
     return Response(output.getvalue(),mimetype='text/csv; charset=utf-8',headers={'Content-Disposition':f'attachment; filename={fname}'})
 
 @app.route('/api/clear_logs',methods=['POST'])
@@ -343,6 +378,8 @@ def s():
             res.append({"title":r.get('name',''),"sub":r.get('area',''),"page":"towers"})
         for r in qall("SELECT * FROM subs WHERE name LIKE ? OR phone LIKE ? ORDER BY id DESC LIMIT 15",(like,like)):
             res.append({"title":r.get('name',''),"sub":r.get('phone',''),"page":"subs"})
+        for r in qall("SELECT * FROM users WHERE phone LIKE ? OR username LIKE ? LIMIT 10",(like,like)):
+            res.append({"title":r.get('username') or r.get('phone'),"sub":r.get('phone',''),"page":"settings"})
     except: pass
     return jsonify(res[:25])
 
@@ -517,9 +554,29 @@ def page_content(v):
         <div class='card stat-card' onclick="loadPage('towers')" style='cursor:pointer'><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الأبراج','Towers')}</h3><h2 style='margin:6px 0 0'>{nt}</h2></div>
         <div class='card stat-card' onclick="loadPage('ledger')" style='cursor:pointer'><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الحسابات','Accounts')}</h3><h2 style='margin:6px 0 0'>{nl}</h2></div></div>
         <div class=card style='margin-top:14px'><div style='display:flex;justify-content:space-between'><h4 style='margin:0'>آخر النشاطات</h4><button class=btn-gold onclick="loadPage('logs')">عرض الكل</button></div><div style='margin-top:10px'>{log_html}</div></div></div>'''
+
+    if v=='ping':
+        return f'''<div style='max-width:900px;margin:0 auto'><div class=card>
+        <h3 style='margin:0'>فحص الشبكة</h3>
+        <div style='display:flex;gap:8px;margin-top:12px;flex-wrap:wrap'>
+        <input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:160px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff;font-family:monospace'>
+        <input id=pingPort placeholder='Port' value='80' style='width:80px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff'>
+        <button class=btn-gold onclick="doSinglePing()" style='padding:14px 20px;background:#22c55e;color:#fff'>Ping</button>
+        <button class=btn-gold onclick="doTcpPing()" style='padding:14px 16px;background:#0ea5e9;color:#fff'>TCP</button>
+        </div>
+        <div id=pingResult style='margin-top:14px;min-height:60px;background:#0008;border-radius:12px;padding:14px;font-family:monospace;font-size:13px;white-space:pre-wrap'>جاهز</div>
+        <div style='display:flex;gap:8px;margin-top:10px'><button class=btn-gold onclick="pingAllDishes()" style='flex:1;background:#ffbe4d;color:#111'>فحص كل الصحون</button><button class=btn-gold onclick="clearPing()" style='background:#ffffff10;color:#fff'>مسح</button></div>
+        </div><div class=card><h4>صحون سريعة</h4><div id=quickDishes></div></div></div><script>
+        window.doSinglePing=async function(){{let ip=document.getElementById('pingIp').value.trim(); if(!ip) return; let out=document.getElementById('pingResult'); out.textContent='جاري فحص '+ip+'...'; try{{let r=await fetch('/api/ping?ip='+encodeURIComponent(ip),{{cache:'no-store'}}); let j=await r.json(); out.textContent=j.out; out.style.color=j.ok?'#22c55e':'#ef4444';}}catch(e){{out.textContent='خطأ';}}}};
+        window.doTcpPing=async function(){{let ip=document.getElementById('pingIp').value.trim(); let port=document.getElementById('pingPort').value.trim()||'80'; let out=document.getElementById('pingResult'); out.textContent='جاري '+ip+':'+port+'...'; try{{let r=await fetch('/api/ping_tcp?ip='+encodeURIComponent(ip)+'&port='+port); let j=await r.json(); out.textContent=j.out;}}catch{{out.textContent='خطأ';}}}};
+        window.clearPing=function(){{document.getElementById('pingResult').textContent='جاهز';}};
+        window.pingAllDishes=async function(){{let out=document.getElementById('pingResult'); out.textContent='جاري فحص كل الصحون...\\n'; try{{let sr=await fetch('/api/search?q=.',{{cache:'no-store'}}); let d=await sr.json(); let dishes=d.filter(x=>x.page==='dishes').slice(0,15); for(let dish of dishes){{out.textContent+='فحص '+dish.sub+' -> '; try{{let pr=await fetch('/api/ping?ip='+encodeURIComponent(dish.sub)); let pj=await pr.json(); out.textContent+=pj.out+'\\n';}}catch{{out.textContent+='خطأ\\n'}}}}}}catch(e){{out.textContent='خطأ: '+e;}}}};
+        (async()=>{{try{{let r=await fetch('/api/search?q=.',{{cache:'no-store'}}); let d=await r.json(); let h=''; d.filter(x=>x.page==='dishes').slice(0,8).forEach(x=>{{h+='<div style="display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #ffffff08"><span>'+x.sub+' - '+x.title+'</span><button class=btn-gold onclick="document.getElementById(\\'pingIp\\').value=\\''+x.sub+'\\'; doSinglePing()" style="padding:5px 10px">Ping</button></div>';}}); document.getElementById('quickDishes').innerHTML=h||'لا يوجد';}}catch{{}}}})();
+        </script>'''
+
     if v=='dishes':
         rs=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 200")
-        rows="".join([f"<div class='card dish-card' id='dish-{r['id']}' data-name='{esc(r.get('dish_name') or '')}' data-ip='{esc(r.get('ip') or '')}' data-loc='{esc(r.get('location') or '')}' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r.get('dish_name') or 'صحن')}</b><br><span style='font-family:monospace;color:#ffbe4d'>{esc(r.get('ip') or '')}</span><br><small style='color:#888'>{esc(r.get('location') or '')}</small></div><div style='display:flex;gap:6px'><button class='btn-gold icon-anim' onclick=\"editDish({r['id']})\" style='padding:8px 10px'>تعديل</button><button class='btn-del icon-anim' onclick=\"askDel('/del_dish/{r['id']}',{r['id']},'dish')\" style='padding:8px 10px'>حذف</button></div></div>" for r in rs])
+        rows="".join([f"<div class='card dish-card' id='dish-{r['id']}' data-name='{esc(r.get('dish_name') or '')}' data-ip='{esc(r.get('ip') or '')}' data-loc='{esc(r.get('location') or '')}' style='display:flex;justify-content:space-between;align-items:center'><div><b>{esc(r.get('dish_name') or 'صحن')}</b><br><span style='font-family:monospace;color:#ffbe4d'>{esc(r.get('ip') or '')}</span><br><small style='color:#888'>{esc(r.get('location') or '')}</small></div><div style='display:flex;gap:6px;flex-direction:column'><button class='btn-gold icon-anim' onclick=\"editDish({r['id']})\" style='padding:8px 10px'>تعديل</button><button class='btn-del icon-anim' onclick=\"askDel('/del_dish/{r['id']}',{r['id']},'dish')\" style='padding:8px 10px'>حذف</button></div></div>" for r in rs])
         return f'''<div style='max-width:900px;margin:0 auto'><div class=card><div style='display:flex;justify-content:space-between'><h3 style='margin:0'>الصحون ({len(rs)})</h3><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:7px 12px'>Excel</a></div>
         <form id=formDish style='display:flex;gap:6px;flex-wrap:wrap;margin-top:12px'><input name=dish_name placeholder='اسم الصحن' required style='flex:1'><input name=ip placeholder='192.168.1.1' required style='flex:1'><input name=location placeholder='موقع' style='flex:1'><button class="btn-gold icon-anim" type=submit>إضافة</button></form>
         <input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" style='margin-top:12px;width:100%;padding:11px;border-radius:12px;background:#0f1424;border:1px solid #ffffff18'></div><div style='display:grid;gap:10px'>{rows}</div></div><script>
@@ -528,6 +585,7 @@ def page_content(v):
         window.saveDish=async function(id){{let nn=document.getElementById('edit_dish_name').value;let ii=document.getElementById('edit_ip').value;let ll=document.getElementById('edit_loc').value;let r=await fetch('/edit_dish/'+id,{{method:'POST',body:new URLSearchParams({{dish_name:nn,ip:ii,location:ll}})}});let j=await r.json();if(j.ok){{closeEditModal();loadPage('dishes',true);}}else alert(j.msg||'خطأ');}};
         document.getElementById('formDish').addEventListener('submit', async e=>{{e.preventDefault();let r=await fetch('/add_dish',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok){{e.target.reset();loadPage('dishes',true);}}else alert(j.msg||'خطأ');}});
         </script>'''
+
     if v=='towers':
         rs=qall("SELECT * FROM towers ORDER BY id DESC")
         rows="".join([f"<div class='card' id='tower-{r['id']}' data-name='{esc(r['name'])}' data-area='{esc(r['area'] or '')}' data-lat='{r.get('lat') or 0}' data-lng='{r.get('lng') or 0}'><div style='display:flex;justify-content:space-between'><div><b>{esc(r['name'])}</b><br><small style='font-family:monospace;color:#ffbe4d'>{r.get('lat')},{r.get('lng')}</small><br><small>{esc(r['area'] or '')}</small></div><div><button class='btn-gold icon-anim' onclick=\"openEditTower({r['id']})\" style='padding:8px 10px'>تعديل</button> <button class='btn-del icon-anim' onclick=\"askDel('/del_tower/{r['id']}',{r['id']},'tower')\" style='padding:8px 10px'>حذف</button></div></div></div>" for r in rs])
@@ -537,10 +595,30 @@ def page_content(v):
         window.saveTower=async function(id){{let nn=document.getElementById('edit_t_name').value;let aa=document.getElementById('edit_t_area').value;let la=document.getElementById('edit_t_lat').value;let ln=document.getElementById('edit_t_lng').value;let r=await fetch('/edit_tower/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,area:aa,lat:la,lng:ln}})}});let j=await r.json();if(j.ok){{closeEditModal();loadPage('towers',true);}}}};
         document.getElementById('formTower').addEventListener('submit', async e=>{{e.preventDefault();let r=await fetch('/add_tower',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok){{e.target.reset();loadPage('towers',true);}}else alert(j.msg||'خطأ');}});
         </script></div>'''
+
+    if v=='subs':
+        rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
+        rows="".join([f"<div class='card' id='sub-{r['id']}' data-name='{esc(r['name'])}' data-phone='{esc(r['phone'] or '')}' data-note='{esc(r['note'] or '')}'><div style='display:flex;justify-content:space-between'><div><b>{esc(r['name'])}</b><br>{esc(r['phone'] or '')}<br><small>{esc(r['note'] or '')}</small></div><div><button class='btn-gold' onclick=\"openEditSub({r['id']})\">تعديل</button> <button class='btn-del' onclick=\"askDel('/del_sub/{r['id']}',{r['id']},'sub')\">حذف</button></div></div></div>" for r in rs])
+        return f"<div style='max-width:700px;margin:0 auto'><div class=card><h3>المشتركين ({len(rs)})</h3><form id=formSub style='display:flex;gap:6px;flex-wrap:wrap'><input name=name placeholder='الاسم' required style='flex:1'><input name=phone placeholder='رقم' style='flex:1'><input name=note placeholder='ملاحظة' style='flex:1'><button class=btn-gold>إضافة</button></form></div><div style='display:grid;gap:8px'>{rows}</div></div><script>window.openEditSub=function(id){{let c=document.getElementById('sub-'+id);let b=document.getElementById('editBody');b.innerHTML='<input id=edit_s_name value=\"'+c.dataset.name+'\" style=\"width:100%;padding:12px;margin:6px 0\"><input id=edit_s_phone value=\"'+c.dataset.phone+'\" style=\"width:100%;padding:12px;margin:6px 0\"><input id=edit_s_note value=\"'+c.dataset.note+'\" style=\"width:100%;padding:12px;margin:6px 0\"><button onclick=\"saveSub('+id+')\" class=btn-gold style=\"width:100%;padding:12px\">حفظ</button>';document.getElementById('editModal').classList.add('show');}};window.saveSub=async function(id){{let nn=document.getElementById('edit_s_name').value;let pp=document.getElementById('edit_s_phone').value;let no=document.getElementById('edit_s_note').value;let r=await fetch('/edit_sub/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,phone:pp,note:no}})}});let j=await r.json();if(j.ok){{closeEditModal();loadPage('subs',true);}}}};document.getElementById('formSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok){{e.target.reset();loadPage('subs',true);}}}});</script>"
+
+    if v=='ledger':
+        rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 200")
+        rows="".join([f"<div class='card' id='led-{r['id']}' data-name='{esc(r['name'])}' data-amount='{r['amount']}' data-note='{esc(r['note'] or '')}'><div style='display:flex;justify-content:space-between'><div><b>{esc(r['name'])}</b> - <b style='color:#ffbe4d'>{r['amount']}</b><br><small>{esc(r['note'] or '')}</small></div><div><button class='btn-gold' onclick=\"openEditLed({r['id']})\">تعديل</button> <button class='btn-del' onclick=\"askDel('/del_ledger/{r['id']}',{r['id']},'led')\">حذف</button></div></div></div>" for r in rs])
+        return f"<div style='max-width:700px;margin:0 auto'><div class=card><h3>الحسابات ({len(rs)})</h3><form id=formLed style='display:flex;gap:5px;flex-wrap:wrap'><input name=name placeholder='الاسم' required style='flex:1'><input name=amount type=number step=0.01 placeholder='المبلغ' required style='flex:1'><input name=note placeholder='ملاحظة' style='flex:1'><select name=currency style='flex:0.5'><option>USD</option><option>SYP</option></select><button class=btn-gold>إضافة</button></form></div><div style='display:grid;gap:8px'>{rows}</div></div><script>window.openEditLed=function(id){{let c=document.getElementById('led-'+id);let b=document.getElementById('editBody');b.innerHTML='<input id=edit_l_name value=\"'+c.dataset.name+'\" style=\"width:100%;margin:6px 0;padding:12px\"><input id=edit_l_amount value=\"'+c.dataset.amount+'\" style=\"width:100%;margin:6px 0;padding:12px\"><input id=edit_l_note value=\"'+c.dataset.note+'\" style=\"width:100%;margin:6px 0;padding:12px\"><button onclick=\"saveLed('+id+')\" class=btn-gold style=\"width:100%;padding:12px\">حفظ</button>';document.getElementById('editModal').classList.add('show');}};window.saveLed=async function(id){{let nn=document.getElementById('edit_l_name').value;let aa=document.getElementById('edit_l_amount').value;let no=document.getElementById('edit_l_note').value;let r=await fetch('/edit_ledger/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,amount:aa,note:no,currency:'USD'}})}});let j=await r.json();if(j.ok){{closeEditModal();loadPage('ledger',true);}}}};document.getElementById('formLed').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_ledger',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok){{e.target.reset();loadPage('ledger',true);}}}});</script>"
+
     if v=='logs':
         rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 300")
         rows="".join([f"<div class='card' style='display:flex;justify-content:space-between;font-size:13px'><div><b style='color:#ffbe4d'>{esc(r.get('user_phone',''))}</b> {esc(r.get('action',''))} <small style='color:#888'>{esc(r.get('detail',''))}</small></div><small style='color:#64748b'>{esc(r.get('time',''))}</small></div>" for r in rs]) or "<div class=card>لا يوجد سجل</div>"
         return f"<div style='max-width:900px;margin:0 auto'><div class=card style='display:flex;justify-content:space-between'><h3 style='margin:0'>السجل ({len(rs)})</h3><div style='display:flex;gap:6px'><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:7px 12px;background:#22c55e;color:#fff;border-radius:8px'>Excel</a><button onclick=\"if(confirm('مسح؟'))fetch('/api/clear_logs',{{method:'POST'}}).then(()=>loadPage('logs',true))\" class=btn-del>مسح</button></div></div><div style='display:grid;gap:8px'>{rows}</div></div>"
+
+    if v=='network':
+        dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 100")
+        rows="".join([f"<div class='card' id='net-{d['id']}' data-ip='{esc(d.get('ip',''))}' style='display:flex;justify-content:space-between'><div><b>{esc(d.get('dish_name') or 'صحن')}</b> - {esc(d.get('ip',''))}<br><small class='net-out' style='color:#888'>...</small></div><button class=btn-gold onclick='checkOne({d['id']})'>فحص</button></div>" for d in dishes])
+        return f'''<div style='max-width:800px;margin:0 auto'><div class=card><h3>حالة الشبكة</h3><button class=btn-gold onclick='checkAll()' style='width:100%;background:#22c55e;color:#fff;padding:12px'>فحص الكل</button></div>{rows}<script>
+        window.checkOne=async function(id){{let c=document.getElementById('net-'+id);let out=c.querySelector('.net-out');out.textContent='جاري...';try{{let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip));let j=await r.json();out.textContent=j.out.slice(0,80);out.style.color=j.ok?'#22c55e':'#ef4444';}}catch{{out.textContent='خطأ';}}}};
+        window.checkAll=async function(){{for(let c of document.querySelectorAll('[id^=net-]')){{let out=c.querySelector('.net-out');out.textContent='جاري...';try{{let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip));let j=await r.json();out.textContent=j.out.slice(0,80);out.style.color=j.ok?'#22c55e':'#ef4444';}}catch{{}}await new Promise(r=>setTimeout(r,150));}}}};
+        </script></div>'''
+
     if v=='map':
         towers=qall("SELECT * FROM towers")
         tj=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.1318),"lng":float(t.get('lng') or 36.7578)} for t in towers],ensure_ascii=False)
@@ -551,14 +629,12 @@ def page_content(v):
         window.enableAddPoint=function(){{addPointMode=!addPointMode; let b=document.getElementById('addPointBtn'); b.textContent=addPointMode?'اضغط على الخريطة':'نقطة'; if(_map) _map.getContainer().style.cursor=addPointMode?'crosshair':'';}};
         setTimeout(()=>{{_map=L.map('map').setView([35.1318,36.7578],13); L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{maxZoom:19}}).addTo(_map); L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{maxZoom:19}}).addTo(_map); _towers.forEach(t=>{{L.marker([t.lat,t.lng]).addTo(_map).bindPopup(t.name+'<br><small>'+t.lat.toFixed(6)+','+t.lng.toFixed(6)+'</small>');}}); _map.on('click',e=>{{let lat6=e.latlng.lat.toFixed(6), lng6=e.latlng.lng.toFixed(6); document.getElementById('coordsLabel').textContent=lat6+','+lng6; if(addPointMode){{L.popup().setLatLng(e.latlng).setContent('<div><b>'+lat6+','+lng6+'</b><br><input id="newPointName" placeholder="اسم" style="width:100%;margin:6px 0;padding:8px"><button onclick="saveNewPoint('+e.latlng.lat+','+e.latlng.lng+')" style="width:100%;background:#ffbe4d;border:0;padding:9px;border-radius:8px;font-weight:800">حفظ</button></div>').openOn(_map);}}}); window.saveNewPoint=async function(lat,lng){{let name=document.getElementById('newPointName').value||'نقطة'; let r=await fetch('/add_tower',{{method:'POST',body:new URLSearchParams({{name:name,area:'',lat:lat.toFixed(6),lng:lng.toFixed(6)}})}}); let j=await r.json(); if(j.ok){{_map.closePopup(); loadPage('towers',true);}}}};}},400);
         </script>'''
-    if v=='subs':
-        rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
-        rows="".join([f"<div class='card' id='sub-{r['id']}' data-name='{esc(r['name'])}' data-phone='{esc(r['phone'] or '')}'><div style='display:flex;justify-content:space-between'><div><b>{esc(r['name'])}</b><br>{esc(r['phone'] or '')}</div><div><button class='btn-gold' onclick=\"openEditSub({r['id']})\">تعديل</button> <button class='btn-del' onclick=\"askDel('/del_sub/{r['id']}',{r['id']},'sub')\">حذف</button></div></div></div>" for r in rs])
-        return f"<div style='max-width:700px;margin:0 auto'><div class=card><h3>المشتركين</h3><form id=formSub style='display:flex;gap:6px;flex-wrap:wrap'><input name=name placeholder='الاسم' required style='flex:1'><input name=phone placeholder='رقم' style='flex:1'><input name=note placeholder='ملاحظة' style='flex:1'><button class=btn-gold>إضافة</button></form></div><div style='display:grid;gap:8px'>{rows}</div></div><script>window.openEditSub=function(id){{let c=document.getElementById('sub-'+id);let b=document.getElementById('editBody');b.innerHTML='<input id=edit_s_name value="'+c.dataset.name+'" style="width:100%;padding:12px;margin:6px 0"><input id=edit_s_phone value="'+c.dataset.phone+'" style="width:100%;padding:12px;margin:6px 0"><button onclick="saveSub('+id+')" class=btn-gold style="width:100%;padding:12px">حفظ</button>';document.getElementById('editModal').classList.add('show');}};window.saveSub=async function(id){{let nn=document.getElementById('edit_s_name').value;let pp=document.getElementById('edit_s_phone').value;let r=await fetch('/edit_sub/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,phone:pp,note:''}})}});let j=await r.json();if(j.ok){{closeEditModal();loadPage('subs',true);}}}};document.getElementById('formSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok){{e.target.reset();loadPage('subs',true);}}}});</script>"
+
     if v=='settings':
         us=qall("SELECT * FROM users ORDER BY phone DESC")
         uh="".join([f'<div class="card" id="user-{esc(u["phone"])}" data-phone="{esc(u["phone"])}" data-role="{esc(u.get("role") or "")}"><div style="display:flex;justify-content:space-between"><div><b>{esc(u.get("username") or "")}</b><br><span style="color:#ffbe4d">{esc(u["phone"])}</span></div><div><button class="btn-gold" onclick="openEditUser(\'{esc(u["phone"])}\')">تعديل</button> <button class="btn-del" onclick="askDel(\'/del_user/{esc(u["phone"])}\',\'{esc(u["phone"])}\',\'user\')">حذف</button></div></div></div>' for u in us])
-        return f"<div style='max-width:800px;margin:0 auto'><div class=card><h3>كلمة السر</h3><form id=formPass style='display:flex;gap:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>حفظ</button></form></div><div class=card><h3>إضافة يوزر</h3><form id=formUser style='display:flex;gap:6px;flex-wrap:wrap'><input name=user_field placeholder='رقم / يوزر' required style='flex:1'><input name=password type=password placeholder='كلمة السر' required style='flex:1'><select name=role style='flex:0.5'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>إضافة</button></form></div>{uh}</div><script>window.openEditUser=function(ph){{let c=document.getElementById('user-'+ph);let b=document.getElementById('editBody');b.innerHTML='<input id=edit_u_field value="'+c.dataset.phone+'" style="width:100%;padding:12px"><input id=edit_u_pass type=password placeholder=\"جديدة\" style=\"width:100%;padding:12px;margin-top:8px\"><select id=edit_u_role style=\"width:100%;padding:12px;margin-top:8px\"><option value=tech '+(c.dataset.role=='tech'?'selected':'')+'>فني</option><option value=manager '+(c.dataset.role=='manager'?'selected':'')+'>مدير</option></select><button onclick=\"saveUser(\\''+ph+'\\')\" class=btn-gold style=\"width:100%;padding:12px;margin-top:8px\">حفظ</button>';document.getElementById('editModal').classList.add('show');}};window.saveUser=async function(o){{let f=document.getElementById('edit_u_field').value;let p=document.getElementById('edit_u_pass').value;let r=document.getElementById('edit_u_role').value;let d={{old_phone:o,phone:f,username:f,role:r}}; if(p) d.password=p; let res=await fetch('/edit_user',{{method:'POST',body:new URLSearchParams(d)}}); let j=await res.json(); if(j.ok){{closeEditModal();loadPage('settings',true);}}else alert(j.msg||'خطأ');}};document.getElementById('formPass').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/change_pass',{{method:'POST',body:new FormData(e.target)}});let j=await r.json(); if(j.ok){{e.target.reset();}} else alert(j.msg||'خطأ');}});document.getElementById('formUser').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_user',{{method:'POST',body:new FormData(e.target)}});let j=await r.json(); if(j.ok){{e.target.reset();loadPage('settings',true);}} else alert(j.msg||'خطأ');}});</script>"
+        return f"<div style='max-width:800px;margin:0 auto'><div class=card><h3>كلمة السر</h3><form id=formPass style='display:flex;gap:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>حفظ</button></form></div><div class=card><h3>إضافة يوزر</h3><form id=formUser style='display:flex;gap:6px;flex-wrap:wrap'><input name=user_field placeholder='رقم / يوزر' required style='flex:1'><input name=password type=password placeholder='كلمة السر' required style='flex:1'><select name=role style='flex:0.5'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>إضافة</button></form></div><div class=card><h4>تصدير</h4><div style='display:flex;gap:8px;flex-wrap:wrap'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#22c55e;color:#fff;border-radius:8px'>يوزرات</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#0ea5e9;color:#fff;border-radius:8px'>صحون</a><a href='/api/export/towers' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#ffbe4d;color:#111;border-radius:8px'>أبراج</a><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#8b5cf6;color:#fff;border-radius:8px'>سجل</a><a href='/api/export/ledger' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#f59e0b;color:#fff;border-radius:8px'>حسابات</a></div></div>{uh}</div><script>window.openEditUser=function(ph){{let c=document.getElementById('user-'+ph);let b=document.getElementById('editBody');b.innerHTML='<input id=edit_u_field value=\"'+c.dataset.phone+'\" style=\"width:100%;padding:12px\"><input id=edit_u_pass type=password placeholder=\"جديدة\" style=\"width:100%;padding:12px;margin-top:8px\"><select id=edit_u_role style=\"width:100%;padding:12px;margin-top:8px\"><option value=tech '+(c.dataset.role=='tech'?'selected':'')+'>فني</option><option value=manager '+(c.dataset.role=='manager'?'selected':'')+'>مدير</option></select><button onclick=\"saveUser(\\''+ph+'\\')\" class=btn-gold style=\"width:100%;padding:12px;margin-top:8px\">حفظ</button>';document.getElementById('editModal').classList.add('show');}};window.saveUser=async function(o){{let f=document.getElementById('edit_u_field').value;let p=document.getElementById('edit_u_pass').value;let r=document.getElementById('edit_u_role').value;let d={{old_phone:o,phone:f,username:f,role:r}}; if(p) d.password=p; let res=await fetch('/edit_user',{{method:'POST',body:new URLSearchParams(d)}}); let j=await res.json(); if(j.ok){{closeEditModal();loadPage('settings',true);}}else alert(j.msg||'خطأ');}};document.getElementById('formPass').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/change_pass',{{method:'POST',body:new FormData(e.target)}});let j=await r.json(); if(j.ok){{e.target.reset();}} else alert(j.msg||'خطأ');}});document.getElementById('formUser').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_user',{{method:'POST',body:new FormData(e.target)}});let j=await r.json(); if(j.ok){{e.target.reset();loadPage('settings',true);}} else alert(j.msg||'خطأ');}});</script>"
+
     return "<div class=card>الصفحة غير موجودة</div>"
 
 def layout(c,v='home'):
@@ -566,7 +642,6 @@ def layout(c,v='home'):
     bg='radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)' if is_dark else '#f1f5f9'
     card_bg='rgba(30,36,51,0.9)' if is_dark else '#ffffff'; txt='#ffffff' if is_dark else '#0f172a'; border='#ffffff12' if is_dark else '#e2e8f0'
     cur_user=qone("SELECT * FROM users WHERE phone=?",(session.get('phone') or '',)) or {}
-    role=cur_user.get('role') or session.get('role') or 'tech'
     req_lang=session.get('lang','ar'); is_rtl=req_lang=='ar'
     username_display=esc(cur_user.get('username') or session.get('phone') or '')
     sidebar_pos="right:0; left:auto; transform:translateX(110%);" if is_rtl else "left:0; right:auto; transform:translateX(-110%);"
@@ -591,27 +666,30 @@ def layout(c,v='home'):
 .btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:8px 14px;border:0;border-radius:10px;font-weight:800;cursor:pointer;transition:.38s cubic-bezier(0.34, 1.56, 0.64, 1)}}
 .btn-gold:hover{{transform:scale(1.05)}} .btn-gold:active{{transform:scale(0.9)}}
 .btn-del{{background:#ef4444;color:#fff;padding:8px 12px;border:0;border-radius:10px;cursor:pointer;transition:.3s}}
-.btn-del:hover{{transform:scale(1.05)}}
 #delModal, #editModal{{position:fixed;inset:0;background:#0008;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.35s;z-index:2000}}
 #delModal.show, #editModal.show{{opacity:1;pointer-events:auto}}
 #delBox, #editBox{{background:{card_bg};color:{txt};padding:22px;border-radius:18px;width:92%;max-width:440px;transform:scale(0.9);transition:.38s cubic-bezier(0.34, 1.56, 0.64, 1)}}
 #delModal.show #delBox, #editModal.show #editBox{{transform:scale(1)}}
 .icon-anim{{transition:.38s cubic-bezier(0.34, 1.56, 0.64, 1)}} .icon-anim:active{{transform:scale(0.85)}}
+.stat-card{{cursor:pointer}} .stat-card:hover{{transform:translateY(-3px) scale(1.02)}}
 </style></head><body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
 <div style='padding:0 16px 12px;border-bottom:1px solid #ffffff0a;display:flex;justify-content:space-between;align-items:center'><div><div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><small style='color:#888'>{username_display}</small></div><button onclick="toggleCollapse()" id=collapseBtn style='background:#ffffff10;border:1px solid #ffffff15;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer' class=icon-anim>◀</button></div>
 <a href="javascript:loadPage('home')" id=nav-home>🏠 <span class=text>الرئيسية</span></a>
 <a href="javascript:loadPage('dishes')" id=nav-dishes>📡 <span class=text>الصحون</span></a>
+<a href="javascript:loadPage('ping')" id=nav-ping>📶 <span class=text>بنج</span></a>
+<a href="javascript:loadPage('network')" id=nav-network>📊 <span class=text>حالة الشبكة</span></a>
 <a href="javascript:loadPage('towers')" id=nav-towers>🗼 <span class=text>الأبراج</span></a>
-<a href="javascript:loadPage('map')" id=nav-map>🗺 <span class=text>الخريطة</span></a>
 <a href="javascript:loadPage('subs')" id=nav-subs>👥 <span class=text>المشتركين</span></a>
+<a href="javascript:loadPage('ledger')" id=nav-ledger>📒 <span class=text>الحسابات</span></a>
 <a href="javascript:loadPage('logs')" id=nav-logs>📜 <span class=text>السجل</span></a>
+<a href="javascript:loadPage('map')" id=nav-map>🗺 <span class=text>الخريطة</span></a>
 <a href="javascript:loadPage('settings')" id=nav-settings>⚙ <span class=text>الإعدادات</span></a>
 <a href="javascript:logoutFast()" style='margin-top:12px;background:#ef444418'>🚪 <span class=text>خروج</span></a>
 </div>
 <div class=top>
-<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:20px;cursor:pointer;padding:6px 9px;background:#ffffff0a;border-radius:10px' class=icon-anim>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" style='background:#1f2937;border:1px solid #ffffff15;color:#fff;padding:7px 11px;border-radius:10px;width:42px;transition:.38s' onfocus="this.style.width='180px'"></div>
+<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:20px;cursor:pointer;padding:6px 9px;background:#ffffff0a;border-radius:10px' class=icon-anim>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" style='background:#0f1424;border:1px solid #ffffff15;color:#fff;padding:7px 11px;border-radius:10px;width:42px;transition:.38s' onfocus="this.style.width='180px'"></div>
 <div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div style='display:flex;gap:6px'><button onclick="toggleThemeNoReload()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:7px 10px;border-radius:10px' class=icon-anim>🌓</button><button onclick="toggleLangNoReload()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:7px 10px;border-radius:10px' class=icon-anim>🌐</button></div>
 </div>
@@ -627,8 +705,8 @@ function applyCollapse(){{let sb=document.getElementById('sb'); if(sidebarCollap
 applyCollapse();
 function toggleCollapse(){{sidebarCollapsed=!sidebarCollapsed; localStorage.setItem('omaia_collapsed', sidebarCollapsed?'1':'0'); applyCollapse();}}
 function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o);}}
-let pageCache={{}}; try{{pageCache=JSON.parse(localStorage.getItem('omaia_cache_clean')||'{{}}');}}catch(e){{pageCache={{}};}}
-function saveCache(){{try{{localStorage.setItem('omaia_cache_clean',JSON.stringify(pageCache));}}catch(e){{}}}}
+let pageCache={{}}; try{{pageCache=JSON.parse(localStorage.getItem('omaia_full')||'{{}}');}}catch(e){{pageCache={{}};}}
+function saveCache(){{try{{localStorage.setItem('omaia_full',JSON.stringify(pageCache));}}catch(e){{}}}}
 async function loadPage(v,force=false,push=true){{
   if(push&&cur!==v){{try{{history.pushState({{page:v}},'', '/dash?v='+v);}}catch(e){{}}}}
   cur=v; toggleSb(false); document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active')); let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
@@ -648,11 +726,10 @@ document.getElementById('delYes').onclick=async()=>{{
 async function toggleThemeNoReload(){{await fetch('/toggle_theme'); location.reload();}}
 async function toggleLangNoReload(){{let r=await fetch('/toggle_lang'); let j=await r.json(); loadPage(cur,true,false); document.documentElement.dir=j.lang==='ar'?'rtl':'ltr';}}
 window.globalSearchTop=async function(q){{let box=document.getElementById('searchResults'); if(!q||q.length<2){{box.style.display='none'; return;}} let r=await fetch('/api/search?q='+encodeURIComponent(q)); let d=await r.json(); if(!d.length){{box.style.display='none'; return;}} let h=''; d.forEach(x=>{{h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid #ffffff08"><b>'+x.title+'</b><br><small style="color:#888">'+x.sub+'</small></div>';}}); box.innerHTML=h; box.style.display='block';}};
-window.logoutFast=async function(){{await fetch('/api/logout',{{method:'POST'}}); try{{localStorage.removeItem('omaia_cache_clean');}}catch(e){{}} location.replace('/login');}};
+window.logoutFast=async function(){{await fetch('/api/logout',{{method:'POST'}}); try{{localStorage.removeItem('omaia_full');}}catch(e){{}} location.replace('/login');}};
 loadPage(cur,true,false);
 </script></body></html>"""
 
 if __name__=='__main__':
     port=int(os.environ.get("PORT",10000))
-    print(f"OMAIA ISP CLEAN running on {port}")
     app.run(host='0.0.0.0',port=port,debug=False)
