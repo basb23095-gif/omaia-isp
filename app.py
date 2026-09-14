@@ -37,7 +37,7 @@ def init_pool():
         if _pg_pool:
             return
         try:
-            _pg_pool=pg_pool.ThreadedConnectionPool(1,20,dsn=DATABASE_URL,sslmode='require',connect_timeout=3)
+            _pg_pool=pg_pool.ThreadedConnectionPool(2,20,dsn=DATABASE_URL,sslmode='require',connect_timeout=2)
         except Exception as e:
             print("[POOL] "+str(e))
             _pg_pool=None
@@ -51,19 +51,20 @@ def get_conn():
         try:
             return _pg_pool.getconn()
         except:
-            return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=3)
+            return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=2)
     elif USE_PG:
         try:
-            return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=3)
+            return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=2)
         except:
             pass
     global _sqlite_conn
     with _sqlite_lock:
         if _sqlite_conn is None:
             try:
-                _sqlite_conn=sqlite3.connect("omia.db",check_same_thread=False,timeout=15)
+                _sqlite_conn=sqlite3.connect("omia.db",check_same_thread=False,timeout=10)
                 _sqlite_conn.row_factory=sqlite3.Row
                 _sqlite_conn.execute("PRAGMA journal_mode=WAL;")
+                _sqlite_conn.execute("PRAGMA synchronous=NORMAL;")
             except:
                 _sqlite_conn=sqlite3.connect(":memory:",check_same_thread=False)
                 _sqlite_conn.row_factory=sqlite3.Row
@@ -137,7 +138,7 @@ def qexec(q,a=()):
                 pass
         return False
 
-def add_log(phone,action,detail):
+def _log_sync(phone,action,detail):
     try:
         now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'unknown',action,detail,now))
@@ -147,10 +148,16 @@ def add_log(phone,action,detail):
     except Exception as e:
         print("[log] "+str(e))
 
+def add_log(phone,action,detail, background=True):
+    if background:
+        threading.Thread(target=_log_sync, args=(phone,action,detail), daemon=True).start()
+    else:
+        _log_sync(phone,action,detail)
+
 def get_counts():
     with _cache_lock:
         c=_cache.get('counts')
-        if c and time.time()-c[1]<15:
+        if c and time.time()-c[1]<30:
             return c[0]
     try:
         ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0)
@@ -247,7 +254,7 @@ def _check_port(args):
     s=None
     try:
         s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        s.settimeout(0.4)
+        s.settimeout(0.35)
         ok = s.connect_ex((ip,port))==0
         s.close()
         return (port, ok)
@@ -276,7 +283,7 @@ def api_ping():
                 return jsonify(ok=True,out=ip+':'+str(port)+' مفتوح',port=port,method='tcp')
     try:
         cmd=['ping','-c','1','-W','1',ip] if platform.system().lower()!='windows' else ['ping','-n','1','-w','1000',ip]
-        out=subprocess.check_output(cmd,timeout=2,stderr=subprocess.STDOUT).decode(errors='ignore')
+        out=subprocess.check_output(cmd,timeout=1,stderr=subprocess.STDOUT).decode(errors='ignore')
         ok='ttl=' in out.lower() or 'bytes from' in out.lower() or '1 received' in out.lower()
         if ok:
             m=re.search(r'time[=<]\s*(\d+\.?\d*)',out,re.I)
@@ -343,7 +350,7 @@ def api_login_public():
         session['username']=u.get('username') or u['phone']
         session['role']=u.get('role') or 'tech'
         session.permanent=False
-        add_log(u['phone'],'دخل النظام','تسجيل دخول')
+        add_log(u['phone'],'دخل النظام','تسجيل دخول', background=True)
         return jsonify(ok=True,role=u.get('role'))
     return jsonify(ok=False,msg='خطأ بالدخول'),401
 
@@ -418,60 +425,42 @@ def ix():
 def login():
     return """<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&display=swap" rel="stylesheet">
-<style>*{box-sizing:border-box;font-family:'Cairo',system-ui}body{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 55%, #070a1f 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
-.card{background:rgba(34,43,69,0.92);backdrop-filter:blur(14px);border:1px solid #ffffff18;padding:28px;border-radius:22px;width:92%;max-width:400px;box-shadow:0 20px 60px #0006}
-input{width:100%;padding:14px;margin:9px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:14px;font-size:15px;transition:.3s}
-input:focus{border-color:#ffbe4d;outline:none;box-shadow:0 0 0 3px #ffbe4d22}
-.btn{width:100%;padding:14px;border:0;border-radius:14px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:900;font-size:17px;cursor:pointer;margin-top:12px;transition:.3s}
-.btn:hover{transform:scale(1.02)} .btn:active{transform:scale(0.97)}
-.support-box{margin-top:16px;text-align:center;padding:12px;background:#ffffff08;border:1px solid #ffffff10;border-radius:12px}
-.support-box a{color:#ffbe4d;text-decoration:none;font-weight:800}
+<style>*{box-sizing:border-box;font-family:'Cairo',system-ui}body{margin:0;min-height:100vh;background:#0a0e2a;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
+.card{background:#1e253a;border:1px solid #ffffff15;padding:26px;border-radius:20px;width:92%;max-width:390px}
+input{width:100%;padding:13px;margin:8px 0;background:#0f1424;border:1px solid #ffffff20;color:#fff;border-radius:12px;font-size:15px}
+.btn{width:100%;padding:13px;border:0;border-radius:12px;background:#ffbe4d;color:#111;font-weight:900;font-size:16px;cursor:pointer;margin-top:10px}
+.support-box{margin-top:14px;text-align:center;padding:10px;background:#ffffff06;border-radius:10px}
+.support-box a{color:#ffbe4d;text-decoration:none;font-weight:700}
 </style></head><body>
-<div style='font-size:30px;font-weight:900;margin-bottom:6px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
-<div style='color:#888;font-size:13px;margin-bottom:16px'>الدعم الفني: +905344851045</div>
+<div style='font-size:28px;font-weight:900;margin-bottom:4px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div style='color:#666;font-size:12px;margin-bottom:14px'>الدعم: +905344851045</div>
 <div class=card>
 <form id=loginForm>
 <input name=userin id=userin placeholder='رقم / يوزر' required autocomplete=username>
 <input name=password id=password type=password placeholder='كلمة السر' required autocomplete=current-password>
-<label style='display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px;color:#aaa;cursor:pointer'><input type=checkbox id=rememberMe style='width:18px;height:18px;margin:0'> حفظ كلمة السر</label>
+<label style='display:flex;align-items:center;gap:8px;margin:8px 0;font-size:12px;color:#aaa;cursor:pointer'><input type=checkbox id=rememberMe style='width:16px;height:16px;margin:0'> حفظ كلمة السر</label>
 <button class=btn id=loginBtn>دخول</button>
-<div id=msg style='text-align:center;margin-top:10px;color:#ff6b6b;font-size:13px;min-height:18px'></div>
+<div id=msg style='text-align:center;margin-top:8px;color:#ff6b6b;font-size:12px;min-height:16px'></div>
 </form>
-<div class=support-box>
-<div style='font-size:12px;color:#aaa'>الدعم الفني</div>
-<div style='margin-top:4px'><a href='https://wa.me/905344851045' target=_blank>واتساب: +90 534 485 10 45</a></div>
-<div style='margin-top:4px'><a href='tel:+905344851045'>اتصال: 05344851045</a></div>
-</div>
+<div class=support-box><a href='https://wa.me/905344851045' target=_blank>واتساب: +905344851045</a></div>
 </div>
 <script>
 let u=document.getElementById('userin'), p=document.getElementById('password'), cb=document.getElementById('rememberMe');
-try{
-  let su=localStorage.getItem('omaia_user'), sp=localStorage.getItem('omaia_pass');
-  if(su){ u.value=su; }
-  if(sp){ p.value=sp; cb.checked=true; }
-}catch(e){}
+try{ let su=localStorage.getItem('omaia_user'), sp=localStorage.getItem('omaia_pass'); if(su) u.value=su; if(sp){ p.value=sp; cb.checked=true; } }catch(e){}
 document.getElementById('loginForm').addEventListener('submit',async e=>{
  e.preventDefault();
  let btn=document.getElementById('loginBtn'), msg=document.getElementById('msg');
  if(btn.disabled) return;
- let orig=btn.textContent; btn.textContent='جاري...'; btn.disabled=true; msg.textContent='';
+ btn.textContent='جاري...'; btn.disabled=true; msg.textContent='';
  try{
   let fd=new FormData(e.target);
   let r=await fetch('/api/login_public',{method:'POST',body:fd,cache:'no-store'});
   let j=await r.json();
   if(j.ok){
-    try{
-      if(cb.checked){
-        localStorage.setItem('omaia_user',u.value);
-        localStorage.setItem('omaia_pass',p.value);
-      }else{
-        localStorage.removeItem('omaia_user');
-        localStorage.removeItem('omaia_pass');
-      }
-    }catch(e){}
+    try{ if(cb.checked){ localStorage.setItem('omaia_user',u.value); localStorage.setItem('omaia_pass',p.value); }else{ localStorage.removeItem('omaia_user'); localStorage.removeItem('omaia_pass'); } }catch(e){}
     location.replace('/dash?v=home');
-  } else { msg.textContent=j.msg||'خطأ'; btn.textContent=orig; btn.disabled=false; }
- }catch(err){ msg.textContent='خطأ شبكة'; btn.textContent=orig; btn.disabled=false; }
+  } else { msg.textContent=j.msg||'خطأ'; btn.textContent='دخول'; btn.disabled=false; }
+ }catch(err){ msg.textContent='خطأ شبكة'; btn.textContent='دخول'; btn.disabled=false; }
 });
 </script></body></html>"""
 
@@ -551,7 +540,7 @@ def ad():
             last=qone("SELECT last_insert_rowid() as id")
             new_id=last['id'] if last else 0
     if ok:
-        add_log(phone,'إضافة صحن',name+" "+ip+" "+loc)
+        add_log(phone,'إضافة صحن',name+" "+ip+" "+loc, background=True)
     return jsonify(ok=ok, id=new_id, ip=ip, name=name, loc=loc)
 
 @app.route('/edit_dish/<int:i>',methods=['POST'])
@@ -568,7 +557,7 @@ def ed(i):
     ok=qexec("UPDATE dish_ips SET dish_name=?,ip=?,location=? WHERE id=?",(name,ip,loc,i))
     if ok:
         detail="ID "+str(i)+" من "+str(old.get('ip',''))+" الى "+ip+" "+name if old else "ID "+str(i)
-        add_log(session.get('phone'),'تعديل صحن',detail)
+        add_log(session.get('phone'),'تعديل صحن',detail, background=True)
     return jsonify(ok=ok)
 
 @app.route('/del_dish/<int:i>')
@@ -579,7 +568,7 @@ def dd(i):
     info=qone("SELECT ip,dish_name FROM dish_ips WHERE id=?",(i,))
     ok=qexec("DELETE FROM dish_ips WHERE id=?",(i,))
     if ok:
-        add_log(session.get('phone'),'حذف صحن',str(info.get('dish_name',''))+" "+str(info.get('ip','')) if info else "ID "+str(i))
+        add_log(session.get('phone'),'حذف صحن',str(info.get('dish_name',''))+" "+str(info.get('ip','')) if info else "ID "+str(i), background=True)
     return jsonify(ok=ok)
 
 @app.route('/add_tower',methods=['POST'])
@@ -604,7 +593,7 @@ def at():
         last=qone("SELECT last_insert_rowid() as id")
         nid=last['id'] if last else 0
     if ok:
-        add_log(session.get('phone'),'إضافة برج',name+" "+str(la)+","+str(ln))
+        add_log(session.get('phone'),'إضافة برج',name+" "+str(la)+","+str(ln), background=True)
     return jsonify(ok=ok, id=nid, name=name, area=area, lat=la, lng=ln)
 
 @app.route('/del_tower/<int:i>')
@@ -614,7 +603,7 @@ def dt(i):
         return jsonify(ok=False,msg="ممنوع للفني"),403
     ok=qexec("DELETE FROM towers WHERE id=?",(i,))
     if ok:
-        add_log(session.get('phone'),'حذف برج',"ID "+str(i))
+        add_log(session.get('phone'),'حذف برج',"ID "+str(i), background=True)
     return jsonify(ok=ok)
 
 @app.route('/edit_tower/<int:i>',methods=['POST'])
@@ -635,7 +624,7 @@ def et(i):
     old=qone("SELECT * FROM towers WHERE id=?",(i,))
     ok=qexec("UPDATE towers SET name=?,area=?,lat=?,lng=? WHERE id=?",(name,area,la,ln,i))
     if ok:
-        add_log(session.get('phone'),'تعديل برج',"ID "+str(i)+" "+name+" "+str(la)+","+str(ln))
+        add_log(session.get('phone'),'تعديل برج',"ID "+str(i)+" "+name+" "+str(la)+","+str(ln), background=True)
     return jsonify(ok=ok)
 
 @app.route('/add_sub',methods=['POST'])
@@ -652,7 +641,7 @@ def asub():
         last=qone("SELECT last_insert_rowid() as id")
         nid=last['id'] if last else 0
     if ok:
-        add_log(session.get('phone'),'إضافة مشترك',name+" "+phone)
+        add_log(session.get('phone'),'إضافة مشترك',name+" "+phone, background=True)
     return jsonify(ok=ok, id=nid, name=name, phone=phone, note=note)
 
 @app.route('/del_sub/<int:i>')
@@ -662,7 +651,7 @@ def dsub(i):
         return jsonify(ok=False,msg="ممنوع للفني"),403
     ok=qexec("DELETE FROM subs WHERE id=?",(i,))
     if ok:
-        add_log(session.get('phone'),'حذف مشترك',"ID "+str(i))
+        add_log(session.get('phone'),'حذف مشترك',"ID "+str(i), background=True)
     return jsonify(ok=ok)
 
 @app.route('/edit_sub/<int:i>',methods=['POST'])
@@ -675,7 +664,7 @@ def esub(i):
     note=request.form.get('note','')
     ok=qexec("UPDATE subs SET name=?,phone=?,note=? WHERE id=?",(name,phone,note,i))
     if ok:
-        add_log(session.get('phone'),'تعديل مشترك',"ID "+str(i)+" -> "+name)
+        add_log(session.get('phone'),'تعديل مشترك',"ID "+str(i)+" -> "+name, background=True)
     return jsonify(ok=ok)
 
 @app.route('/add_ledger',methods=['POST'])
@@ -696,7 +685,7 @@ def al():
         last=qone("SELECT last_insert_rowid() as id")
         nid=last['id'] if last else 0
     if ok:
-        add_log(session.get('phone'),'إضافة حساب',str(name)+" "+str(amt))
+        add_log(session.get('phone'),'إضافة حساب',str(name)+" "+str(amt), background=True)
     return jsonify(ok=ok, id=nid, name=name, amount=amt)
 
 @app.route('/del_ledger/<int:i>')
@@ -706,7 +695,7 @@ def dll(i):
         return jsonify(ok=False,msg="ممنوع للفني"),403
     ok=qexec("DELETE FROM ledger WHERE id=?",(i,))
     if ok:
-        add_log(session.get('phone'),'حذف حساب',"ID "+str(i))
+        add_log(session.get('phone'),'حذف حساب',"ID "+str(i), background=True)
     return jsonify(ok=ok)
 
 @app.route('/edit_ledger/<int:i>',methods=['POST'])
@@ -723,7 +712,7 @@ def el(i):
     cur=request.form.get('currency','USD')
     ok=qexec("UPDATE ledger SET name=?,amount=?,note=?,currency=? WHERE id=?",(name,amt,note,cur,i))
     if ok:
-        add_log(session.get('phone'),'تعديل حساب',"ID "+str(i)+" -> "+name)
+        add_log(session.get('phone'),'تعديل حساب',"ID "+str(i)+" -> "+name, background=True)
     return jsonify(ok=ok)
 
 @app.route('/add_user',methods=['POST'])
@@ -739,7 +728,7 @@ def au():
     role=request.form.get('role','tech')
     ok=qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",(ph,generate_password_hash(pw),role,ph))
     if ok:
-        add_log(session.get('phone'),'إضافة يوزر',ph+" "+role)
+        add_log(session.get('phone'),'إضافة يوزر',ph+" "+role, background=True)
     return jsonify(ok=ok)
 
 @app.route('/edit_user',methods=['POST'])
@@ -762,7 +751,7 @@ def eu():
         session['phone']=new_ph
         session['role']=new_role
     if ok:
-        add_log(session.get('phone'),'تعديل يوزر',old+"->"+new_ph+" "+new_role)
+        add_log(session.get('phone'),'تعديل يوزر',old+"->"+new_ph+" "+new_role, background=True)
     return jsonify(ok=ok)
 
 @app.route('/del_user/<ph>')
@@ -773,7 +762,7 @@ def du(ph):
         return jsonify(ok=False,msg="ممنوع حذف المدير"),400
     ok=qexec("DELETE FROM users WHERE phone=?",(ph,))
     if ok:
-        add_log(session.get('phone'),'حذف يوزر',ph)
+        add_log(session.get('phone'),'حذف يوزر',ph, background=True)
     return jsonify(ok=ok)
 
 @app.route('/change_pass',methods=['POST'])
@@ -784,7 +773,7 @@ def cp():
         return jsonify(ok=False,msg="قصيرة"),400
     ok=qexec("UPDATE users SET password=? WHERE phone=?",(generate_password_hash(np),session.get('phone')))
     if ok:
-        add_log(session.get('phone'),'تغيير كلمة سر','تم التغيير')
+        add_log(session.get('phone'),'تغيير كلمة سر','تم التغيير', background=True)
     return jsonify(ok=ok)
 
 def page_content(v):
@@ -797,52 +786,44 @@ def page_content(v):
         logs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
         log_html=""
         for l in logs:
-            log_html += "<div style='display:flex;justify-content:space-between;padding:10px;border-bottom:1px dashed #ffffff10'><div><b style='color:#ffbe4d'>"+esc(l.get('user_phone',''))+"</b> <span style='color:#22c55e;font-weight:800'>"+esc(l.get('action',''))+"</span> <small style='color:#cbd5e1'>"+esc(l.get('detail',''))+"</small></div><small style='color:#64748b'>"+esc(l.get('time',''))+"</small></div>"
+            log_html += "<div style='display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #ffffff08'><div><b style='color:#ffbe4d'>"+esc(l.get('user_phone',''))+"</b> <span style='color:#22c55e'>"+esc(l.get('action',''))+"</span> <small style='color:#aaa'>"+esc(l.get('detail',''))[:80]+"</small></div><small style='color:#555'>"+esc(l.get('time',''))[-8:]+"</small></div>"
         if not logs:
-            log_html="<div style='padding:12px;color:#888'>السجل فاضي - كل التعديلات رح تظهر هون</div>"
-        html_out = "<div style='max-width:1000px;margin:0 auto'><div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px'>"
-        html_out += "<div class='card stat-card' onclick=\"loadPage('subs')\" style='cursor:pointer'><h3 style='margin:0;color:#aab4d0;font-size:13px'>"+L('المشتركين','Subs')+"</h3><h2 style='margin:6px 0 0;font-size:32px'>"+str(ns)+"</h2></div>"
-        html_out += "<div class='card stat-card' onclick=\"loadPage('dishes')\" style='cursor:pointer'><h3 style='margin:0;color:#aab4d0;font-size:13px'>"+L('الصحون','Dishes')+"</h3><h2 style='margin:6px 0 0;font-size:32px'>"+str(nd)+"</h2></div>"
-        html_out += "<div class='card stat-card' onclick=\"loadPage('towers')\" style='cursor:pointer'><h3 style='margin:0;color:#aab4d0;font-size:13px'>"+L('الأبراج','Towers')+"</h3><h2 style='margin:6px 0 0;font-size:32px'>"+str(nt)+"</h2></div>"
-        html_out += "<div class='card stat-card' onclick=\"loadPage('ledger')\" style='cursor:pointer'><h3 style='margin:0;color:#aab4d0;font-size:13px'>"+L('الحسابات','Accounts')+"</h3><h2 style='margin:6px 0 0;font-size:32px'>"+str(nl)+"</h2></div>"
-        html_out += "</div><div class=card style='margin-top:14px'><div style='display:flex;justify-content:space-between;align-items:center'><h4 style='margin:0'>اخر النشاطات - السجل الكامل</h4><button class=btn-gold onclick=\"loadPage('logs')\">عرض كل السجل</button></div><div style='margin-top:10px'>"+log_html+"</div></div>"
-        html_out += "<div class=card style='text-align:center'><div style='color:#888;font-size:13px'>الدعم الفني: +905344851045 - واتساب واتصال</div><a href='https://wa.me/905344851045' target=_blank style='display:inline-block;margin-top:8px;background:#22c55e;color:#fff;padding:10px 20px;border-radius:10px;text-decoration:none'>تواصل واتساب</a></div></div>"
-        return html_out
+            log_html="<div style='padding:10px;color:#666'>لا يوجد سجل</div>"
+        return "<div style='max-width:1000px;margin:0 auto'><div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px'><div class=card onclick=\"loadPage('subs')\" style='cursor:pointer;text-align:center'><div style='font-size:12px;color:#888'>"+L('المشتركين','Subs')+"</div><div style='font-size:28px;font-weight:900'>"+str(ns)+"</div></div><div class=card onclick=\"loadPage('dishes')\" style='cursor:pointer;text-align:center'><div style='font-size:12px;color:#888'>"+L('الصحون','Dishes')+"</div><div style='font-size:28px;font-weight:900'>"+str(nd)+"</div></div><div class=card onclick=\"loadPage('towers')\" style='cursor:pointer;text-align:center'><div style='font-size:12px;color:#888'>"+L('الأبراج','Towers')+"</div><div style='font-size:28px;font-weight:900'>"+str(nt)+"</div></div><div class=card onclick=\"loadPage('ledger')\" style='cursor:pointer;text-align:center'><div style='font-size:12px;color:#888'>"+L('الحسابات','Accounts')+"</div><div style='font-size:28px;font-weight:900'>"+str(nl)+"</div></div></div><div class=card style='margin-top:10px'><div style='display:flex;justify-content:space-between'><b>السجل</b><button class=btn-gold onclick=\"loadPage('logs')\" style='padding:6px 12px'>الكل</button></div><div style='margin-top:8px'>"+log_html+"</div></div><div class=card style='text-align:center'><a href='https://wa.me/905344851045' target=_blank style='display:inline-block;background:#22c55e;color:#fff;padding:8px 16px;border-radius:8px;text-decoration:none'>واتساب الدعم: 905344851045+</a></div></div>"
 
     if v=='ping':
         return """
 <div style='max-width:900px;margin:0 auto'>
 <div class=card>
-<h3 style='margin:0'>فحص الشبكة - سريع 0.4 ثانية</h3>
-<div style='display:flex;gap:8px;margin-top:12px;flex-wrap:wrap'>
-<input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:160px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff;font-family:monospace'>
-<input id=pingPort placeholder='Port' value='80' style='width:80px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff'>
-<button class=btn-gold onclick="doSinglePing()" style='padding:14px 20px;background:#22c55e;color:#fff'>Ping</button>
-<button class=btn-gold onclick="doTcpPing()" style='padding:14px 16px;background:#0ea5e9;color:#fff'>TCP</button>
+<b>فحص الشبكة</b>
+<div style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'>
+<input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:140px'>
+<input id=pingPort placeholder='Port' value='80' style='width:70px'>
+<button class=btn-gold onclick="doSinglePing()" style='background:#22c55e;color:#fff'>Ping</button>
+<button class=btn-gold onclick="doTcpPing()" style='background:#0ea5e9;color:#fff'>TCP</button>
 </div>
-<div id=pingResult style='margin-top:14px;min-height:60px;background:#0008;border-radius:12px;padding:14px;font-family:monospace;font-size:13px;white-space:pre-wrap'>جاهز</div>
-<div style='display:flex;gap:8px;margin-top:10px'><button class=btn-gold onclick="pingAllDishes()" style='flex:1;background:#ffbe4d;color:#111'>فحص كل الصحون</button><button class=btn-gold onclick="clearPing()" style='background:#ffffff10;color:#fff'>مسح</button></div>
+<div id=pingResult style='margin-top:10px;background:#0006;padding:10px;border-radius:10px;font-family:monospace;font-size:12px;min-height:40px'>جاهز</div>
+<div style='display:flex;gap:6px;margin-top:8px'><button class=btn-gold onclick="pingAllDishes()" style='flex:1;background:#ffbe4d;color:#111'>فحص كل الصحون</button><button class=btn-gold onclick="clearPing()" style='background:#ffffff10;color:#fff'>مسح</button></div>
 </div>
-<div class=card><h4>صحون سريعة</h4><div id=quickDishes>...</div></div>
+<div class=card><b>صحون سريعة</b><div id=quickDishes>...</div></div>
 </div>
 <script>
 window.doSinglePing=async function(){
   let ip=document.getElementById('pingIp').value.trim();
   if(!ip) return;
   let out=document.getElementById('pingResult');
-  out.textContent='جاري فحص '+ip+'...';
+  out.textContent='جاري...';
   try{
     let r=await fetch('/api/ping?ip='+encodeURIComponent(ip),{cache:'no-store'});
     let j=await r.json();
     out.textContent=j.out;
-    out.style.color=j.ok?'#22c55e':'#ef4444';
-  }catch(e){ out.textContent='خطأ '+e; }
+  }catch(e){ out.textContent='خطأ'; }
 };
 window.doTcpPing=async function(){
   let ip=document.getElementById('pingIp').value.trim();
   let port=document.getElementById('pingPort').value.trim()||'80';
   let out=document.getElementById('pingResult');
-  out.textContent='جاري '+ip+':'+port+'...';
+  out.textContent='جاري...';
   try{
     let r=await fetch('/api/ping_tcp?ip='+encodeURIComponent(ip)+'&port='+port);
     let j=await r.json();
@@ -852,7 +833,7 @@ window.doTcpPing=async function(){
 window.clearPing=function(){ document.getElementById('pingResult').textContent='جاهز'; };
 window.pingAllDishes=async function(){
   let out=document.getElementById('pingResult');
-  out.textContent='جاري فحص كل الصحون...\n';
+  out.textContent='جاري فحص الكل...\n';
   try{
     let sr=await fetch('/api/search?q=.',{cache:'no-store'});
     let d=await sr.json();
@@ -865,7 +846,7 @@ window.pingAllDishes=async function(){
         out.textContent+=pj.out+'\n';
       }catch{ out.textContent+='خطأ\n' }
     }
-  }catch(e){ out.textContent='خطأ: '+e; }
+  }catch(e){ out.textContent='خطأ'; }
 };
 (async()=>{
   try{
@@ -873,7 +854,7 @@ window.pingAllDishes=async function(){
     let d=await r.json();
     let h='';
     d.filter(x=>x.page==='dishes').slice(0,8).forEach(x=>{
-      h+='<div style="display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #ffffff08"><span>'+x.sub+' - '+x.title+'</span><button class=btn-gold onclick="document.getElementById(\'pingIp\').value=\''+x.sub+'\'; doSinglePing()" style="padding:5px 10px">Ping</button></div>';
+      h+='<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #ffffff08"><span>'+x.sub+'</span><button class=btn-gold onclick="document.getElementById(\'pingIp\').value=\''+x.sub+'\'; doSinglePing()" style="padding:4px 8px">Ping</button></div>';
     });
     document.getElementById('quickDishes').innerHTML=h||'لا يوجد';
   }catch{}
@@ -889,158 +870,76 @@ window.pingAllDishes=async function(){
             ip=esc(r.get('ip') or '')
             loc=esc(r.get('location') or '')
             rid=r['id']
-            rows_html += '<div class="card dish-card card-anim" id="dish-'+str(rid)+'" data-name="'+dn+'" data-ip="'+ip+'" data-loc="'+loc+'" style="display:flex;justify-content:space-between;align-items:center"><div><b class="dish-name">'+dn+'</b><br><a class="dish-ip" href="http://'+ip+'" target=_blank style="background:#000;color:#ffbe4d;padding:4px 10px;border-radius:8px;font-family:monospace;text-decoration:none;display:inline-block;margin:4px 0">'+ip+'</a><br><small class="dish-loc" style="color:#888">'+loc+'</small></div><div style="display:flex;flex-direction:column;gap:6px"><button class="btn-gold icon-anim" onclick="quickPingD('+str(rid)+')" style="padding:7px 12px;background:#22c55e;color:#fff">Ping</button><div style="display:flex;gap:4px"><button class="btn-gold icon-anim" onclick="editDish('+str(rid)+')" style="padding:7px 9px">تعديل</button><button class="btn-del icon-anim" onclick="askDel(\'/del_dish/'+str(rid)+'\','+str(rid)+',\'dish\')" style="padding:7px 9px">حذف</button></div></div></div>'
-        return """
-<div style='max-width:900px;margin:0 auto'><div class=card><div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px'><h3 style='margin:0'>الصحون - """+str(len(rs))+"""</h3><div style='display:flex;gap:6px'><button onclick="loadPage('ping')" class=btn-gold style='padding:7px 12px;background:#22c55e;color:#fff'>Ping</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:7px 12px'>Excel</a></div></div>
-<form id=formDish style='display:flex;gap:6px;flex-wrap:wrap;margin-top:12px'><input name=dish_name id=dish_name_input placeholder='اسم الصحن' required style='flex:1;min-width:120px'><input name=ip id=dish_ip_input placeholder='192.168.1.1' required style='flex:1;min-width:120px'><input name=location id=dish_loc_input placeholder='موقع' style='flex:1;min-width:100px'><button class="btn-gold icon-anim" type=submit id=btnAddDish>إضافة فوري بدون تحميل</button></form>
-<input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" style='margin-top:12px;width:100%;padding:12px;border-radius:12px;background:#0f1424;border:1px solid #ffffff18'></div><div id=dl style='display:grid;gap:10px'>"""+rows_html+"""</div></div>
-<script>
-window.searchDishes=function(q){ q=(q||'').toLowerCase(); document.querySelectorAll('.dish-card').forEach(c=>{ let t=(c.dataset.name+c.dataset.ip+c.dataset.loc).toLowerCase(); c.style.display=t.includes(q)?'flex':'none'; }); };
-window.editDish=function(id){
-  let c=document.getElementById('dish-'+id);
-  if(!c){ alert('ما لقيت الصحن'); return; }
-  let body=document.getElementById('editBody');
-  let safeName=c.dataset.name.replace(/"/g,'&quot;');
-  let safeLoc=c.dataset.loc.replace(/"/g,'&quot;');
-  body.innerHTML='<div style="display:flex;flex-direction:column;gap:8px"><input id=edit_dish_name value="'+safeName+'" style="width:100%;padding:12px;border-radius:10px"><input id=edit_ip value="'+c.dataset.ip+'" style="width:100%;padding:12px;border-radius:10px"><input id=edit_loc value="'+safeLoc+'" style="width:100%;padding:12px;border-radius:10px"><button onclick="saveDish('+id+')" class=btn-gold style="width:100%;padding:14px;font-weight:900" id=btnSaveDish>حفظ بدون تحميل</button></div>';
-  document.getElementById('editModal').classList.add('show');
-};
-window.saveDish=async function(id){
-  let b=document.getElementById('btnSaveDish');
-  if(b){ b.textContent='جاري...'; b.disabled=true; }
-  let nn=document.getElementById('edit_dish_name').value.trim();
-  let ii=document.getElementById('edit_ip').value.trim();
-  let ll=document.getElementById('edit_loc').value.trim();
-  if(!ii){ alert('IP مطلوب'); if(b){ b.textContent='حفظ'; b.disabled=false; } return; }
-  let fd=new URLSearchParams();
-  fd.append('dish_name',nn); fd.append('ip',ii); fd.append('location',ll);
-  try{
-    let r=await fetch('/edit_dish/'+id,{method:'POST',body:fd});
-    let j=await r.json();
-    if(j.ok){
-      let c=document.getElementById('dish-'+id);
-      if(c){
-        c.dataset.name=nn; c.dataset.ip=ii; c.dataset.loc=ll;
-        let nameEl=c.querySelector('.dish-name'); if(nameEl) nameEl.textContent=nn;
-        let ipEl=c.querySelector('.dish-ip'); if(ipEl){ ipEl.textContent=ii; ipEl.href='http://'+ii; }
-        let locEl=c.querySelector('.dish-loc'); if(locEl) locEl.textContent=ll;
-        c.style.transition='all .4s'; c.style.background='#22c55e22'; setTimeout(()=>{ c.style.background=''; },800);
-      }
-      closeEditModal();
-    } else { alert(j.msg||'ممنوع'); if(b){ b.textContent='حفظ'; b.disabled=false; } }
-  }catch(e){ alert('خطأ '+e); if(b){ b.textContent='حفظ'; b.disabled=false; } }
-};
-window.quickPingD=function(id){ let c=document.getElementById('dish-'+id); loadPage('ping'); setTimeout(()=>{ let inp=document.getElementById('pingIp'); if(inp){ inp.value=c.dataset.ip; doSinglePing(); } },400); };
-document.getElementById('formDish').addEventListener('submit', async e=>{
-  e.preventDefault();
-  let btn=document.getElementById('btnAddDish');
-  let nameIn=document.getElementById('dish_name_input');
-  let ipIn=document.getElementById('dish_ip_input');
-  let locIn=document.getElementById('dish_loc_input');
-  let name=nameIn.value.trim(), ip=ipIn.value.trim(), loc=locIn.value.trim();
-  if(!ip){ alert('IP مطلوب'); return; }
-  btn.textContent='جاري...'; btn.disabled=true;
-  let fd=new FormData(); fd.append('dish_name',name); fd.append('ip',ip); fd.append('location',loc);
-  try{
-    let r=await fetch('/add_dish',{method:'POST',body:fd});
-    let j=await r.json();
-    if(j.ok){
-      let dl=document.getElementById('dl');
-      let newCard=document.createElement('div');
-      newCard.className='card dish-card card-anim';
-      newCard.id='dish-'+j.id;
-      newCard.dataset.name=name; newCard.dataset.ip=ip; newCard.dataset.loc=loc;
-      newCard.style.cssText='display:flex;justify-content:space-between;align-items:center;border:2px solid #22c55e';
-      newCard.innerHTML='<div><b class="dish-name">'+name+'</b><br><a class="dish-ip" href="http://'+ip+'" target=_blank style="background:#000;color:#ffbe4d;padding:4px 10px;border-radius:8px;font-family:monospace;text-decoration:none;display:inline-block;margin:4px 0">'+ip+'</a><br><small class="dish-loc" style="color:#888">'+loc+'</small></div><div style="display:flex;flex-direction:column;gap:6px"><button class="btn-gold" onclick="quickPingD('+j.id+')" style="padding:7px 12px;background:#22c55e;color:#fff">Ping</button><div style="display:flex;gap:4px"><button class="btn-gold" onclick="editDish('+j.id+')" style="padding:7px 9px">تعديل</button><button class="btn-del" onclick="askDel(\'/del_dish/'+j.id+'\','+j.id+',\'dish\')" style="padding:7px 9px">حذف</button></div></div></div>';
-      dl.prepend(newCard);
-      e.target.reset();
-      setTimeout(()=>{ newCard.style.border='1px solid #ffffff12'; },1000);
-    } else { alert(j.msg||'خطأ'); }
-  }catch(e){ alert('خطأ '+e); }
-  btn.textContent='إضافة فوري بدون تحميل'; btn.disabled=false;
-});
-</script>
-"""
+            rows_html += '<div class="card dish-card" id="dish-'+str(rid)+'" data-name="'+dn+'" data-ip="'+ip+'" data-loc="'+loc+'" style="display:flex;justify-content:space-between;align-items:center"><div><b class="dish-name">'+dn+'</b><br><span class="dish-ip" style="background:#000;color:#ffbe4d;padding:3px 8px;border-radius:6px;font-family:monospace;font-size:12px">'+ip+'</span><br><small class="dish-loc" style="color:#666">'+loc+'</small></div><div style="display:flex;gap:4px"><button class="btn-gold" onclick="editDish('+str(rid)+')" style="padding:6px 10px">تعديل</button><button class="btn-del" onclick="askDel(\'/del_dish/'+str(rid)+'\','+str(rid)+',\'dish\')" style="padding:6px 10px">حذف</button></div></div>'
+        return "<div style='max-width:900px;margin:0 auto'><div class=card><div style='display:flex;justify-content:space-between'><b>الصحون - "+str(len(rs))+"</b><div style='display:flex;gap:6px'><button onclick=\"loadPage('ping')\" class=btn-gold style='padding:6px 10px;background:#22c55e;color:#fff'>Ping</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:6px 10px'>Excel</a></div></div><form id=formDish style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'><input name=dish_name id=dish_name_input placeholder='اسم الصحن' required style='flex:1'><input name=ip id=dish_ip_input placeholder='192.168.1.1' required style='flex:1'><input name=location id=dish_loc_input placeholder='موقع' style='flex:1'><button class=btn-gold type=submit id=btnAddDish>إضافة</button></form><input id=searchBox placeholder='بحث...' oninput=\"searchDishes(this.value)\" style='margin-top:10px'></div><div id=dl style='display:grid;gap:8px'>"+rows_html+"</div></div><script>window.searchDishes=function(q){ q=(q||'').toLowerCase(); document.querySelectorAll('.dish-card').forEach(c=>{ let t=(c.dataset.name+c.dataset.ip+c.dataset.loc).toLowerCase(); c.style.display=t.includes(q)?'flex':'none'; }); }; window.editDish=function(id){ let c=document.getElementById('dish-'+id); if(!c){ alert('غير موجود'); return; } let body=document.getElementById('editBody'); body.innerHTML=''; let i1=document.createElement('input'); i1.id='edit_dish_name'; i1.value=c.dataset.name; i1.placeholder='اسم الصحن'; i1.style.cssText='width:100%;padding:12px;margin:4px 0'; let i2=document.createElement('input'); i2.id='edit_ip'; i2.value=c.dataset.ip; i2.placeholder='IP'; i2.style.cssText='width:100%;padding:12px;margin:4px 0'; let i3=document.createElement('input'); i3.id='edit_loc'; i3.value=c.dataset.loc; i3.placeholder='موقع'; i3.style.cssText='width:100%;padding:12px;margin:4px 0'; let b=document.createElement('button'); b.textContent='حفظ'; b.className='btn-gold'; b.style.cssText='width:100%;padding:12px;margin-top:8px'; b.id='btnSaveDish'; b.onclick=function(){ saveDish(id); }; body.appendChild(i1); body.appendChild(i2); body.appendChild(i3); body.appendChild(b); document.getElementById('editModal').classList.add('show'); }; window.saveDish=async function(id){ let b=document.getElementById('btnSaveDish'); if(b){ b.textContent='...'; b.disabled=true; } let nn=document.getElementById('edit_dish_name').value.trim(); let ii=document.getElementById('edit_ip').value.trim(); let ll=document.getElementById('edit_loc').value.trim(); if(!ii){ alert('IP مطلوب'); if(b){ b.textContent='حفظ'; b.disabled=false; } return; } let fd=new URLSearchParams(); fd.append('dish_name',nn); fd.append('ip',ii); fd.append('location',ll); try{ let r=await fetch('/edit_dish/'+id,{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let c=document.getElementById('dish-'+id); if(c){ c.dataset.name=nn; c.dataset.ip=ii; c.dataset.loc=ll; c.querySelector('.dish-name').textContent=nn; c.querySelector('.dish-ip').textContent=ii; c.querySelector('.dish-loc').textContent=ll; } closeEditModal(); }else{ alert(j.msg||'خطأ'); if(b){ b.textContent='حفظ'; b.disabled=false; } } }catch(e){ alert('خطأ'); if(b){ b.textContent='حفظ'; b.disabled=false; } } }; document.getElementById('formDish').addEventListener('submit', async e=>{ e.preventDefault(); let btn=document.getElementById('btnAddDish'); btn.textContent='...'; btn.disabled=true; let fd=new FormData(e.target); try{ let r=await fetch('/add_dish',{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let dl=document.getElementById('dl'); let card=document.createElement('div'); card.className='card dish-card'; card.id='dish-'+j.id; card.dataset.name=j.name; card.dataset.ip=j.ip; card.dataset.loc=j.loc; card.style.cssText='display:flex;justify-content:space-between;align-items:center;border:1px solid #22c55e'; card.innerHTML='<div><b class=\"dish-name\">'+j.name+'</b><br><span class=\"dish-ip\" style=\"background:#000;color:#ffbe4d;padding:3px 8px;border-radius:6px\">'+j.ip+'</span><br><small class=\"dish-loc\">'+j.loc+'</small></div><div style=\"display:flex;gap:4px\"><button class=\"btn-gold\" onclick=\"editDish('+j.id+')\">تعديل</button><button class=\"btn-del\" onclick=\"askDel(\\'/del_dish/'+j.id+'\\','+j.id+',\\'dish\\')\">حذف</button></div>'; dl.prepend(card); e.target.reset(); }else alert(j.msg||'خطأ'); }catch(e){ alert('خطأ'); } btn.textContent='إضافة'; btn.disabled=false; });</script>"
 
     if v=='towers':
         rs=qall("SELECT * FROM towers ORDER BY id DESC")
         rows=""
         for r in rs:
-            rows += "<div class='card card-anim' id='tower-"+str(r['id'])+"' data-name='"+esc(r['name'])+"' data-area='"+esc(r['area'] or '')+"' data-lat='"+str(r.get('lat') or 0)+"' data-lng='"+str(r.get('lng') or 0)+"'><div style='display:flex;justify-content:space-between'><div><b class='t-name'>"+esc(r['name'])+"</b><br><small class='t-area'>"+esc(r['area'] or '')+"</small><br><small class='t-coord' style='color:#ffbe4d;font-family:monospace'>"+str(r.get('lat'))+","+str(r.get('lng'))+"</small></div><div><button class='btn-gold icon-anim' onclick=\"openEditTower("+str(r['id'])+")\" style='padding:8px 10px'>تعديل</button> <button class='btn-del icon-anim' onclick=\"askDel('/del_tower/"+str(r['id'])+"',"+str(r['id'])+",'tower')\" style='padding:8px 10px'>حذف</button></div></div></div>"
-        return "<div style='max-width:800px;margin:0 auto'><div class=card><h3>الأبراج - "+str(len(rs))+" - دقة 6</h3><form id=formTower style='display:flex;gap:6px;flex-wrap:wrap;margin-top:10px'><input name=name id=t_name placeholder='اسم البرج' required style='flex:1;min-width:120px'><input name=area id=t_area placeholder='المنطقة' style='flex:1'><input name=lat id=t_lat placeholder='lat 35.131812' style='flex:0.7'><input name=lng id=t_lng placeholder='lng 36.757812' style='flex:0.7'><button class=\"btn-gold icon-anim\" id=btnAddTower>إضافة بدقة 6 بدون تحميل</button></form><input id=towerSearch placeholder='بحث برج...' oninput=\"searchTowers(this.value)\" style='margin-top:10px;width:100%;padding:11px;border-radius:11px;background:#0f1424;border:1px solid #ffffff18'></div><div style='display:grid;gap:10px' id=towerList>"+rows+"</div><script>window.searchTowers=function(q){ q=(q||'').toLowerCase(); document.querySelectorAll('[id^=tower-]').forEach(c=>{ let t=(c.dataset.name+c.dataset.area).toLowerCase(); c.style.display=t.includes(q)?'':'none'; }); }; window.openEditTower=function(id){ let c=document.getElementById('tower-'+id); let body=document.getElementById('editBody'); body.innerHTML='<input id=edit_t_name value=\"'+c.dataset.name.replace(/\"/g,'&quot;')+'\" style=\"width:100%;margin:6px 0;padding:12px\"><input id=edit_t_area value=\"'+c.dataset.area.replace(/\"/g,'&quot;')+'\" style=\"width:100%;margin:6px 0;padding:12px\"><input id=edit_t_lat value=\"'+c.dataset.lat+'\" style=\"width:100%;margin:6px 0;padding:12px\" placeholder=\"lat 6\"><input id=edit_t_lng value=\"'+c.dataset.lng+'\" style=\"width:100%;margin:6px 0;padding:12px\" placeholder=\"lng 6\"><button onclick=\"saveTower('+id+')\" class=btn-gold style=\"width:100%;padding:12px\" id=btnSaveTower>حفظ بدقة عالية بدون تحميل</button>'; document.getElementById('editModal').classList.add('show'); }; window.saveTower=async function(id){ let b=document.getElementById('btnSaveTower'); b.textContent='جاري...'; b.disabled=true; let nn=document.getElementById('edit_t_name').value; let aa=document.getElementById('edit_t_area').value; let la=document.getElementById('edit_t_lat').value; let ln=document.getElementById('edit_t_lng').value; let fd=new URLSearchParams(); fd.append('name',nn); fd.append('area',aa); fd.append('lat',la); fd.append('lng',ln); let r=await fetch('/edit_tower/'+id,{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let c=document.getElementById('tower-'+id); if(c){ c.dataset.name=nn; c.dataset.area=aa; c.dataset.lat=la; c.dataset.lng=ln; c.querySelector('.t-name').textContent=nn; c.querySelector('.t-area').textContent=aa; c.querySelector('.t-coord').textContent=la+','+ln; c.style.background='#22c55e22'; setTimeout(()=>c.style.background='',800); } closeEditModal(); } else { alert(j.msg||'خطأ'); b.textContent='حفظ'; b.disabled=false; } }; document.getElementById('formTower').addEventListener('submit', async e=>{ e.preventDefault(); let btn=document.getElementById('btnAddTower'); btn.textContent='جاري...'; btn.disabled=true; let fd=new FormData(e.target); let r=await fetch('/add_tower',{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let list=document.getElementById('towerList'); let card=document.createElement('div'); card.className='card card-anim'; card.id='tower-'+j.id; card.dataset.name=j.name; card.dataset.area=j.area; card.dataset.lat=j.lat; card.dataset.lng=j.lng; card.style.cssText='display:flex;justify-content:space-between;border:2px solid #22c55e'; card.innerHTML='<div><b class=\"t-name\">'+j.name+'</b><br><small class=\"t-area\">'+j.area+'</small><br><small class=\"t-coord\" style=\"color:#ffbe4d\">'+j.lat+','+j.lng+'</small></div><div><button class=\"btn-gold\" onclick=\"openEditTower('+j.id+')\">تعديل</button> <button class=\"btn-del\" onclick=\"askDel(\\'/del_tower/'+j.id+'\\','+j.id+',\\'tower\\')\">حذف</button></div>'; list.prepend(card); e.target.reset(); } else alert(j.msg||'خطأ'); btn.textContent='إضافة بدقة 6 بدون تحميل'; btn.disabled=false; });</script></div>"
+            rows += "<div class='card' id='tower-"+str(r['id'])+"' data-name='"+esc(r['name'])+"' data-area='"+esc(r['area'] or '')+"' data-lat='"+str(r.get('lat') or 0)+"' data-lng='"+str(r.get('lng') or 0)+"'><div style='display:flex;justify-content:space-between'><div><b class='t-name'>"+esc(r['name'])+"</b><br><small class='t-area'>"+esc(r['area'] or '')+"</small><br><small class='t-coord' style='color:#ffbe4d'>"+str(r.get('lat'))+","+str(r.get('lng'))+"</small></div><div><button class=btn-gold onclick=\"openEditTower("+str(r['id'])+")\">تعديل</button> <button class=btn-del onclick=\"askDel('/del_tower/"+str(r['id'])+"',"+str(r['id'])+",'tower')\">حذف</button></div></div></div>"
+        return "<div style='max-width:800px;margin:0 auto'><div class=card><b>الأبراج - "+str(len(rs))+"</b><form id=formTower style='display:flex;gap:6px;margin-top:8px;flex-wrap:wrap'><input name=name placeholder='اسم البرج' required style='flex:1'><input name=area placeholder='المنطقة' style='flex:1'><input name=lat placeholder='35.131812' style='flex:0.6'><input name=lng placeholder='36.757812' style='flex:0.6'><button class=btn-gold>إضافة</button></form><input id=towerSearch placeholder='بحث...' oninput=\"searchTowers(this.value)\" style='margin-top:8px'></div><div id=towerList style='display:grid;gap:8px'>"+rows+"</div><script>window.searchTowers=function(q){ q=(q||'').toLowerCase(); document.querySelectorAll('[id^=tower-]').forEach(c=>{ let t=(c.dataset.name+c.dataset.area).toLowerCase(); c.style.display=t.includes(q)?'':'none'; }); }; window.openEditTower=function(id){ let c=document.getElementById('tower-'+id); let body=document.getElementById('editBody'); body.innerHTML=''; let i1=document.createElement('input'); i1.id='edit_t_name'; i1.value=c.dataset.name; i1.style.cssText='width:100%;padding:10px;margin:4px 0'; let i2=document.createElement('input'); i2.id='edit_t_area'; i2.value=c.dataset.area; i2.style.cssText='width:100%;padding:10px;margin:4px 0'; let i3=document.createElement('input'); i3.id='edit_t_lat'; i3.value=c.dataset.lat; i3.style.cssText='width:100%;padding:10px;margin:4px 0'; let i4=document.createElement('input'); i4.id='edit_t_lng'; i4.value=c.dataset.lng; i4.style.cssText='width:100%;padding:10px;margin:4px 0'; let b=document.createElement('button'); b.textContent='حفظ'; b.className='btn-gold'; b.style.cssText='width:100%;padding:12px'; b.onclick=function(){ saveTower(id); }; body.append(i1,i2,i3,i4,b); document.getElementById('editModal').classList.add('show'); }; window.saveTower=async function(id){ let nn=document.getElementById('edit_t_name').value; let aa=document.getElementById('edit_t_area').value; let la=document.getElementById('edit_t_lat').value; let ln=document.getElementById('edit_t_lng').value; let fd=new URLSearchParams(); fd.append('name',nn); fd.append('area',aa); fd.append('lat',la); fd.append('lng',ln); let r=await fetch('/edit_tower/'+id,{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let c=document.getElementById('tower-'+id); c.dataset.name=nn; c.dataset.area=aa; c.dataset.lat=la; c.dataset.lng=ln; c.querySelector('.t-name').textContent=nn; c.querySelector('.t-area').textContent=aa; c.querySelector('.t-coord').textContent=la+','+ln; closeEditModal(); } }; document.getElementById('formTower').addEventListener('submit', async e=>{ e.preventDefault(); let fd=new FormData(e.target); let r=await fetch('/add_tower',{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let list=document.getElementById('towerList'); let card=document.createElement('div'); card.className='card'; card.id='tower-'+j.id; card.dataset.name=j.name; card.dataset.area=j.area; card.dataset.lat=j.lat; card.dataset.lng=j.lng; card.innerHTML='<div><b class=\"t-name\">'+j.name+'</b><br><small class=\"t-area\">'+j.area+'</small><br><small class=\"t-coord\">'+j.lat+','+j.lng+'</small></div><div><button class=\"btn-gold\" onclick=\"openEditTower('+j.id+')\">تعديل</button> <button class=\"btn-del\" onclick=\"askDel(\\'/del_tower/'+j.id+'\\','+j.id+',\\'tower\\')\">حذف</button></div>'; card.style.cssText='display:flex;justify-content:space-between;border:1px solid #22c55e'; list.prepend(card); e.target.reset(); } else alert(j.msg||'خطأ'); });</script></div>"
 
     if v=='subs':
         rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
         rows=""
         for r in rs:
-            rows += "<div class='card card-anim' id='sub-"+str(r['id'])+"' data-name='"+esc(r['name'])+"' data-phone='"+esc(r['phone'] or '')+"' data-note='"+esc(r['note'] or '')+"' style='display:flex;justify-content:space-between'><div><b class='s-name'>"+esc(r['name'])+"</b><br><span class='s-phone'>"+esc(r['phone'] or '')+"</span></div><div><button class='btn-gold icon-anim' onclick=\"openEditSub("+str(r['id'])+")\">تعديل</button> <button class='btn-del icon-anim' onclick=\"askDel('/del_sub/"+str(r['id'])+"',"+str(r['id'])+",'sub')\">حذف</button></div></div>"
-        return "<div style='max-width:700px;margin:0 auto'><div class=card><h3>المشتركين - بدون تحميل</h3><form id=formSub style='display:flex;gap:5px;flex-wrap:wrap'><input name=name id=s_name placeholder='الاسم' required style='flex:1'><input name=phone id=s_phone placeholder='رقم' style='flex:1'><input name=note id=s_note placeholder='ملاحظة' style='flex:1'><button class=\"btn-gold icon-anim\" id=btnAddSub>إضافة فوري</button></form></div><div style='display:grid;gap:8px' id=subList>"+rows+"</div><script>window.openEditSub=function(id){ let c=document.getElementById('sub-'+id); let body=document.getElementById('editBody'); body.innerHTML='<input id=edit_s_name value=\"'+c.dataset.name.replace(/\"/g,'&quot;')+'\" style=\"width:100%;margin:6px 0;padding:12px\"><input id=edit_s_phone value=\"'+c.dataset.phone+'\" style=\"width:100%;margin:6px 0;padding:12px\"><input id=edit_s_note value=\"'+c.dataset.note.replace(/\"/g,'&quot;')+'\" style=\"width:100%;margin:6px 0;padding:12px\"><button onclick=\"saveSub('+id+')\" class=btn-gold style=\"width:100%;padding:12px\" id=btnSaveSub>حفظ بدون تحميل</button>'; document.getElementById('editModal').classList.add('show'); }; window.saveSub=async function(id){ let b=document.getElementById('btnSaveSub'); b.textContent='جاري...'; b.disabled=true; let nn=document.getElementById('edit_s_name').value; let pp=document.getElementById('edit_s_phone').value; let no=document.getElementById('edit_s_note').value; let fd=new URLSearchParams(); fd.append('name',nn); fd.append('phone',pp); fd.append('note',no); let r=await fetch('/edit_sub/'+id,{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let c=document.getElementById('sub-'+id); if(c){ c.dataset.name=nn; c.dataset.phone=pp; c.dataset.note=no; c.querySelector('.s-name').textContent=nn; c.querySelector('.s-phone').textContent=pp; c.style.background='#22c55e22'; setTimeout(()=>c.style.background='',800); } closeEditModal(); } else { b.textContent='حفظ'; b.disabled=false; } }; document.getElementById('formSub').addEventListener('submit', async e=>{ e.preventDefault(); let btn=document.getElementById('btnAddSub'); btn.textContent='جاري...'; btn.disabled=true; let fd=new FormData(e.target); let r=await fetch('/add_sub',{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let list=document.getElementById('subList'); let card=document.createElement('div'); card.className='card card-anim'; card.id='sub-'+j.id; card.dataset.name=j.name; card.dataset.phone=j.phone; card.dataset.note=j.note; card.style.cssText='display:flex;justify-content:space-between;border:2px solid #22c55e'; card.innerHTML='<div><b class=\"s-name\">'+j.name+'</b><br><span class=\"s-phone\">'+j.phone+'</span></div><div><button class=\"btn-gold\" onclick=\"openEditSub('+j.id+')\">تعديل</button> <button class=\"btn-del\" onclick=\"askDel(\\'/del_sub/'+j.id+'\\','+j.id+',\\'sub\\')\">حذف</button></div>'; list.prepend(card); e.target.reset(); } btn.textContent='إضافة فوري'; btn.disabled=false; });</script></div>"
+            rows += "<div class='card' id='sub-"+str(r['id'])+"' data-name='"+esc(r['name'])+"' data-phone='"+esc(r['phone'] or '')+"' data-note='"+esc(r['note'] or '')+"' style='display:flex;justify-content:space-between'><div><b class='s-name'>"+esc(r['name'])+"</b><br><span class='s-phone'>"+esc(r['phone'] or '')+"</span></div><div><button class=btn-gold onclick=\"openEditSub("+str(r['id'])+")\">تعديل</button> <button class=btn-del onclick=\"askDel('/del_sub/"+str(r['id'])+"',"+str(r['id'])+",'sub')\">حذف</button></div></div>"
+        return "<div style='max-width:700px;margin:0 auto'><div class=card><b>المشتركين</b><form id=formSub style='display:flex;gap:5px;margin-top:8px;flex-wrap:wrap'><input name=name placeholder='الاسم' required style='flex:1'><input name=phone placeholder='رقم' style='flex:1'><input name=note placeholder='ملاحظة' style='flex:1'><button class=btn-gold>إضافة</button></form></div><div id=subList style='display:grid;gap:8px'>"+rows+"</div><script>window.openEditSub=function(id){ let c=document.getElementById('sub-'+id); let body=document.getElementById('editBody'); body.innerHTML=''; let i1=document.createElement('input'); i1.id='edit_s_name'; i1.value=c.dataset.name; i1.style.cssText='width:100%;padding:10px;margin:4px 0'; let i2=document.createElement('input'); i2.id='edit_s_phone'; i2.value=c.dataset.phone; i2.style.cssText='width:100%;padding:10px;margin:4px 0'; let i3=document.createElement('input'); i3.id='edit_s_note'; i3.value=c.dataset.note; i3.style.cssText='width:100%;padding:10px;margin:4px 0'; let b=document.createElement('button'); b.textContent='حفظ'; b.className='btn-gold'; b.style.cssText='width:100%;padding:12px;margin-top:8px'; b.onclick=function(){ saveSub(id); }; body.append(i1,i2,i3,b); document.getElementById('editModal').classList.add('show'); }; window.saveSub=async function(id){ let nn=document.getElementById('edit_s_name').value; let pp=document.getElementById('edit_s_phone').value; let no=document.getElementById('edit_s_note').value; let fd=new URLSearchParams(); fd.append('name',nn); fd.append('phone',pp); fd.append('note',no); let r=await fetch('/edit_sub/'+id,{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let c=document.getElementById('sub-'+id); c.dataset.name=nn; c.dataset.phone=pp; c.dataset.note=no; c.querySelector('.s-name').textContent=nn; c.querySelector('.s-phone').textContent=pp; closeEditModal(); } }; document.getElementById('formSub').addEventListener('submit', async e=>{ e.preventDefault(); let r=await fetch('/add_sub',{method:'POST',body:new FormData(e.target)}); let j=await r.json(); if(j.ok){ let list=document.getElementById('subList'); let card=document.createElement('div'); card.className='card'; card.id='sub-'+j.id; card.dataset.name=j.name; card.dataset.phone=j.phone; card.dataset.note=j.note; card.style.cssText='display:flex;justify-content:space-between;border:1px solid #22c55e'; card.innerHTML='<div><b class=\"s-name\">'+j.name+'</b><br><span class=\"s-phone\">'+j.phone+'</span></div><div><button class=\"btn-gold\" onclick=\"openEditSub('+j.id+')\">تعديل</button> <button class=\"btn-del\" onclick=\"askDel(\\'/del_sub/'+j.id+'\\','+j.id+',\\'sub\\')\">حذف</button></div>'; list.prepend(card); e.target.reset(); } });</script></div>"
 
     if v=='ledger':
         rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 200")
         rows=""
         for r in rs:
-            rows += "<div class='card card-anim' id='led-"+str(r['id'])+"' data-name='"+esc(r['name'])+"' data-amount='"+str(r['amount'])+"'><div style='display:flex;justify-content:space-between'><div><b class='l-name'>"+esc(r['name'])+"</b> - <b class='l-amount' style='color:#ffbe4d'>"+str(r['amount'])+"</b></div><div><button class='btn-gold icon-anim' onclick=\"openEditLed("+str(r['id'])+")\">تعديل</button> <button class='btn-del icon-anim' onclick=\"askDel('/del_ledger/"+str(r['id'])+"',"+str(r['id'])+",'led')\">حذف</button></div></div></div>"
-        return "<div style='max-width:700px;margin:0 auto'><div class=card><h3>الحسابات - بدون تحميل</h3><form id=formLed style='display:flex;gap:5px;flex-wrap:wrap'><input name=name id=l_name placeholder='الاسم' required style='flex:1'><input name=amount id=l_amount type=number step=0.01 placeholder='المبلغ' required style='flex:1'><input name=note id=l_note placeholder='ملاحظة' style='flex:1'><select name=currency style='flex:0.5'><option>USD</option><option>SYP</option></select><button class=\"btn-gold icon-anim\" id=btnAddLed>إضافة</button></form></div><div style='display:grid;gap:8px' id=ledList>"+rows+"</div><script>window.openEditLed=function(id){ let c=document.getElementById('led-'+id); let body=document.getElementById('editBody'); body.innerHTML='<input id=edit_l_name value=\"'+c.dataset.name.replace(/\"/g,'&quot;')+'\" style=\"width:100%;margin:6px 0;padding:12px\"><input id=edit_l_amount value=\"'+c.dataset.amount+'\" style=\"width:100%;margin:6px 0;padding:12px\"><button onclick=\"saveLed('+id+')\" class=btn-gold style=\"width:100%;padding:12px\" id=btnSaveLed>حفظ</button>'; document.getElementById('editModal').classList.add('show'); }; window.saveLed=async function(id){ let b=document.getElementById('btnSaveLed'); b.textContent='جاري...'; b.disabled=true; let nn=document.getElementById('edit_l_name').value; let aa=document.getElementById('edit_l_amount').value; let fd=new URLSearchParams(); fd.append('name',nn); fd.append('amount',aa); fd.append('note',''); fd.append('currency','USD'); let r=await fetch('/edit_ledger/'+id,{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let c=document.getElementById('led-'+id); if(c){ c.dataset.name=nn; c.dataset.amount=aa; c.querySelector('.l-name').textContent=nn; c.querySelector('.l-amount').textContent=aa; c.style.background='#22c55e22'; setTimeout(()=>c.style.background='',800); } closeEditModal(); } else { b.textContent='حفظ'; b.disabled=false; } }; document.getElementById('formLed').addEventListener('submit', async e=>{ e.preventDefault(); let btn=document.getElementById('btnAddLed'); btn.textContent='جاري...'; btn.disabled=true; let r=await fetch('/add_ledger',{method:'POST',body:new FormData(e.target)}); let j=await r.json(); if(j.ok){ let list=document.getElementById('ledList'); let card=document.createElement('div'); card.className='card card-anim'; card.id='led-'+j.id; card.dataset.name=j.name; card.dataset.amount=j.amount; card.style.cssText='display:flex;justify-content:space-between;border:2px solid #22c55e'; card.innerHTML='<div><b class=\"l-name\">'+j.name+'</b> - <b class=\"l-amount\" style=\"color:#ffbe4d\">'+j.amount+'</b></div><div><button class=\"btn-gold\" onclick=\"openEditLed('+j.id+')\">تعديل</button> <button class=\"btn-del\" onclick=\"askDel(\\'/del_ledger/'+j.id+'\\','+j.id+',\\'led\\')\">حذف</button></div>'; list.prepend(card); e.target.reset(); } btn.textContent='إضافة'; btn.disabled=false; });</script></div>"
+            rows += "<div class='card' id='led-"+str(r['id'])+"' data-name='"+esc(r['name'])+"' data-amount='"+str(r['amount'])+"' data-note='"+esc(r.get('note') or '')+"' data-currency='"+esc(r.get('currency') or 'USD')+"'><div style='display:flex;justify-content:space-between'><div><b class='l-name'>"+esc(r['name'])+"</b> - <b class='l-amount' style='color:#ffbe4d'>"+str(r['amount'])+"</b> <small>"+esc(r.get('currency') or '')+"</small></div><div><button class=btn-gold onclick=\"openEditLed("+str(r['id'])+")\">تعديل</button> <button class=btn-del onclick=\"askDel('/del_ledger/"+str(r['id'])+"',"+str(r['id'])+",'led')\">حذف</button></div></div></div>"
+        return "<div style='max-width:700px;margin:0 auto'><div class=card><b>الحسابات</b><form id=formLed style='display:flex;gap:5px;margin-top:8px;flex-wrap:wrap'><input name=name placeholder='الاسم' required style='flex:1'><input name=amount type=number step=0.01 placeholder='المبلغ' required style='flex:1'><input name=note placeholder='ملاحظة' style='flex:1'><select name=currency style='flex:0.5'><option>USD</option><option>SYP</option></select><button class=btn-gold>إضافة</button></form></div><div id=ledList style='display:grid;gap:8px'>"+rows+"</div><script>window.openEditLed=function(id){ let c=document.getElementById('led-'+id); let body=document.getElementById('editBody'); body.innerHTML=''; let i1=document.createElement('input'); i1.id='edit_l_name'; i1.value=c.dataset.name; i1.style.cssText='width:100%;padding:10px;margin:4px 0'; let i2=document.createElement('input'); i2.id='edit_l_amount'; i2.value=c.dataset.amount; i2.type='number'; i2.style.cssText='width:100%;padding:10px;margin:4px 0'; let i3=document.createElement('input'); i3.id='edit_l_note'; i3.value=c.dataset.note; i3.style.cssText='width:100%;padding:10px;margin:4px 0'; let b=document.createElement('button'); b.textContent='حفظ'; b.className='btn-gold'; b.style.cssText='width:100%;padding:12px'; b.onclick=function(){ saveLed(id); }; body.append(i1,i2,i3,b); document.getElementById('editModal').classList.add('show'); }; window.saveLed=async function(id){ let nn=document.getElementById('edit_l_name').value; let aa=document.getElementById('edit_l_amount').value; let no=document.getElementById('edit_l_note').value; let fd=new URLSearchParams(); fd.append('name',nn); fd.append('amount',aa); fd.append('note',no); fd.append('currency','USD'); let r=await fetch('/edit_ledger/'+id,{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ let c=document.getElementById('led-'+id); c.dataset.name=nn; c.dataset.amount=aa; c.querySelector('.l-name').textContent=nn; c.querySelector('.l-amount').textContent=aa; closeEditModal(); } }; document.getElementById('formLed').addEventListener('submit', async e=>{ e.preventDefault(); let r=await fetch('/add_ledger',{method:'POST',body:new FormData(e.target)}); let j=await r.json(); if(j.ok){ let list=document.getElementById('ledList'); let card=document.createElement('div'); card.className='card'; card.id='led-'+j.id; card.dataset.name=j.name; card.dataset.amount=j.amount; card.style.cssText='display:flex;justify-content:space-between;border:1px solid #22c55e'; card.innerHTML='<div><b class=\"l-name\">'+j.name+'</b> - <b class=\"l-amount\">'+j.amount+'</b></div><div><button class=\"btn-gold\" onclick=\"openEditLed('+j.id+')\">تعديل</button> <button class=\"btn-del\" onclick=\"askDel(\\'/del_ledger/'+j.id+'\\','+j.id+',\\'led\\')\">حذف</button></div>'; list.prepend(card); e.target.reset(); } });</script></div>"
 
     if v=='logs':
         rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 1000")
         rows=""
         for r in rs:
-            col='#22c55e' if 'إضافة' in r.get('action','') else '#0ea5e9' if 'تعديل' in r.get('action','') else '#ef4444' if 'حذف' in r.get('action','') else '#ffbe4d' if 'دخل' in r.get('action','') else '#8b5cf6'
-            rows += "<div class='card card-anim' style='font-size:13px;border-right:4px solid "+col+";display:flex;justify-content:space-between;align-items:center'><div><b style='color:#ffbe4d'>"+esc(r.get('user_phone',''))+"</b> <span style='background:"+col+";color:#fff;padding:2px 8px;border-radius:6px;font-size:11px;margin:0 6px'>"+esc(r.get('action',''))+"</span><br><small style='color:#cbd5e1;display:inline-block;margin-top:4px'>"+esc(r.get('detail',''))+"</small></div><small style='color:#64748b;white-space:nowrap'>"+esc(r.get('time',''))+"</small></div>"
+            col='#22c55e' if 'إضافة' in r.get('action','') else '#0ea5e9' if 'تعديل' in r.get('action','') else '#ef4444' if 'حذف' in r.get('action','') else '#ffbe4d'
+            rows += "<div class='card' style='font-size:12px;border-right:3px solid "+col+";display:flex;justify-content:space-between'><div><b style='color:#ffbe4d'>"+esc(r.get('user_phone',''))+"</b> <span style='background:"+col+";color:#fff;padding:1px 6px;border-radius:5px;font-size:10px'>"+esc(r.get('action',''))+"</span> <small style='color:#aaa'>"+esc(r.get('detail',''))[:100]+"</small></div><small style='color:#555'>"+esc(r.get('time',''))+"</small></div>"
         if not rows:
-            rows="<div class=card style='text-align:center;padding:20px'>لا يوجد سجل - كل التعديلات والإضافات والحذف رح تظهر هون تلقائياً</div>"
-        return "<div style='max-width:1000px;margin:0 auto'><div class=card style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px'><div><h3 style='margin:0'>السجل الكامل - كل التعديلات ("+str(len(rs))+")</h3><small style='color:#888'>يعرض كل الإضافات والتعديلات والحذف والدخول</small></div><div style='display:flex;gap:6px'><input id=logSearch placeholder='بحث بالسجل...' oninput=\"searchLogs(this.value)\" style='padding:8px 12px;border-radius:10px;background:#0f1424;border:1px solid #ffffff20;color:#fff;width:160px'><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:7px 12px;background:#22c55e;color:#fff;border-radius:8px'>Excel</a><button onclick=\"if(confirm('مسح كل السجل؟')){ fetch('/api/clear_logs',{method:'POST'}).then(r=>r.json()).then(j=>{ if(j.ok) loadPage('logs',true); }) }\" class=btn-del>مسح</button></div></div><div style='display:grid;gap:8px' id=logList>"+rows+"</div><script>window.searchLogs=function(q){ q=(q||'').toLowerCase(); document.querySelectorAll('#logList .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }</script></div>"
+            rows="<div class=card style='text-align:center;padding:16px'>لا يوجد سجل</div>"
+        return "<div style='max-width:1000px;margin:0 auto'><div class=card style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px'><b>السجل الكامل ("+str(len(rs))+")</b><div style='display:flex;gap:6px'><input id=logSearch placeholder='بحث...' oninput=\"searchLogs(this.value)\" style='width:140px'><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:6px 10px;background:#22c55e;color:#fff'>Excel</a><button onclick=\"if(confirm('مسح؟')){ fetch('/api/clear_logs',{method:'POST'}).then(r=>r.json()).then(j=>{ if(j.ok) loadPage('logs',true); }) }\" class=btn-del>مسح</button></div></div><div id=logList style='display:grid;gap:6px'>"+rows+"</div><script>window.searchLogs=function(q){ q=(q||'').toLowerCase(); document.querySelectorAll('#logList .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }</script></div>"
 
     if v=='map':
         towers=qall("SELECT * FROM towers")
         tj_json=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.131812),"lng":float(t.get('lng') or 36.757812)} for t in towers],ensure_ascii=False)
         return """
-<div class=card style='padding:10px'>
-<div style='display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center'>
-<input id=mapSearch placeholder='بحث برج...' style='flex:1;min-width:140px;background:#0f1424;border:1px solid #ffffff15;color:#fff;padding:10px 12px;border-radius:12px'>
-<button class="btn-gold icon-anim" onclick="doMapSearch()" style='padding:10px 12px'>بحث</button>
-<button class="btn-gold icon-anim" onclick="locateMe()" style='background:#22c55e;color:#fff;padding:10px 12px'>موقعي بدقة عالية</button>
-<button class="btn-gold icon-anim" onclick="enableAddPoint()" id=addPointBtn style='background:#f59e0b;color:#fff;padding:10px 12px'>نقطة بدقة 6</button>
-<span id=coordsLabel style='color:#ffbe4d;font-family:monospace;background:#0f1424;padding:6px 10px;border-radius:8px;border:1px solid #ffffff15'>-</span>
+<div class=card style='padding:8px'>
+<div style='display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap'>
+<input id=mapSearch placeholder='بحث برج...' style='flex:1'>
+<button class=btn-gold onclick="doMapSearch()">بحث</button>
+<button class=btn-gold onclick="locateMe()" style='background:#22c55e;color:#fff'>موقعي</button>
+<button class=btn-gold onclick="enableAddPoint()" id=addPointBtn style='background:#f59e0b'>نقطة</button>
+<span id=coordsLabel style='color:#ffbe4d;font-family:monospace'>-</span>
 </div>
-<div id=map style='height:72vh;min-height:460px;border-radius:16px;background:#0f172a;z-index:1;border:2px solid #ffffff0f'></div>
-<div style='margin-top:8px;font-size:11px;color:#888'>دقة 6 ارقام: 35.131812, 36.757812 - اضغط نقطة ثم اضغط على الخريطة</div>
+<div id=map style='height:70vh;border-radius:12px;background:#111'></div>
 </div>
 <script>
 let _towers="""+tj_json+""";
 let _map=null; let addPointMode=false;
-window.doMapSearch=function(){ let q=document.getElementById('mapSearch').value.trim().toLowerCase(); if(!q) return; let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q)); if(f&&_map) _map.flyTo([f.lat,f.lng],18); };
-window.locateMe=function(){ if(_map&&navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{ _map.flyTo([p.coords.latitude,p.coords.longitude],17); L.marker([p.coords.latitude,p.coords.longitude]).addTo(_map).bindPopup('<b>موقعك بدقة عالية</b><br>'+p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6)).openPopup(); },null,{enableHighAccuracy:true, maximumAge:0, timeout:10000}); };
-window.enableAddPoint=function(){ addPointMode=!addPointMode; let b=document.getElementById('addPointBtn'); b.textContent=addPointMode?'اضغط على الخريطة':'نقطة بدقة 6'; b.style.background=addPointMode?'#ef4444':'#f59e0b'; if(_map) _map.getContainer().style.cursor=addPointMode?'crosshair':''; };
+window.doMapSearch=function(){ let q=document.getElementById('mapSearch').value.trim().toLowerCase(); if(!q) return; let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q)); if(f&&_map) _map.flyTo([f.lat,f.lng],17); };
+window.locateMe=function(){ if(_map&&navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{ _map.flyTo([p.coords.latitude,p.coords.longitude],17); L.marker([p.coords.latitude,p.coords.longitude]).addTo(_map).bindPopup(p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6)).openPopup(); },null,{enableHighAccuracy:true}); };
+window.enableAddPoint=function(){ addPointMode=!addPointMode; let b=document.getElementById('addPointBtn'); b.textContent=addPointMode?'اضغط الخريطة':'نقطة'; b.style.background=addPointMode?'#ef4444':'#f59e0b'; };
 setTimeout(()=>{
-  _map=L.map('map').setView([35.131812,36.757812],14);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20}).addTo(_map);
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20}).addTo(_map);
-  _towers.forEach(t=>{ L.marker([t.lat,t.lng]).addTo(_map).bindPopup('<b>'+t.name+'</b><br><small>'+t.area+'</small><br><small style="font-family:monospace;color:#ffbe4d">'+t.lat.toFixed(6)+','+t.lng.toFixed(6)+'</small>'); });
+  _map=L.map('map').setView([35.131812,36.757812],13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(_map);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(_map);
+  _towers.forEach(t=>{ L.marker([t.lat,t.lng]).addTo(_map).bindPopup('<b>'+t.name+'</b><br>'+t.lat.toFixed(6)+','+t.lng.toFixed(6)); });
   _map.on('mousemove',e=>{ document.getElementById('coordsLabel').textContent=e.latlng.lat.toFixed(6)+','+e.latlng.lng.toFixed(6); });
   _map.on('click',e=>{
-    let lat6=e.latlng.lat.toFixed(6),lng6=e.latlng.lng.toFixed(6);
-    document.getElementById('coordsLabel').textContent=lat6+','+lng6;
+    document.getElementById('coordsLabel').textContent=e.latlng.lat.toFixed(6)+','+e.latlng.lng.toFixed(6);
     if(addPointMode){
-      L.popup().setLatLng(e.latlng).setContent('<div style="min-width:220px"><b>📍 '+lat6+','+lng6+'</b><br><input id="newPointName" placeholder="اسم البرج" style="width:100%;margin:6px 0;padding:10px;border-radius:8px;border:1px solid #444;background:#111;color:#fff"><input id="newPointArea" placeholder="المنطقة" style="width:100%;margin:4px 0;padding:10px;border-radius:8px;border:1px solid #444;background:#111;color:#fff"><button onclick="saveNewPoint('+e.latlng.lat+','+e.latlng.lng+')" style="width:100%;background:linear-gradient(90deg,#ffbe4d,#ffb020);border:0;padding:12px;border-radius:10px;font-weight:900;cursor:pointer">حفظ بدقة 6 بدون تحميل</button></div>').openOn(_map);
+      let name=prompt('اسم البرج؟')||'نقطة';
+      let fd=new URLSearchParams();
+      fd.append('name',name); fd.append('lat',e.latlng.lat.toFixed(6)); fd.append('lng',e.latlng.lng.toFixed(6));
+      fetch('/add_tower',{method:'POST',body:fd}).then(r=>r.json()).then(j=>{ if(j.ok){ L.marker([e.latlng.lat,e.latlng.lng]).addTo(_map).bindPopup(name).openPopup(); } });
     }
   });
-  window.saveNewPoint=async function(lat,lng){
-    let name=document.getElementById('newPointName').value||'نقطة';
-    let area=document.getElementById('newPointArea')?.value||'';
-    let fd=new URLSearchParams();
-    fd.append('name',name); fd.append('area',area); fd.append('lat',lat.toFixed(6)); fd.append('lng',lng.toFixed(6));
-    let r=await fetch('/add_tower',{method:'POST',body:fd});
-    let j=await r.json();
-    if(j.ok){
-      _map.closePopup();
-      L.marker([lat,lng]).addTo(_map).bindPopup('<b>'+name+'</b><br>'+lat.toFixed(6)+','+lng.toFixed(6)).openPopup();
-      _towers.push({name:name, area:area, lat:lat, lng:lng});
-    }
-  };
-},500);
+},400);
 </script>
 """
 
@@ -1048,130 +947,116 @@ setTimeout(()=>{
         dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 100")
         rows=""
         for d in dishes:
-            rows += "<div class='card card-anim' id='net-"+str(d['id'])+"' data-ip='"+esc(d.get('ip',''))+"' style='display:flex;justify-content:space-between'><div><b>"+esc(d.get('dish_name') or 'صحن')+"</b> - "+esc(d.get('ip',''))+"<br><small class='net-out' style='color:#888'>...</small></div><button class=btn-gold onclick='checkOne("+str(d['id'])+")'>فحص</button></div>"
-        return "<div style='max-width:800px;margin:0 auto'><div class=card><h3>حالة الشبكة - فحص سريع 0.4ث</h3><button class=btn-gold onclick='checkAll()' style='width:100%;background:#22c55e;color:#fff;padding:12px'>فحص الكل بدون تحميل</button></div>"+rows+"<script>window.checkOne=async function(id){ let c=document.getElementById('net-'+id); let out=c.querySelector('.net-out'); out.textContent='جاري...'; try{ let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip)); let j=await r.json(); out.textContent=j.out.slice(0,80); out.style.color=j.ok?'#22c55e':'#ef4444'; }catch(e){ out.textContent='خطأ'; } }; window.checkAll=async function(){ for(let c of document.querySelectorAll('[id^=net-]')){ let out=c.querySelector('.net-out'); out.textContent='جاري...'; try{ let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip)); let j=await r.json(); out.textContent=j.out.slice(0,80); out.style.color=j.ok?'#22c55e':'#ef4444'; }catch(e){} await new Promise(r=>setTimeout(r,120)); } };</script></div>"
+            rows += "<div class='card' id='net-"+str(d['id'])+"' data-ip='"+esc(d.get('ip',''))+"' style='display:flex;justify-content:space-between'><div><b>"+esc(d.get('dish_name') or 'صحن')+"</b> - "+esc(d.get('ip',''))+"<br><small class='net-out' style='color:#666'>...</small></div><button class=btn-gold onclick='checkOne("+str(d['id'])+")'>فحص</button></div>"
+        return "<div style='max-width:800px;margin:0 auto'><div class=card><b>حالة الشبكة</b><button class=btn-gold onclick='checkAll()' style='width:100%;margin-top:8px;background:#22c55e;color:#fff'>فحص الكل</button></div>"+rows+"<script>window.checkOne=async function(id){ let c=document.getElementById('net-'+id); let out=c.querySelector('.net-out'); out.textContent='...'; try{ let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip)); let j=await r.json(); out.textContent=j.out.slice(0,80); out.style.color=j.ok?'#22c55e':'#ef4444'; }catch(e){ out.textContent='خطأ'; } }; window.checkAll=async function(){ for(let c of document.querySelectorAll('[id^=net-]')){ let out=c.querySelector('.net-out'); out.textContent='جاري...'; try{ let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip)); let j=await r.json(); out.textContent=j.out.slice(0,80); out.style.color=j.ok?'#22c55e':'#ef4444'; }catch(e){} await new Promise(r=>setTimeout(r,120)); } };</script></div>"
 
     if v=='settings':
         us=qall("SELECT * FROM users ORDER BY phone DESC")
         uh=""
         for u in us:
-            badge = "<span style='background:#ffbe4d;color:#111;padding:2px 8px;border-radius:8px;font-size:11px'>مدير</span>" if u.get("role")=="manager" else "<span style='background:#ffffff15;padding:2px 8px;border-radius:8px;font-size:11px'>فني</span>"
-            uh += '<div class="card card-anim" id="user-'+esc(u["phone"])+'" data-phone="'+esc(u["phone"])+'" data-username="'+esc(u.get("username") or "")+'" data-role="'+esc(u.get("role") or "")+'" style="display:grid;grid-template-columns:1fr auto;gap:12px"><div><b>'+esc(u.get("username") or "")+'</b><br><span style="color:#ffbe4d;font-family:monospace">'+esc(u["phone"])+'</span> '+badge+'</div><div style="display:flex;gap:6px"><button class="btn-gold icon-anim" onclick="openEditUser(\''+esc(u["phone"])+'\')" style="padding:8px 10px">تعديل</button><button class="btn-del icon-anim" onclick="askDel(\'/del_user/'+esc(u["phone"])+'\',\''+esc(u["phone"])+'\',\'user\')" style="padding:8px 10px">حذف</button></div></div>'
-        return "<div style='max-width:800px;margin:0 auto'><div class=card><h3>كلمة السر الخاصة بك</h3><form id=formPass style='display:flex;gap:8px'><input name=newpass type=password placeholder='كلمة سر جديدة' required style='flex:1'><button class=\"btn-gold icon-anim\">حفظ</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px'><div class=card style='text-align:center'><h4>اللغة والثيم - بدون تحميل</h4><button onclick=\"toggleLangNoReload()\" class=\"btn-gold icon-anim\" style='width:100%;padding:12px;background:#1f2937;color:#fff'>تغيير اللغة (يبقى يمين)</button><button onclick=\"toggleThemeNoReload()\" class=\"btn-gold icon-anim\" style='width:100%;padding:12px;margin-top:8px'>تغيير الثيم بدون تحميل</button></div><div class=card><h4>إضافة يوزر جديد</h4><form id=formUser style='display:flex;flex-direction:column;gap:8px'><input name=user_field placeholder='رقم / يوزر' required style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><input name=password type=password placeholder='كلمة السر' required style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><select name=role style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=\"btn-gold icon-anim\" style='padding:12px' id=btnAddUser>إضافة فوري بدون تحميل</button></form></div></div><div class=card><h4>تصدير</h4><div style='display:flex;gap:8px;flex-wrap:wrap'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#22c55e;color:#fff;border-radius:8px'>يوزرات</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#0ea5e9;color:#fff;border-radius:8px'>صحون</a><a href='/api/export/towers' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#ffbe4d;color:#111;border-radius:8px'>أبراج</a><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#8b5cf6;color:#fff;border-radius:8px'>سجل كامل</a></div></div><div style='display:grid;gap:8px' id=userList>"+uh+"</div></div><script>window.openEditUser=function(ph){ let c=document.getElementById('user-'+ph); let body=document.getElementById('editBody'); body.innerHTML='<input id=edit_u_field value=\"'+c.dataset.phone+'\" style=\"width:100%;padding:12px\"><input id=edit_u_pass type=\"password\" placeholder=\"كلمة سر جديدة (اتركه فارغ)\" style=\"width:100%;padding:12px;margin-top:8px\"><select id=edit_u_role style=\"width:100%;padding:12px;margin-top:8px\"><option value=\"tech\" '+(c.dataset.role=='tech'?'selected':'')+'>فني</option><option value=\"manager\" '+(c.dataset.role=='manager'?'selected':'')+'>مدير</option></select><button onclick=\"saveUser(\\''+ph+'\\')\" class=btn-gold style=\"width:100%;padding:14px;margin-top:12px\" id=btnSaveUserEdit>حفظ بدون تحميل</button>'; document.getElementById('editModal').classList.add('show'); }; window.saveUser=async function(oldPh){ let b=document.getElementById('btnSaveUserEdit'); b.textContent='جاري...'; b.disabled=true; let ff=document.getElementById('edit_u_field').value.trim(); let pw=document.getElementById('edit_u_pass').value; let ro=document.getElementById('edit_u_role').value; if(!ff){ alert('مطلوب'); b.textContent='حفظ'; b.disabled=false; return; } let fd=new URLSearchParams(); fd.append('old_phone',oldPh); fd.append('phone',ff); fd.append('username',ff); fd.append('role',ro); if(pw.trim()!=''){ fd.append('password',pw.trim()); } let r=await fetch('/edit_user',{method:'POST',body:fd}); let j=await r.json(); if(!j.ok){ alert(j.msg||'خطأ'); b.textContent='حفظ'; b.disabled=false; } else { let c=document.getElementById('user-'+oldPh); if(c){ c.id='user-'+ff; c.dataset.phone=ff; c.dataset.role=ro; c.querySelector('span').textContent=ff; } closeEditModal(); } }; document.getElementById('formPass').addEventListener('submit', async e=>{ e.preventDefault(); let fd=new FormData(e.target); let r=await fetch('/change_pass',{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ e.target.reset(); alert('تم تغيير كلمة السر'); } else alert(j.msg||'خطأ'); }); document.getElementById('formUser').addEventListener('submit', async e=>{ e.preventDefault(); let btn=document.getElementById('btnAddUser'); btn.textContent='جاري...'; btn.disabled=true; let r=await fetch('/add_user',{method:'POST',body:new FormData(e.target)}); let j=await r.json(); if(j.ok){ let ph=e.target.user_field.value; let role=e.target.role.value; let list=document.getElementById('userList'); let card=document.createElement('div'); card.className='card card-anim'; card.id='user-'+ph; card.dataset.phone=ph; card.dataset.role=role; card.style.cssText='display:grid;grid-template-columns:1fr auto;gap:12px;border:2px solid #22c55e'; card.innerHTML='<div><b>'+ph+'</b><br><span style=\"color:#ffbe4d\">'+ph+'</span> '+(role=='manager'?'<span style=\"background:#ffbe4d;color:#111;padding:2px 8px;border-radius:8px;font-size:11px\">مدير</span>':'<span style=\"background:#ffffff15;padding:2px 8px;border-radius:8px;font-size:11px\">فني</span>')+'</div><div style=\"display:flex;gap:6px\"><button class=\"btn-gold\" onclick=\"openEditUser(\\''+ph+'\\')\">تعديل</button><button class=\"btn-del\" onclick=\"askDel(\\'/del_user/'+ph+'\\',\\''+ph+'\\',\\'user\\')\">حذف</button></div>'; list.prepend(card); e.target.reset(); } else alert(j.msg||'خطأ'); btn.textContent='إضافة فوري بدون تحميل'; btn.disabled=false; });</script>"
+            badge = "<span style='background:#ffbe4d;color:#111;padding:2px 6px;border-radius:6px;font-size:10px'>مدير</span>" if u.get("role")=="manager" else "<span style='background:#ffffff15;padding:2px 6px;border-radius:6px;font-size:10px'>فني</span>"
+            uh += '<div class="card" id="user-'+esc(u["phone"])+'" data-phone="'+esc(u["phone"])+'" data-username="'+esc(u.get("username") or "")+'" data-role="'+esc(u.get("role") or "")+'" style="display:flex;justify-content:space-between"><div><b>'+esc(u.get("username") or "")+'</b><br><span style="color:#ffbe4d">'+esc(u["phone"])+'</span> '+badge+'</div><div style="display:flex;gap:4px"><button class=btn-gold onclick="openEditUser(\''+esc(u["phone"])+'\')">تعديل</button><button class=btn-del onclick="askDel(\'/del_user/'+esc(u["phone"])+'\',\''+esc(u["phone"])+'\',\'user\')">حذف</button></div></div>'
+        return "<div style='max-width:800px;margin:0 auto'><div class=card><b>كلمة السر الخاصة بك</b><form id=formPass style='display:flex;gap:6px;margin-top:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>حفظ</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px'><div class=card style='text-align:center'><b>اللغة والثيم</b><br><button onclick=\"toggleLangInstant()\" class=btn-gold style='width:100%;margin-top:8px;background:#1f2937;color:#fff'>تغيير اللغة فوري</button><button onclick=\"toggleThemeNoReload()\" class=btn-gold style='width:100%;margin-top:6px'>تغيير الثيم</button></div><div class=card><b>إضافة يوزر</b><form id=formUser style='display:flex;flex-direction:column;gap:6px;margin-top:8px'><input name=user_field placeholder='رقم / يوزر' required><input name=password type=password placeholder='كلمة السر' required><select name=role><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold id=btnAddUser>إضافة فوري</button></form></div></div><div class=card><b>تصدير</b><div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:6px'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:6px 10px;background:#22c55e;color:#fff'>يوزرات</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:6px 10px;background:#0ea5e9;color:#fff'>صحون</a><a href='/api/export/towers' class=btn-gold style='text-decoration:none;padding:6px 10px;background:#ffbe4d;color:#111'>أبراج</a><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:6px 10px;background:#8b5cf6;color:#fff'>سجل</a></div></div><div id=userList style='display:grid;gap:6px'>"+uh+"</div></div><script>window.openEditUser=function(ph){ let c=document.getElementById('user-'+ph); let body=document.getElementById('editBody'); body.innerHTML=''; let i1=document.createElement('input'); i1.id='edit_u_field'; i1.value=c.dataset.phone; i1.style.cssText='width:100%;padding:10px;margin:4px 0'; let i2=document.createElement('input'); i2.id='edit_u_pass'; i2.type='password'; i2.placeholder='باسورد جديدة (فارغ)'; i2.style.cssText='width:100%;padding:10px;margin:4px 0'; let s=document.createElement('select'); s.id='edit_u_role'; s.style.cssText='width:100%;padding:10px;margin:4px 0'; s.innerHTML='<option value=\"tech\">فني</option><option value=\"manager\">مدير</option>'; s.value=c.dataset.role; let b=document.createElement('button'); b.textContent='حفظ'; b.className='btn-gold'; b.style.cssText='width:100%;padding:12px;margin-top:8px'; b.id='btnSaveUserEdit'; b.onclick=function(){ saveUser(ph); }; body.append(i1,i2,s,b); document.getElementById('editModal').classList.add('show'); }; window.saveUser=async function(oldPh){ let b=document.getElementById('btnSaveUserEdit'); b.textContent='...'; b.disabled=true; let ff=document.getElementById('edit_u_field').value.trim(); let pw=document.getElementById('edit_u_pass').value; let ro=document.getElementById('edit_u_role').value; if(!ff){ alert('مطلوب'); b.textContent='حفظ'; b.disabled=false; return; } let fd=new URLSearchParams(); fd.append('old_phone',oldPh); fd.append('phone',ff); fd.append('username',ff); fd.append('role',ro); if(pw.trim()!=''){ fd.append('password',pw.trim()); } let r=await fetch('/edit_user',{method:'POST',body:fd}); let j=await r.json(); if(!j.ok){ alert(j.msg||'خطأ'); b.textContent='حفظ'; b.disabled=false; } else { let c=document.getElementById('user-'+oldPh); if(c){ c.id='user-'+ff; c.dataset.phone=ff; c.dataset.role=ro; c.querySelector('span').textContent=ff; } closeEditModal(); } }; document.getElementById('formPass').addEventListener('submit', async e=>{ e.preventDefault(); let fd=new FormData(e.target); let r=await fetch('/change_pass',{method:'POST',body:fd}); let j=await r.json(); if(j.ok){ e.target.reset(); alert('تم'); } else alert(j.msg||'خطأ'); }); document.getElementById('formUser').addEventListener('submit', async e=>{ e.preventDefault(); let btn=document.getElementById('btnAddUser'); btn.textContent='...'; btn.disabled=true; let r=await fetch('/add_user',{method:'POST',body:new FormData(e.target)}); let j=await r.json(); if(j.ok){ let ph=e.target.user_field.value; let role=e.target.role.value; let list=document.getElementById('userList'); let card=document.createElement('div'); card.className='card'; card.id='user-'+ph; card.dataset.phone=ph; card.dataset.role=role; card.style.cssText='display:flex;justify-content:space-between;border:1px solid #22c55e'; card.innerHTML='<div><b>'+ph+'</b><br><span style=\"color:#ffbe4d\">'+ph+'</span></div><div><button class=\"btn-gold\" onclick=\"openEditUser(\\''+ph+'\\')\">تعديل</button> <button class=\"btn-del\" onclick=\"askDel(\\'/del_user/'+ph+'\\',\\''+ph+'\\',\\'user\\')\">حذف</button></div>'; list.prepend(card); e.target.reset(); } else alert(j.msg||'خطأ'); btn.textContent='إضافة فوري'; btn.disabled=false; });</script>"
 
     if v=='support':
-        return """<div style='max-width:600px;margin:0 auto'>
-<div class=card style='text-align:center;padding:30px'>
-<div style='font-size:48px'>🛠</div>
-<h2 style='margin:10px 0'>الدعم الفني OMAIA ISP</h2>
-<div style='background:#0f1424;border:1px solid #ffffff15;border-radius:16px;padding:20px;margin:20px 0'>
-<div style='font-size:13px;color:#888'>رقم الدعم الفني</div>
-<div style='font-size:28px;font-weight:900;color:#ffbe4d;margin:8px 0;letter-spacing:1px' dir=ltr>+90 534 485 10 45</div>
-<div style='display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap'>
-<a href='https://wa.me/905344851045' target=_blank style='display:inline-block;background:#22c55e;color:#fff;padding:14px 24px;border-radius:14px;text-decoration:none;font-weight:800'>واتساب مباشر</a>
-<a href='tel:+905344851045' style='display:inline-block;background:#0ea5e9;color:#fff;padding:14px 24px;border-radius:14px;text-decoration:none;font-weight:800'>اتصال مباشر</a>
-</div>
-</div>
-<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px'>
-<div class=card style='margin:0'><h4 style='margin:0'>📡 الصحون</h4><small style='color:#888'>إدارة كاملة بدون تحميل</small></div>
-<div class=card style='margin:0'><h4 style='margin:0'>🗼 الأبراج</h4><small style='color:#888'>دقة 6 ارقام</small></div>
-<div class=card style='margin:0'><h4 style='margin:0'>📜 السجل</h4><small style='color:#888'>كل التعديلات</small></div>
-<div class=card style='margin:0'><h4 style='margin:0'>📶 بنج</h4><small style='color:#888'>0.4 ثانية</small></div>
+        return """<div style='max-width:500px;margin:0 auto'>
+<div class=card style='text-align:center;padding:24px'>
+<b>الدعم الفني OMAIA ISP</b>
+<div style='font-size:22px;color:#ffbe4d;margin:12px 0' dir=ltr>+90 534 485 10 45</div>
+<div style='display:flex;gap:8px;justify-content:center;flex-wrap:wrap'>
+<a href='https://wa.me/905344851045' target=_blank style='display:inline-block;background:#22c55e;color:#fff;padding:10px 20px;border-radius:10px;text-decoration:none'>واتساب</a>
+<a href='tel:+905344851045' style='display:inline-block;background:#0ea5e9;color:#fff;padding:10px 20px;border-radius:10px;text-decoration:none'>اتصال</a>
 </div>
 </div>
 </div>"""
 
-    return "<div class=card>الصفحة غير موجودة</div>"
+    return "<div class=card>غير موجود</div>"
 
 def layout(c,v='home'):
-    th=session.get('theme','dark')
-    is_dark=(th=='dark')
-    bg='radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)' if is_dark else '#f1f5f9'
-    card_bg='rgba(30,36,51,0.90)' if is_dark else '#ffffff'
-    txt='#ffffff' if is_dark else '#0f172a'
-    border='#ffffff12' if is_dark else '#e2e8f0'
     cur_user=qone("SELECT * FROM users WHERE phone=?",(session.get('phone') or '',)) or {}
     role=cur_user.get('role') or session.get('role') or 'tech'
     username_display=esc(cur_user.get('username') or session.get('phone') or '')
-    # دائما يمين - ما يقلب
-    sidebar_pos="right:0; left:auto; transform:translateX(110%);"
-    side="right"
-    dir_attr="rtl"
     req_lang=session.get('lang','ar')
     def L(ar,en):
         return ar if req_lang=='ar' else en
-    return """<html dir="""+dir_attr+""" lang="""+req_lang+"""><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+    return """<html dir=rtl lang="""+req_lang+"""><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;font-family:'Cairo',system-ui}body{margin:0;background:"""+bg+""";color:"""+txt+""";overflow-x:hidden;direction:rtl}
-.top{position:fixed;top:0;left:0;right:0;height:62px;background:rgba(15,23,42,0.92);backdrop-filter:blur(16px) saturate(180%);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1003;border-bottom:1px solid #ffffff12}
-.sidebar{position:fixed;top:0;width:295px;height:100%;background:linear-gradient(180deg,rgba(15,23,42,0.98) 0%,rgba(7,14,34,1) 100%);backdrop-filter:blur(22px) saturate(180%);color:#fff;z-index:1002;padding-top:70px;"""+sidebar_pos+"""transition:transform .38s cubic-bezier(0.34, 1.56, 0.64, 1);overflow-y:auto;border-left:1px solid #ffffff0f;box-shadow:-10px 0 50px #0009}
-.sidebar.collapsed{width:84px} .sidebar.collapsed a span.text{display:none} .sidebar.collapsed a{justify-content:center}
+*{box-sizing:border-box;font-family:'Cairo',system-ui}body{margin:0;background:#0a0e2a;color:#fff;direction:rtl}
+.top{position:fixed;top:0;left:0;right:0;height:56px;background:#0f172a;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid #ffffff10}
+.sidebar{position:fixed;top:0;right:0;width:260px;height:100%;background:#0f172a;color:#fff;z-index:1002;padding-top:64px;transform:translateX(110%);transition:transform .22s ease;overflow-y:auto;border-left:1px solid #ffffff10}
 .sidebar.active{transform:none}
-.sidebar a{display:flex;align-items:center;gap:11px;padding:12px 15px;margin:6px 11px;color:#cbd5e1;text-decoration:none;border-radius:13px;background:rgba(255,255,255,0.04);transition:all .28s ease;border:1px solid transparent}
-.sidebar a:hover{background:rgba(255,255,255,0.10);transform:translateX(-2px);border-color:#ffffff15}
-.sidebar a.active{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800;box-shadow:0 6px 24px #ffbe4d44}
-#overlay{position:fixed;inset:0;background:#0008;backdrop-filter:blur(3px);z-index:1001;display:none;opacity:0;transition:.3s}#overlay.show{display:block;opacity:1}
-.main{margin-top:74px;padding:14px;min-height:90vh}
-.card{background:"""+card_bg+""";backdrop-filter:blur(14px);color:"""+txt+""";padding:15px;border-radius:18px;margin-bottom:12px;border:1px solid """+border+""";transition:all .28s ease;box-shadow:0 4px 20px #0002}
-.card:hover{transform:translateY(-2px);box-shadow:0 8px 24px #0003}
-.card-anim{animation:cardIn .45s cubic-bezier(0.34, 1.56, 0.64, 1)} @keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(0.98)} to{opacity:1;transform:translateY(0) scale(1)}}
-.icon-anim{transition:all .28s ease;display:inline-block} .icon-anim:active{transform:scale(0.92)}
-input,select{padding:12px 14px;margin:5px 0;border-radius:12px;border:1px solid """+border+""";width:100%;background:#ffffff07;color:"""+txt+""";transition:all .25s} input:focus,select:focus{border-color:#ffbe4d;box-shadow:0 0 0 3px #ffbe4d22;outline:none}
-.btn-gold{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:9px 16px;border:0;border-radius:12px;font-weight:800;cursor:pointer;transition:all .28s ease} .btn-gold:hover{transform:scale(1.04)} .btn-gold:active{transform:scale(0.94)}
-.btn-del{background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;padding:8px 13px;border:0;border-radius:12px;cursor:pointer;transition:all .28s} .btn-del:hover{transform:scale(1.04)} .btn-del:active{transform:scale(0.92)}
-#delModal, #editModal{position:fixed;inset:0;background:#000a;backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.35s cubic-bezier(0.34, 1.56, 0.64, 1);z-index:2000} #delModal.show, #editModal.show{opacity:1;pointer-events:auto}
-#delBox, #editBox{background:"""+card_bg+""";backdrop-filter:blur(24px);color:"""+txt+""";padding:26px;border-radius:22px;width:92%;max-width:480px;transform:scale(0.88) translateY(20px);transition:.38s cubic-bezier(0.34, 1.56, 0.64, 1);border:1px solid #ffffff1a;box-shadow:0 20px 60px #0008} #delModal.show #delBox, #editModal.show #editBox{transform:scale(1) translateY(0)}
+.sidebar a{display:block;padding:10px 14px;margin:4px 8px;color:#cbd5e1;text-decoration:none;border-radius:10px;background:#ffffff05}
+.sidebar a.active{background:#ffbe4d;color:#111;font-weight:800}
+#overlay{position:fixed;inset:0;background:#0006;z-index:1001;display:none}#overlay.show{display:block}
+.main{margin-top:64px;padding:12px}
+.card{background:#1e253a;padding:12px;border-radius:14px;margin-bottom:10px;border:1px solid #ffffff0f}
+input,select{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #ffffff15;width:100%;background:#0f1424;color:#fff}
+.btn-gold{background:#ffbe4d;color:#111;padding:8px 14px;border:0;border-radius:10px;font-weight:700;cursor:pointer}
+.btn-del{background:#ef4444;color:#fff;padding:7px 12px;border:0;border-radius:10px;cursor:pointer}
+#delModal,#editModal{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}
+#delModal.show,#editModal.show{opacity:1;pointer-events:auto}
+#delBox,#editBox{background:#1e253a;padding:20px;border-radius:16px;width:92%;max-width:420px;border:1px solid #ffffff15}
 </style></head><body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
-<div style='padding:0 18px 14px;border-bottom:1px solid #ffffff0a;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center'>
-<div><div style='font-weight:900;font-size:18px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><small style='color:#888'>"""+username_display+" • "+role+"""</small><br><small style='color:#ffbe4d;font-size:11px'>الدعم: +905344851045</small></div>
-<button onclick="toggleCollapse()" id=collapseBtn style='background:#ffffff10;border:1px solid #ffffff15;color:#fff;width:34px;height:34px;border-radius:10px;cursor:pointer' class=icon-anim>◀</button>
-</div>
-<a href="javascript:loadPage('home')" id=nav-home class=icon-anim>🏠 <span class=text>"""+L('الرئيسية','Home')+"""</span></a>
-<a href="javascript:loadPage('dishes')" id=nav-dishes class=icon-anim>📡 <span class=text>"""+L('الصحون','Dishes')+"""</span></a>
-<a href="javascript:loadPage('ping')" id=nav-ping class=icon-anim>📶 <span class=text>"""+L('بنج','Ping')+"""</span></a>
-<a href="javascript:loadPage('network')" id=nav-network class=icon-anim>📊 <span class=text>"""+L('حالة الشبكة','Network')+"""</span></a>
-<a href="javascript:loadPage('towers')" id=nav-towers class=icon-anim>🗼 <span class=text>"""+L('الأبراج','Towers')+"""</span></a>
-<a href="javascript:loadPage('subs')" id=nav-subs class=icon-anim>👥 <span class=text>"""+L('المشتركين','Subs')+"""</span></a>
-<a href="javascript:loadPage('ledger')" id=nav-ledger class=icon-anim>📒 <span class=text>"""+L('الحسابات','Accounts')+"""</span></a>
-<a href="javascript:loadPage('logs')" id=nav-logs class=icon-anim>📜 <span class=text>"""+L('السجل الكامل','Full Logs')+"""</span></a>
-<a href="javascript:loadPage('map')" id=nav-map class=icon-anim>🗺 <span class=text>"""+L('الخريطة','Map')+"""</span></a>
-<a href="javascript:loadPage('settings')" id=nav-settings class=icon-anim>⚙ <span class=text>"""+L('الإعدادات','Settings')+"""</span></a>
-<a href="javascript:loadPage('support')" id=nav-support class=icon-anim style='background:linear-gradient(90deg,#22c55e22,#0ea5e922);border:1px solid #22c55e33'>🛠 <span class=text>"""+L('الدعم الفني','Support')+""" - +905344851045</span></a>
-<a href="javascript:logoutFast()" style='margin-top:14px;background:#ef444418;border:1px solid #ef444422' class=icon-anim>🚪 <span class=text>"""+L('خروج','Logout')+"""</span></a>
+<div style='padding:0 14px 10px;border-bottom:1px solid #ffffff10;margin-bottom:8px'>
+<div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><small style='color:#666'>"""+username_display+" • "+role+"""</small><br><small style='color:#ffbe4d'>+905344851045</small></div>
+<a href="javascript:loadPage('home')" id=nav-home>الرئيسية</a>
+<a href="javascript:loadPage('dishes')" id=nav-dishes>الصحون</a>
+<a href="javascript:loadPage('ping')" id=nav-ping>بنج</a>
+<a href="javascript:loadPage('network')" id=nav-network>حالة الشبكة</a>
+<a href="javascript:loadPage('towers')" id=nav-towers>الأبراج</a>
+<a href="javascript:loadPage('subs')" id=nav-subs>المشتركين</a>
+<a href="javascript:loadPage('ledger')" id=nav-ledger>الحسابات</a>
+<a href="javascript:loadPage('logs')" id=nav-logs>السجل</a>
+<a href="javascript:loadPage('map')" id=nav-map>الخريطة</a>
+<a href="javascript:loadPage('settings')" id=nav-settings>الإعدادات</a>
+<a href="javascript:loadPage('support')" id=nav-support style='color:#22c55e;background:#22c55e15'>الدعم - 905344851045+</a>
+<a href="javascript:logoutFast()" style='margin-top:12px;color:#ef4444;background:#ef444415'>خروج</a>
 </div>
 <div class=top>
-<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:22px;cursor:pointer;padding:7px 10px;background:#ffffff0a;border-radius:12px;border:1px solid #ffffff10' class=icon-anim>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" style='background:#0f1424;border:1px solid #ffffff15;color:#fff;padding:8px 12px;border-radius:12px;width:42px;transition:all .32s ease' onfocus="this.style.width='190px'" onblur="setTimeout(()=>this.style.width='42px',300)"></div>
-<div style='font-weight:900;letter-spacing:1px' class=icon-anim>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
-<div style='display:flex;gap:8px'><button onclick="toggleThemeNoReload()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:8px 10px;border-radius:12px' class=icon-anim>🌓</button><button onclick="toggleLangNoReload()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:8px 10px;border-radius:12px' class=icon-anim>🌐</button></div>
+<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:20px;cursor:pointer;padding:6px 10px;background:#ffffff0a;border-radius:10px'>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" style='width:40px;padding:7px 10px'></div>
+<div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div style='display:flex;gap:6px'><button onclick="toggleThemeNoReload()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff10;padding:6px 10px;border-radius:10px'>🌓</button><button onclick="toggleLangInstant()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff10;padding:6px 10px;border-radius:10px'>🌐</button></div>
 </div>
-<div id=searchResults style='position:fixed;top:66px;right:12px;max-width:430px;width:92%;background:rgba(30,36,51,0.96);backdrop-filter:blur(18px);border:1px solid #ffffff18;border-radius:16px;z-index:1500;display:none;max-height:60vh;overflow:auto;box-shadow:0 16px 50px #000a'></div>
+<div id=searchResults style='position:fixed;top:60px;right:10px;max-width:400px;width:92%;background:#1e253a;border:1px solid #ffffff15;border-radius:12px;z-index:1500;display:none;max-height:50vh;overflow:auto'></div>
 <div class=main id=mn>"""+c+"""</div>
-<div id=delModal><div id=delBox><div style='font-size:40px;text-align:center'>🗑</div><h3 style='text-align:center;margin:12px 0'>تأكيد الحذف؟</h3><p style='text-align:center;color:#888;font-size:13px'>رح ينحذف فوراً بدون تحميل - بأنيميشن سلس</p><div style='display:flex;gap:12px;margin-top:18px'><button onclick="closeDel()" style='flex:1;padding:13px;border-radius:14px;background:transparent;color:"""+txt+""";border:1px solid """+border+""";cursor:pointer'>تراجع</button><button id=delYes style='flex:1;padding:13px;border-radius:14px;background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;border:0;font-weight:800;cursor:pointer'>حذف فوري</button></div></div></div>
-<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;margin-bottom:16px;align-items:center'><h3 style='margin:0'>تعديل - بدون تحميل</h3><button onclick="closeEditModal()" style='background:#ffffff12;border:0;color:"""+txt+""";width:36px;height:36px;border-radius:50%;cursor:pointer'>✕</button></div><div id=editBody></div></div></div>
+<div id=delModal><div id=delBox><h3 style='text-align:center'>تأكيد الحذف؟</h3><p style='text-align:center;color:#888;font-size:12px'>بدون تحميل</p><div style='display:flex;gap:10px;margin-top:14px'><button onclick="closeDel()" style='flex:1;padding:10px;border-radius:10px;background:transparent;color:#fff;border:1px solid #ffffff20'>تراجع</button><button id=delYes style='flex:1;padding:10px;border-radius:10px;background:#ef4444;color:#fff;border:0;font-weight:700'>حذف</button></div></div></div>
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;margin-bottom:12px'><b>تعديل</b><button onclick="closeEditModal()" style='background:#ffffff15;border:0;color:#fff;width:30px;height:30px;border-radius:50%'>✕</button></div><div id=editBody></div></div></div>
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
 let cur='"""+v+"""';
-let sidebarCollapsed = localStorage.getItem('omaia_collapsed')==='1';
-function applyCollapse(){ let sb=document.getElementById('sb'); if(sidebarCollapsed) sb.classList.add('collapsed'); else sb.classList.remove('collapsed'); let btn=document.getElementById('collapseBtn'); if(btn) btn.textContent=sidebarCollapsed?'▶':'◀'; }
-applyCollapse();
-function toggleCollapse(){ sidebarCollapsed=!sidebarCollapsed; localStorage.setItem('omaia_collapsed', sidebarCollapsed?'1':'0'); applyCollapse(); }
 function toggleSb(f){ let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o); }
 let pageCache={};
-try{ pageCache=JSON.parse(localStorage.getItem('omaia_cache_final2')||'{}'); }catch(e){ pageCache={}; }
-function saveCache(){ try{ localStorage.setItem('omaia_cache_final2',JSON.stringify(pageCache)); }catch(e){} }
+try{ pageCache=JSON.parse(localStorage.getItem('omaia_fixed_cache')||'{}'); }catch(e){ pageCache={}; }
+function saveCache(){ try{ localStorage.setItem('omaia_fixed_cache',JSON.stringify(pageCache)); }catch(e){ try{ localStorage.removeItem('omaia_fixed_cache'); pageCache={}; }catch(e){} } }
 async function loadPage(v,force=false,push=true){
   if(push&&cur!==v){ try{ history.pushState({page:v},'', '/dash?v='+v); }catch(e){} }
-  cur=v;toggleSb(false);
+  cur=v; toggleSb(false);
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
   let mn=document.getElementById('mn');
-  if(!force&&pageCache[v]){ mn.innerHTML=pageCache[v]; execScripts(); fetch('/api/page?v='+v,{cache:'no-store'}).then(r=>r.text()).then(h=>{ if(h.length>100){ pageCache[v]=h; saveCache(); } }).catch(()=>{}); return; }
-  mn.innerHTML='<div class=card style="text-align:center;padding:36px">جاري التحميل...</div>';
-  try{ let r=await fetch('/api/page?v='+v,{cache:'no-store'}); let h=await r.text(); pageCache[v]=h; saveCache(); mn.innerHTML=h; execScripts(); }catch(e){ mn.innerHTML='<div class=card>خطأ: '+e+'</div>'; }
+  let lang=localStorage.getItem('omaia_lang')||'ar';
+  let cacheKey=v+'_'+lang;
+  if(!force&&pageCache[cacheKey]){
+    mn.innerHTML=pageCache[cacheKey];
+    execScripts();
+    fetch('/api/page?v='+v,{cache:'no-store'}).then(r=>r.text()).then(h=>{ pageCache[cacheKey]=h; saveCache(); }).catch(()=>{});
+    return;
+  }
+  if(!pageCache[cacheKey]){
+    mn.innerHTML='<div class=card style="text-align:center;padding:16px">...</div>';
+  }
+  try{
+    let r=await fetch('/api/page?v='+v,{cache:'no-store'});
+    let h=await r.text();
+    pageCache[cacheKey]=h;
+    saveCache();
+    mn.innerHTML=h;
+    execScripts();
+  }catch(e){ mn.innerHTML='<div class=card>خطأ</div>'; }
 }
 function execScripts(){ let mn=document.getElementById('mn'); mn.querySelectorAll('script').forEach(old=>{ let s=document.createElement('script'); s.textContent=old.textContent; document.body.appendChild(s); s.remove(); }); }
 function askDel(url,id,type){ window._delUrl=url; window._delId=id; window._delType=type; document.getElementById('delModal').classList.add('show'); }
@@ -1179,45 +1064,43 @@ function closeDel(){ document.getElementById('delModal').classList.remove('show'
 window.closeEditModal=function(){ document.getElementById('editModal').classList.remove('show'); };
 document.getElementById('delYes').onclick=async()=>{
   if(!window._delUrl) return;
-  let btn=document.getElementById('delYes'); let orig=btn.textContent; btn.textContent='جاري...'; btn.disabled=true;
+  let el=document.getElementById((window._delType||'dish')+'-'+window._delId);
+  if(el) el.style.opacity='0.4';
+  document.getElementById('delModal').classList.remove('show');
   try{
-    let type=window._delType||'dish';
-    let el=document.getElementById(type+'-'+window._delId);
-    if(el){
-      el.style.transition='all .35s cubic-bezier(0.34, 1.56, 0.64, 1)';
-      el.style.transform='scale(0.85) translateX(30px)';
-      el.style.opacity='0';
-      setTimeout(()=>{ el.style.display='none'; },350);
-    }
-    document.getElementById('delModal').classList.remove('show');
     let r=await fetch(window._delUrl);
     let j=await r.json();
-    if(!j.ok){
-      if(el){ el.style.display=''; el.style.transform=''; el.style.opacity='1'; }
+    if(j.ok){
+      if(el) el.style.display='none';
+      let lang=localStorage.getItem('omaia_lang')||'ar';
+      delete pageCache[cur+'_'+lang];
+      saveCache();
+    }else{
+      if(el) el.style.opacity='1';
       alert(j.msg||'خطأ');
-    } else {
-      delete pageCache[cur];
     }
-  }catch(e){ alert(e); }
-  btn.textContent=orig; btn.disabled=false;
+  }catch(e){ if(el) el.style.opacity='1'; alert(e); }
 };
 async function toggleThemeNoReload(){
   let r=await fetch('/toggle_theme');
-  let j=await r.json();
-  document.body.classList.toggle('light-theme', j.theme==='light');
-  // بدون تحميل - يغير الثيم فوراً
-  if(j.theme==='light'){
-    document.body.style.background='#f1f5f9';
-  }else{
-    document.body.style.background='radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)';
-  }
+  await r.json();
 }
-async function toggleLangNoReload(){
+window.toggleLangInstant=async function(){
   let r=await fetch('/toggle_lang');
   let j=await r.json();
-  // ما نغير dir - يضل يمين دائماً
-  loadPage(cur,true,false);
-}
+  try{ localStorage.setItem('omaia_lang',j.lang); }catch(e){}
+  let ck=cur+'_'+j.lang;
+  if(pageCache[ck]){
+    document.getElementById('mn').innerHTML=pageCache[ck];
+    execScripts();
+  }
+  fetch('/api/page?v='+cur,{cache:'no-store'}).then(rr=>rr.text()).then(h=>{
+    pageCache[ck]=h;
+    saveCache();
+    document.getElementById('mn').innerHTML=h;
+    execScripts();
+  });
+};
 window.globalSearchTop=async function(q){
   let box=document.getElementById('searchResults');
   if(!q||q.length<2){ box.style.display='none'; return; }
@@ -1226,16 +1109,16 @@ window.globalSearchTop=async function(q){
   if(!d.length){ box.style.display='none'; return; }
   let h='';
   d.forEach(x=>{
-    h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:12px 14px;cursor:pointer;border-bottom:1px solid #ffffff08"><b>'+x.title+'</b><br><small style="color:#888">'+x.sub+'</small></div>';
+    h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid #ffffff08"><b>'+x.title+'</b><br><small style="color:#666">'+x.sub+'</small></div>';
   });
   box.innerHTML=h; box.style.display='block';
 };
-window.logoutFast=async function(){ await fetch('/api/logout',{method:'POST'}); try{ localStorage.removeItem('omaia_cache_final2'); }catch(e){} location.replace('/login'); };
+window.logoutFast=async function(){ await fetch('/api/logout',{method:'POST'}); try{ localStorage.removeItem('omaia_fixed_cache'); }catch(e){} location.replace('/login'); };
 window.addEventListener('popstate',(e)=>{ let v='home'; if(e.state&&e.state.page) v=e.state.page; else { let p=new URLSearchParams(location.search); v=p.get('v')||'home'; } loadPage(v,false,false); });
 loadPage(cur,true,false);
 </script></body></html>"""
 
 if __name__=='__main__':
     port=int(os.environ.get("PORT",10000))
-    print("OMAIA FINAL - support +905344851045 - no reload - fixed edit - running on "+str(port))
+    print("OMAIA FINAL COMPLETE FIXED - fast - "+str(port))
     app.run(host='0.0.0.0',port=port,debug=False)
