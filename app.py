@@ -37,7 +37,7 @@ def init_pool():
         if _pg_pool:
             return
         try:
-            _pg_pool=pg_pool.ThreadedConnectionPool(2,8,dsn=DATABASE_URL,sslmode='require',connect_timeout=1)
+            _pg_pool=pg_pool.ThreadedConnectionPool(2,6,dsn=DATABASE_URL,sslmode='require',connect_timeout=1)
         except Exception as e:
             print("[POOL] "+str(e))
             _pg_pool=None
@@ -248,10 +248,11 @@ def role_required_manager(f):
     return w
 
 def is_valid_host(h):
-    h=(h or '').strip()
+    h=(h or '').strip().split(':')[0]
     if not h: return False
     try: ipaddress.ip_address(h); return True
     except: pass
+    if len(h)>253 or '.' not in h: return False
     if len(h)>253: return False
     if '.' not in h: return False
     if not __import__('re').match(r'^[a-zA-Z0-9.\-]+$', h): return False
@@ -833,7 +834,7 @@ def page_content(v):
 <div class=card>
 <b>فحص الشبكة</b>
 <div style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'>
-<input id=pingIp placeholder='192.168.1.1' onkeydown="if(event.key==='Enter'){{doSinglePing();}}" style='flex:1;min-width:140px'>
+<input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:140px'>
 <input id=pingPort placeholder='Port' value='80' style='width:70px'>
 <button class=btn-gold onclick="doSinglePing()" style='background:#22c55e;color:#fff'>Ping</button>
 <button class=btn-gold onclick="doTcpPing()" style='background:#0ea5e9;color:#fff'>TCP</button>
@@ -890,7 +891,7 @@ window.doTcpPing=async function(){
 <div class=card style='background:rgba(30,36,58,0.6);border:1px solid rgba(100,150,255,0.15);backdrop-filter:blur(10px)'>
 <div style='display:flex;justify-content:space-between;align-items:center'><b>الصحون {len(rs)}</b><div style='display:flex;gap:6px'><button onclick="checkAllDishes()" class=btn-gold style='padding:6px 10px;background:#22c55e;color:#fff;font-size:11px'>فحص الكل</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:6px 10px;font-size:11px'>Excel</a></div></div>
 <form id=formDish style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'><input name=dish_name id=dish_name_input placeholder='اسم الصحن' required style='flex:1'><input name=ip id=dish_ip_input placeholder='192.168.1.1' required style='flex:1'><input name=location id=dish_loc_input placeholder='البرج / موقع' style='flex:1'><button class=btn-gold type=submit id=btnAddDish>إضافة</button></form>
-<input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" onkeydown="if(event.key==='Enter'){{searchDishes(this.value);}}" style='margin-top:10px'>
+<input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" style='margin-top:10px'>
 </div>
 <div id=dl style='display:grid;gap:10px'>{rows_html}</div>
 </div>
@@ -925,7 +926,7 @@ document.getElementById('formDish').addEventListener('submit', async e=>{{ e.pre
 <div class=card style='background:rgba(30,36,58,0.6);border:1px solid rgba(100,150,255,0.15);backdrop-filter:blur(10px)'>
 <b>الابراج {len(rs)}</b>
 <form id=formTower style='display:flex;gap:6px;margin-top:8px;flex-wrap:wrap'><input name=name placeholder='اسم البرج' required style='flex:1'><input name=area placeholder='المنطقة' style='flex:1'><input name=lat placeholder='35.131812' style='flex:0.6'><input name=lng placeholder='36.757812' style='flex:0.6'><button class=btn-gold>إضافة</button></form>
-<input id=towerSearch placeholder='بحث...' oninput="searchTowers(this.value)" onkeydown="if(event.key==='Enter'){{searchTowers(this.value);}}" style='margin-top:8px'>
+<input id=towerSearch placeholder='بحث...' oninput="searchTowers(this.value)" style='margin-top:8px'>
 </div>
 <div id=towerList style='display:grid;gap:10px'>{rows}</div>
 </div>
@@ -966,96 +967,41 @@ document.getElementById('formTower').addEventListener('submit', async e=>{{ e.pr
         tj_json=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.131812),"lng":float(t.get('lng') or 36.757812)} for t in towers],ensure_ascii=False)
         return """
 <div class=card style='padding:8px'>
-<div style='display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center'>
-<input id=mapSearch placeholder='ابحث برج او مكان...' style='flex:1;min-width:160px' onkeypress="if(event.key==='Enter') doMapSearch()">
-<button class=btn-gold onclick="doMapSearch()">بحث برج</button>
-<button class=btn-gold onclick="searchPlace()" style='background:#0ea5e9;color:#fff'>بحث خريطة</button>
+<div style='display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap'>
+<input id=mapSearch placeholder='بحث برج...' style='flex:1'>
+<button class=btn-gold onclick="doMapSearch()">بحث</button>
 <button class=btn-gold onclick="locateMe()" style='background:#22c55e;color:#fff'>موقعي</button>
-<select id=layerSelect onchange="switchLayer(this.value)" style='width:110px'>
-<option value=sat>قمر صناعي HD</option>
-<option value=hybrid>قمر + اسماء</option>
-<option value=street>خريطة عادية</option>
-</select>
-<button class=btn-gold onclick="enableAddPoint()" id=addPointBtn style='background:#f59e0b'>+ نقطة</button>
-<span id=coordsLabel style='color:#ffbe4d;font-family:monospace;font-size:11px'>-</span>
+<button class=btn-gold onclick="enableAddPoint()" id=addPointBtn style='background:#f59e0b'>نقطة</button>
+<span id=coordsLabel style='color:#ffbe4d;font-family:monospace'>-</span>
 </div>
-<div id=map style='height:75vh;border-radius:12px;background:#111'></div>
-<div style='margin-top:6px'><small style='color:#888'>قمر صناعي دقة عالية Esri HD - اضغط + نقطة ثم الخريطة لاضافة برج</small></div>
+<div id=map style='height:70vh;border-radius:12px;background:#111'></div>
 </div>
 <script>
-await new Promise(async (resolve)=>{ if(window._leafletLoaded){ resolve(); return; } if(window._leafletLoading){ let iv=setInterval(()=>{ if(window._leafletLoaded){ clearInterval(iv); resolve(); } },200); return; } window._leafletLoading=true; let l=document.createElement('link'); l.rel='stylesheet'; l.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(l); let s=document.createElement('script'); s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; s.onload=()=>{ window._leafletLoaded=true; resolve(); }; document.head.appendChild(s); });
+(function(){ if(window._leafletLoaded) return Promise.resolve(); return new Promise(res=>{ let l=document.createElement('link'); l.rel='stylesheet'; l.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(l); let s=document.createElement('script'); s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; s.onload=()=>{window._leafletLoaded=true; res();}; document.head.appendChild(s); }); })()
 let _towers="""+tj_json+""";
 let _map=null; let addPointMode=false;
-let satLayer=null, streetLayer=null, labelLayer=null, currentLayer=null;
-window.doMapSearch=function(){
-  let q=document.getElementById('mapSearch').value.trim().toLowerCase();
-  if(!q) return;
-  let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q));
-  if(f&&_map){ _map.flyTo([f.lat,f.lng],18); setTimeout(()=>{ L.popup().setLatLng([f.lat,f.lng]).setContent('<b>'+f.name+'</b><br>'+f.lat.toFixed(6)+','+f.lng.toFixed(6)).openOn(_map); },500); }
-  else { searchPlace(); }
-};
-window.searchPlace=async function(){
-  let q=document.getElementById('mapSearch').value.trim();
-  if(!q) return;
-  try{
-    let r=await fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q)+'&limit=5');
-    let d=await r.json();
-    if(d&&d.length){ let first=d[0]; _map.flyTo([parseFloat(first.lat),parseFloat(first.lon)],16); L.marker([parseFloat(first.lat),parseFloat(first.lon)]).addTo(_map).bindPopup(first.display_name).openPopup(); }
-    else alert('لا يوجد نتائج');
-  }catch(e){ alert('خطأ بحث'); }
-};
-window.locateMe=function(){
-  if(_map&&navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{
-    _map.flyTo([p.coords.latitude,p.coords.longitude],18);
-    L.marker([p.coords.latitude,p.coords.longitude],{icon:L.divIcon({html:'<div style="background:#22c55e;width:14px;height:14px;border-radius:50%;border:2px solid #fff"></div>',iconSize:[14,14]})}).addTo(_map).bindPopup('موقعي<br>'+p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6)).openPopup();
-  },null,{enableHighAccuracy:true});
-};
-window.switchLayer=function(type){
-  if(!_map) return;
-  if(currentLayer) _map.removeLayer(currentLayer);
-  if(labelLayer) _map.removeLayer(labelLayer);
-  if(type==='sat'){
-    satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri HD'});
-    currentLayer=satLayer; satLayer.addTo(_map);
-  } else if(type==='hybrid'){
-    satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19});
-    labelLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:20});
-    currentLayer=satLayer; satLayer.addTo(_map); labelLayer.addTo(_map);
-  } else {
-    streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19});
-    currentLayer=streetLayer; streetLayer.addTo(_map);
-  }
-};
-window.enableAddPoint=function(){
-  addPointMode=!addPointMode;
-  let b=document.getElementById('addPointBtn');
-  b.textContent=addPointMode?'اضغط الخريطة لاضافة':' + نقطة';
-  b.style.background=addPointMode?'#ef4444':'#f59e0b';
-};
+window.doMapSearch=function(){ let q=document.getElementById('mapSearch').value.trim().toLowerCase(); if(!q) return; let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q)); if(f&&_map) _map.flyTo([f.lat,f.lng],17); };
+window.locateMe=function(){ if(_map&&navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{ _map.flyTo([p.coords.latitude,p.coords.longitude],17); L.marker([p.coords.latitude,p.coords.longitude]).addTo(_map).bindPopup(p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6)).openPopup(); },null,{enableHighAccuracy:true}); };
+window.enableAddPoint=function(){ addPointMode=!addPointMode; let b=document.getElementById('addPointBtn'); b.textContent=addPointMode?'اضغط الخريطة':'نقطة'; b.style.background=addPointMode?'#ef4444':'#f59e0b'; };
 setTimeout(()=>{
-  _map=L.map('map',{zoomControl:true}).setView([35.131812,36.757812],13);
-  satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri Satellite HD'});
-  currentLayer=satLayer; satLayer.addTo(_map);
-  _towers.forEach(t=>{
-    let icon=L.divIcon({html:'<div style="background:#ffbe4d;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;color:#111;border:2px solid #fff;box-shadow:0 2px 8px #0008">📡</div>',iconSize:[28,28],iconAnchor:[14,14]});
-    L.marker([t.lat,t.lng],{icon:icon}).addTo(_map).bindPopup('<b>'+t.name+'</b><br>'+t.area+'<br><span style="font-family:monospace;color:#ffbe4d">'+t.lat.toFixed(6)+','+t.lng.toFixed(6)+'</span>');
-  });
+  _map=L.map('map').setView([35.131812,36.757812],13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(_map);
+  _towers.forEach(t=>{ L.marker([t.lat,t.lng]).addTo(_map).bindPopup('<b>'+t.name+'</b><br>'+t.lat.toFixed(6)+','+t.lng.toFixed(6)); });
   _map.on('mousemove',e=>{ document.getElementById('coordsLabel').textContent=e.latlng.lat.toFixed(6)+','+e.latlng.lng.toFixed(6); });
   _map.on('click',e=>{
     document.getElementById('coordsLabel').textContent=e.latlng.lat.toFixed(6)+','+e.latlng.lng.toFixed(6);
     if(addPointMode){
-      let name=prompt('اسم البرج الجديد؟')||'نقطة';
-      if(!name) return;
-      let fd=new URLSearchParams(); fd.append('name',name); fd.append('area',''); fd.append('lat',e.latlng.lat.toFixed(6)); fd.append('lng',e.latlng.lng.toFixed(6));
-      fetch('/add_tower',{method:'POST',body:fd,credentials:'same-origin'}).then(r=>r.json()).then(j=>{ if(j.ok){ L.marker([e.latlng.lat,e.latlng.lng]).addTo(_map).bindPopup(name).openPopup(); alert('تمت الاضافة'); } });
+      let name=prompt('اسم البرج؟')||'نقطة';
+      let fd=new URLSearchParams();
+      fd.append('name',name); fd.append('lat',e.latlng.lat.toFixed(6)); fd.append('lng',e.latlng.lng.toFixed(6));
+      fetch('/add_tower',{method:'POST',body:fd,credentials:'same-origin'}).then(r=>r.json()).then(j=>{ if(j.ok){ L.marker([e.latlng.lat,e.latlng.lng]).addTo(_map).bindPopup(name).openPopup(); } });
     }
   });
-},500);
+},400);
 </script>
 """
 
     if v=='network':
-
         dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 100")
         rows=""
         for d in dishes:
@@ -1126,7 +1072,7 @@ input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #fff
 <a href="javascript:logoutFast()" style='margin-top:12px;color:#ef4444;background:#ef444415'>خروج</a>
 </div>
 <div class=top>
-<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:20px;cursor:pointer;padding:6px 10px;background:#ffffff0a;border-radius:10px'>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" onkeydown="if(event.key==='Enter'){{globalSearchTop(this.value);}}" style='width:40px;padding:7px 10px'></div>
+<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:20px;cursor:pointer;padding:6px 10px;background:#ffffff0a;border-radius:10px'>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" style='width:40px;padding:7px 10px'></div>
 <div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div style='display:flex;gap:6px'><button onclick="toggleThemeNoReload()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff10;padding:6px 10px;border-radius:10px'>🌓</button><button onclick="toggleLangInstant()" id=langBtn style='background:#ffffff0a;color:#fff;border:1px solid #ffffff10;padding:6px 10px;border-radius:10px'>🌐 {req_lang}</button></div>
 </div>
