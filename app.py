@@ -37,7 +37,7 @@ def init_pool():
         if _pg_pool:
             return
         try:
-            _pg_pool=pg_pool.ThreadedConnectionPool(3,25,dsn=DATABASE_URL,sslmode='require',connect_timeout=2)
+            _pg_pool=pg_pool.ThreadedConnectionPool(2,8,dsn=DATABASE_URL,sslmode='require',connect_timeout=1)
         except Exception as e:
             print("[POOL] "+str(e))
             _pg_pool=None
@@ -818,7 +818,7 @@ def page_content(v):
     if v=='home':
         ns,nd,nt,nl=get_counts()
         # السجل - لا كاش، استعلام مباشر
-        logs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 20")
+        logs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
         log_html=""
         for l in logs:
             col='#22c55e' if 'إضافة' in l.get('action','') else '#0ea5e9' if 'تعديل' in l.get('action','') else '#ef4444' if 'حذف' in l.get('action','') else '#ffbe4d'
@@ -833,7 +833,7 @@ def page_content(v):
 <div class=card>
 <b>فحص الشبكة</b>
 <div style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'>
-<input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:140px'>
+<input id=pingIp placeholder='192.168.1.1' onkeydown="if(event.key==='Enter'){{doSinglePing();}}" style='flex:1;min-width:140px'>
 <input id=pingPort placeholder='Port' value='80' style='width:70px'>
 <button class=btn-gold onclick="doSinglePing()" style='background:#22c55e;color:#fff'>Ping</button>
 <button class=btn-gold onclick="doTcpPing()" style='background:#0ea5e9;color:#fff'>TCP</button>
@@ -869,7 +869,7 @@ window.doTcpPing=async function(){
 """
 
     if v=='dishes':
-        rs=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 200")
+        rs=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 120")
         rows_html=""
         for r in rs:
             dn=esc(r.get('dish_name') or 'صحن')
@@ -890,7 +890,7 @@ window.doTcpPing=async function(){
 <div class=card style='background:rgba(30,36,58,0.6);border:1px solid rgba(100,150,255,0.15);backdrop-filter:blur(10px)'>
 <div style='display:flex;justify-content:space-between;align-items:center'><b>الصحون {len(rs)}</b><div style='display:flex;gap:6px'><button onclick="checkAllDishes()" class=btn-gold style='padding:6px 10px;background:#22c55e;color:#fff;font-size:11px'>فحص الكل</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:6px 10px;font-size:11px'>Excel</a></div></div>
 <form id=formDish style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'><input name=dish_name id=dish_name_input placeholder='اسم الصحن' required style='flex:1'><input name=ip id=dish_ip_input placeholder='192.168.1.1' required style='flex:1'><input name=location id=dish_loc_input placeholder='البرج / موقع' style='flex:1'><button class=btn-gold type=submit id=btnAddDish>إضافة</button></form>
-<input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" style='margin-top:10px'>
+<input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" onkeydown="if(event.key==='Enter'){{searchDishes(this.value);}}" style='margin-top:10px'>
 </div>
 <div id=dl style='display:grid;gap:10px'>{rows_html}</div>
 </div>
@@ -902,7 +902,7 @@ window.pingOneDish=async function(id){{ let c=document.getElementById('dish-'+id
 window.checkAllDishes=async function(){{ for(let c of document.querySelectorAll('.dish-card')){{ let id=c.id.split('-')[1]; pingOneDish(id); await new Promise(r=>setTimeout(r,150)); }} }};
 document.getElementById('formDish').addEventListener('submit', async e=>{{ e.preventDefault(); let btn=document.getElementById('btnAddDish'); btn.textContent='...'; btn.disabled=true; let fd=new FormData(e.target); try{{ let r=await fetch('/add_dish',{{method:'POST',body:fd,credentials:'same-origin'}}); let j=await r.json(); if(j.ok){{ let dl=document.getElementById('dl'); let card=document.createElement('div'); card.className='card dish-card glass-tech'; card.id='dish-'+j.id; card.dataset.name=j.name; card.dataset.ip=j.ip; card.dataset.loc=j.loc; card.style.cssText='background:linear-gradient(135deg,rgba(30,36,58,0.85) 0%,rgba(18,24,42,0.9) 100%);border:1px solid rgba(100,150,255,0.18);box-shadow:0 0 0 1px rgba(100,150,255,0.08),0 8px 32px rgba(0,0,0,0.4),0 0 20px rgba(59,130,246,0.12);border-radius:16px;padding:16px;display:flex;justify-content:space-between;align-items:center;border:1px solid #22c55e'; card.innerHTML=`<div style="flex:1"><div style="display:flex;align-items:center;gap:8px"><span class="status-dot" id="dot-${{j.id}}" style="width:10px;height:10px;border-radius:50%;background:#555;display:inline-block"></span><b class="dish-name" style="font-size:17px;font-weight:900">${{j.name}}</b></div><div style="margin:6px 0 0 18px;color:#94a3b8;font-size:12px" class="dish-loc">${{j.loc||'بدون موقع'}}</div><div style="margin-top:8px"><span class="dish-ip" style="display:inline-block;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:5px 14px;border-radius:8px;font-family:monospace;font-size:13px;font-weight:800">${{j.ip}}</span></div></div><div style="display:flex;flex-direction:column;gap:6px"><button class="btn-gold" onclick="pingOneDish(${{j.id}})" style="padding:7px 14px;background:#22c55e;color:#fff;border-radius:8px;font-size:12px">Ping</button><div style="display:flex;gap:5px"><button class="btn-gold" onclick="editDish(${{j.id}})" style="padding:6px 10px;background:#1f2937;color:#fff;border:1px solid #ffffff15;border-radius:8px;font-size:11px;flex:1">تعديل</button><button class="btn-del" onclick="askDel('/del_dish/${{j.id}}',${{j.id}},'dish')" style="padding:6px 10px;border-radius:8px;font-size:11px;flex:1">حذف</button></div></div>`; dl.prepend(card); e.target.reset(); }}else alert(j.msg||'خطأ'); }}catch(e){{ alert('خطأ'); }} btn.textContent='إضافة'; btn.disabled=false; }});
 // فحص تلقائي للصحون عند التحميل
-setTimeout(()=>{{ checkAllDishes(); }},800);
+// smooth - no auto ping
 </script>
 """
 
@@ -925,7 +925,7 @@ setTimeout(()=>{{ checkAllDishes(); }},800);
 <div class=card style='background:rgba(30,36,58,0.6);border:1px solid rgba(100,150,255,0.15);backdrop-filter:blur(10px)'>
 <b>الابراج {len(rs)}</b>
 <form id=formTower style='display:flex;gap:6px;margin-top:8px;flex-wrap:wrap'><input name=name placeholder='اسم البرج' required style='flex:1'><input name=area placeholder='المنطقة' style='flex:1'><input name=lat placeholder='35.131812' style='flex:0.6'><input name=lng placeholder='36.757812' style='flex:0.6'><button class=btn-gold>إضافة</button></form>
-<input id=towerSearch placeholder='بحث...' oninput="searchTowers(this.value)" style='margin-top:8px'>
+<input id=towerSearch placeholder='بحث...' oninput="searchTowers(this.value)" onkeydown="if(event.key==='Enter'){{searchTowers(this.value);}}" style='margin-top:8px'>
 </div>
 <div id=towerList style='display:grid;gap:10px'>{rows}</div>
 </div>
@@ -966,45 +966,101 @@ document.getElementById('formTower').addEventListener('submit', async e=>{{ e.pr
         tj_json=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.131812),"lng":float(t.get('lng') or 36.757812)} for t in towers],ensure_ascii=False)
         return """
 <div class=card style='padding:8px'>
-<div style='display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap'>
-<input id=mapSearch placeholder='بحث برج...' style='flex:1'>
-<button class=btn-gold onclick="doMapSearch()">بحث</button>
+<div style='display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center'>
+<input id=mapSearch placeholder='ابحث برج او مكان...' style='flex:1;min-width:160px' onkeypress="if(event.key==='Enter') doMapSearch()">
+<button class=btn-gold onclick="doMapSearch()">بحث برج</button>
+<button class=btn-gold onclick="searchPlace()" style='background:#0ea5e9;color:#fff'>بحث خريطة</button>
 <button class=btn-gold onclick="locateMe()" style='background:#22c55e;color:#fff'>موقعي</button>
-<button class=btn-gold onclick="enableAddPoint()" id=addPointBtn style='background:#f59e0b'>نقطة</button>
-<span id=coordsLabel style='color:#ffbe4d;font-family:monospace'>-</span>
+<select id=layerSelect onchange="switchLayer(this.value)" style='width:110px'>
+<option value=sat>قمر صناعي HD</option>
+<option value=hybrid>قمر + اسماء</option>
+<option value=street>خريطة عادية</option>
+</select>
+<button class=btn-gold onclick="enableAddPoint()" id=addPointBtn style='background:#f59e0b'>+ نقطة</button>
+<span id=coordsLabel style='color:#ffbe4d;font-family:monospace;font-size:11px'>-</span>
 </div>
-<div id=map style='height:70vh;border-radius:12px;background:#111'></div>
+<div id=map style='height:75vh;border-radius:12px;background:#111'></div>
+<div style='margin-top:6px'><small style='color:#888'>قمر صناعي دقة عالية Esri HD - اضغط + نقطة ثم الخريطة لاضافة برج</small></div>
 </div>
 <script>
+await new Promise(async (resolve)=>{ if(window._leafletLoaded){ resolve(); return; } if(window._leafletLoading){ let iv=setInterval(()=>{ if(window._leafletLoaded){ clearInterval(iv); resolve(); } },200); return; } window._leafletLoading=true; let l=document.createElement('link'); l.rel='stylesheet'; l.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(l); let s=document.createElement('script'); s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; s.onload=()=>{ window._leafletLoaded=true; resolve(); }; document.head.appendChild(s); });
 let _towers="""+tj_json+""";
 let _map=null; let addPointMode=false;
-window.doMapSearch=function(){ let q=document.getElementById('mapSearch').value.trim().toLowerCase(); if(!q) return; let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q)); if(f&&_map) _map.flyTo([f.lat,f.lng],17); };
-window.locateMe=function(){ if(_map&&navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{ _map.flyTo([p.coords.latitude,p.coords.longitude],17); L.marker([p.coords.latitude,p.coords.longitude]).addTo(_map).bindPopup(p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6)).openPopup(); },null,{enableHighAccuracy:true}); };
-window.enableAddPoint=function(){ addPointMode=!addPointMode; let b=document.getElementById('addPointBtn'); b.textContent=addPointMode?'اضغط الخريطة':'نقطة'; b.style.background=addPointMode?'#ef4444':'#f59e0b'; };
+let satLayer=null, streetLayer=null, labelLayer=null, currentLayer=null;
+window.doMapSearch=function(){
+  let q=document.getElementById('mapSearch').value.trim().toLowerCase();
+  if(!q) return;
+  let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q));
+  if(f&&_map){ _map.flyTo([f.lat,f.lng],18); setTimeout(()=>{ L.popup().setLatLng([f.lat,f.lng]).setContent('<b>'+f.name+'</b><br>'+f.lat.toFixed(6)+','+f.lng.toFixed(6)).openOn(_map); },500); }
+  else { searchPlace(); }
+};
+window.searchPlace=async function(){
+  let q=document.getElementById('mapSearch').value.trim();
+  if(!q) return;
+  try{
+    let r=await fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q)+'&limit=5');
+    let d=await r.json();
+    if(d&&d.length){ let first=d[0]; _map.flyTo([parseFloat(first.lat),parseFloat(first.lon)],16); L.marker([parseFloat(first.lat),parseFloat(first.lon)]).addTo(_map).bindPopup(first.display_name).openPopup(); }
+    else alert('لا يوجد نتائج');
+  }catch(e){ alert('خطأ بحث'); }
+};
+window.locateMe=function(){
+  if(_map&&navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{
+    _map.flyTo([p.coords.latitude,p.coords.longitude],18);
+    L.marker([p.coords.latitude,p.coords.longitude],{icon:L.divIcon({html:'<div style="background:#22c55e;width:14px;height:14px;border-radius:50%;border:2px solid #fff"></div>',iconSize:[14,14]})}).addTo(_map).bindPopup('موقعي<br>'+p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6)).openPopup();
+  },null,{enableHighAccuracy:true});
+};
+window.switchLayer=function(type){
+  if(!_map) return;
+  if(currentLayer) _map.removeLayer(currentLayer);
+  if(labelLayer) _map.removeLayer(labelLayer);
+  if(type==='sat'){
+    satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri HD'});
+    currentLayer=satLayer; satLayer.addTo(_map);
+  } else if(type==='hybrid'){
+    satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19});
+    labelLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:20});
+    currentLayer=satLayer; satLayer.addTo(_map); labelLayer.addTo(_map);
+  } else {
+    streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19});
+    currentLayer=streetLayer; streetLayer.addTo(_map);
+  }
+};
+window.enableAddPoint=function(){
+  addPointMode=!addPointMode;
+  let b=document.getElementById('addPointBtn');
+  b.textContent=addPointMode?'اضغط الخريطة لاضافة':' + نقطة';
+  b.style.background=addPointMode?'#ef4444':'#f59e0b';
+};
 setTimeout(()=>{
-  _map=L.map('map').setView([35.131812,36.757812],13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(_map);
-  _towers.forEach(t=>{ L.marker([t.lat,t.lng]).addTo(_map).bindPopup('<b>'+t.name+'</b><br>'+t.lat.toFixed(6)+','+t.lng.toFixed(6)); });
+  _map=L.map('map',{zoomControl:true}).setView([35.131812,36.757812],13);
+  satLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri Satellite HD'});
+  currentLayer=satLayer; satLayer.addTo(_map);
+  _towers.forEach(t=>{
+    let icon=L.divIcon({html:'<div style="background:#ffbe4d;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;color:#111;border:2px solid #fff;box-shadow:0 2px 8px #0008">📡</div>',iconSize:[28,28],iconAnchor:[14,14]});
+    L.marker([t.lat,t.lng],{icon:icon}).addTo(_map).bindPopup('<b>'+t.name+'</b><br>'+t.area+'<br><span style="font-family:monospace;color:#ffbe4d">'+t.lat.toFixed(6)+','+t.lng.toFixed(6)+'</span>');
+  });
   _map.on('mousemove',e=>{ document.getElementById('coordsLabel').textContent=e.latlng.lat.toFixed(6)+','+e.latlng.lng.toFixed(6); });
   _map.on('click',e=>{
     document.getElementById('coordsLabel').textContent=e.latlng.lat.toFixed(6)+','+e.latlng.lng.toFixed(6);
     if(addPointMode){
-      let name=prompt('اسم البرج؟')||'نقطة';
-      let fd=new URLSearchParams();
-      fd.append('name',name); fd.append('lat',e.latlng.lat.toFixed(6)); fd.append('lng',e.latlng.lng.toFixed(6));
-      fetch('/add_tower',{method:'POST',body:fd,credentials:'same-origin'}).then(r=>r.json()).then(j=>{ if(j.ok){ L.marker([e.latlng.lat,e.latlng.lng]).addTo(_map).bindPopup(name).openPopup(); } });
+      let name=prompt('اسم البرج الجديد؟')||'نقطة';
+      if(!name) return;
+      let fd=new URLSearchParams(); fd.append('name',name); fd.append('area',''); fd.append('lat',e.latlng.lat.toFixed(6)); fd.append('lng',e.latlng.lng.toFixed(6));
+      fetch('/add_tower',{method:'POST',body:fd,credentials:'same-origin'}).then(r=>r.json()).then(j=>{ if(j.ok){ L.marker([e.latlng.lat,e.latlng.lng]).addTo(_map).bindPopup(name).openPopup(); alert('تمت الاضافة'); } });
     }
   });
-},400);
+},500);
 </script>
 """
 
     if v=='network':
+
         dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC LIMIT 100")
         rows=""
         for d in dishes:
             rows += "<div class='card glass-tech' id='net-"+str(d['id'])+"' data-ip='"+esc(d.get('ip',''))+"' style='display:flex;justify-content:space-between;align-items:center'><div><div style='display:flex;align-items:center;gap:6px'><span class='net-dot' style='width:8px;height:8px;border-radius:50%;background:#555;display:inline-block'></span><b>"+esc(d.get('dish_name') or 'صحن')+"</b> - "+esc(d.get('ip',''))+"</div><small class='net-out' style='color:#666'>...</small></div><button class=btn-gold onclick='checkOne("+str(d['id'])+")'>فحص</button></div>"
-        return "<div style='max-width:800px;margin:0 auto'><div class=card><b>حالة الشبكة</b><button class=btn-gold onclick='checkAll()' style='width:100%;margin-top:8px;background:#22c55e;color:#fff'>فحص الكل</button></div>"+rows+"<script>window.checkOne=async function(id){ let c=document.getElementById('net-'+id); let out=c.querySelector('.net-out'); let dot=c.querySelector('.net-dot'); out.textContent='...'; dot.style.background='#f59e0b'; try{ let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip),{credentials:'same-origin'}); let j=await r.json(); out.textContent=j.out.slice(0,80); out.style.color=j.ok?'#22c55e':'#ef4444'; dot.style.background=j.ok?'#22c55e':'#ef4444'; dot.style.boxShadow=j.ok?'0 0 8px #22c55e':'0 0 8px #ef4444'; }catch(e){ out.textContent='خطأ'; dot.style.background='#ef4444'; } }; window.checkAll=async function(){ for(let c of document.querySelectorAll('[id^=net-]')){ await checkOne(c.id.split('-')[1]); await new Promise(r=>setTimeout(r,120)); } }; setTimeout(()=>{ checkAll(); },600);</script></div>"
+        return "<div style='max-width:800px;margin:0 auto'><div class=card><b>حالة الشبكة</b><button class=btn-gold onclick='checkAll()' style='width:100%;margin-top:8px;background:#22c55e;color:#fff'>فحص الكل</button></div>"+rows+"<script>window.checkOne=async function(id){ let c=document.getElementById('net-'+id); let out=c.querySelector('.net-out'); let dot=c.querySelector('.net-dot'); out.textContent='...'; dot.style.background='#f59e0b'; try{ let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip),{credentials:'same-origin'}); let j=await r.json(); out.textContent=j.out.slice(0,80); out.style.color=j.ok?'#22c55e':'#ef4444'; dot.style.background=j.ok?'#22c55e':'#ef4444'; dot.style.boxShadow=j.ok?'0 0 8px #22c55e':'0 0 8px #ef4444'; }catch(e){ out.textContent='خطأ'; dot.style.background='#ef4444'; } }; window.checkAll=async function(){ for(let c of document.querySelectorAll('[id^=net-]')){ await checkOne(c.id.split('-')[1]); await new Promise(r=>setTimeout(r,120)); } }; // smooth - no auto</script></div>"
 
     if v=='settings':
         us=qall("SELECT * FROM users ORDER BY phone DESC")
@@ -1029,30 +1085,40 @@ setTimeout(()=>{
     return "<div class=card>غير موجود</div>"
 
 def layout(c,v='home'):
-    cur_user=qone("SELECT * FROM users WHERE phone=?",(session.get('phone') or '',)) or {}
-    role=cur_user.get('role') or session.get('role') or 'tech'
-    username_display=esc(cur_user.get('username') or session.get('phone') or '')
+    role=session.get('role') or 'tech'
+    username_display=esc(session.get('username') or session.get('phone') or '')
     req_lang=session.get('lang','ar')
     return f"""<html dir=rtl lang={req_lang}><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
-<link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
+<link rel=preconnect href='https://fonts.gstatic.com'>
 <style>
-*{{box-sizing:border-box;font-family:'Cairo',system-ui}}body{{margin:0;background:#0a0e2a;color:#fff;direction:rtl}}
-.top{{position:fixed;top:0;left:0;right:0;height:56px;background:#0f172a;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid #ffffff10}}
-.sidebar{{position:fixed;top:0;right:0;width:260px;height:100%;background:#0f172a;color:#fff;z-index:1002;padding-top:64px;transform:translateX(110%);transition:transform .22s ease;overflow-y:auto;border-left:1px solid #ffffff10}}
+*{box-sizing:border-box;font-family:'Cairo',system-ui}html{{scroll-behavior:smooth}}body{{margin:0;background:radial-gradient(1200px 600px at 20% -10%, #1a2a5a 0%, #0a0e2a 55%),radial-gradient(1000px 500px at 90% 0%, #1e3a5f 0%, transparent 60%),#0a0e2a;color:#fff;direction:rtl;overflow-x:hidden;-webkit-overflow-scrolling:touch}}
+.top{{position:fixed;top:0;left:0;right:0;height:56px;background:rgba(15,23,42,0.75);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 24px rgba(0,0,0,0.2)}}
+.sidebar{{position:fixed;top:0;right:0;width:270px;height:100%;background:rgba(15,23,42,0.88);backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);color:#fff;z-index:1002;padding-top:64px;transform:translateX(110%);transition:transform .35s cubic-bezier(0.4,0,0.2,1);overflow-y:auto;border-left:1px solid rgba(255,255,255,0.08);box-shadow:-8px 0 32px rgba(0,0,0,0.3)}}
 .sidebar.active{{transform:none}}
-.sidebar a{{display:block;padding:10px 14px;margin:4px 8px;color:#cbd5e1;text-decoration:none;border-radius:10px;background:#ffffff05}}
-.sidebar a.active{{background:#ffbe4d;color:#111;font-weight:800}}
-#overlay{{position:fixed;inset:0;background:#0006;z-index:1001;display:none}}#overlay.show{{display:block}}
-.main{{margin-top:64px;padding:12px}}
-.card{{background:#1e253a;padding:12px;border-radius:14px;margin-bottom:10px;border:1px solid #ffffff0f}}
-.glass-tech{{background:linear-gradient(135deg,rgba(30,36,58,0.8) 0%,rgba(18,24,42,0.85) 100%)!important;border:1px solid rgba(100,150,255,0.18)!important;box-shadow:0 0 0 1px rgba(100,150,255,0.06),0 8px 32px rgba(0,0,0,0.3),0 0 18px rgba(59,130,246,0.1)!important;backdrop-filter:blur(12px)!important}}
-input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #ffffff15;width:100%;background:#0f1424;color:#fff}}
-.btn-gold{{background:#ffbe4d;color:#111;padding:8px 14px;border:0;border-radius:10px;font-weight:700;cursor:pointer}}
-.btn-del{{background:#ef4444;color:#fff;padding:7px 12px;border:0;border-radius:10px;cursor:pointer}}
-#delModal,#editModal{{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}}
+.sidebar a{{display:block;padding:11px 14px;margin:5px 8px;color:#cbd5e1;text-decoration:none;border-radius:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.05);transition:all .25s ease}}
+.sidebar a:hover{{background:rgba(255,255,255,0.08);transform:translateX(-3px)}}
+.sidebar a.active{{background:linear-gradient(135deg,#ffbe4d,#ffb020);color:#111;font-weight:800;box-shadow:0 4px 16px rgba(255,190,77,0.3);border-color:rgba(255,190,77,0.3)}}
+#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:1001;display:none;opacity:0;transition:opacity .25s}}#overlay.show{{display:block;opacity:1}}
+.main{{margin-top:64px;padding:12px;animation:fadeIn .4s ease}}
+@keyframes fadeIn{{from{{opacity:0;transform:translateY(8px)}}to{{opacity:1;transform:translateY(0)}}}}
+.card{{background:linear-gradient(135deg,rgba(255,255,255,0.12) 0%,rgba(255,255,255,0.06) 100%);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);padding:14px;border-radius:16px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 32px rgba(0,0,0,0.25),inset 0 1px 0 rgba(255,255,255,0.15),0 0 0 1px rgba(255,255,255,0.05);transition:all .35s cubic-bezier(0.4,0,0.2,1);transform:translateZ(0)}}
+.card:hover{{transform:translateY(-2px) translateZ(0);box-shadow:0 12px 40px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.2),0 0 20px rgba(100,150,255,0.1);border-color:rgba(255,255,255,0.18)}}
+.glass-tech{{background:linear-gradient(135deg,rgba(255,255,255,0.14) 0%,rgba(255,255,255,0.07) 50%,rgba(30,36,58,0.6) 100%)!important;backdrop-filter:blur(22px) saturate(180%)!important;-webkit-backdrop-filter:blur(22px) saturate(180%)!important;border:1px solid rgba(255,255,255,0.14)!important;box-shadow:0 8px 32px rgba(0,0,0,0.28),inset 0 1px 0 rgba(255,255,255,0.18),0 0 0 1px rgba(255,255,255,0.06),0 0 24px rgba(59,130,246,0.08)!important}}
+input,select{{padding:11px;margin:5px 0;border-radius:12px;border:1px solid rgba(255,255,255,0.12);width:100%;background:rgba(15,20,36,0.6);backdrop-filter:blur(12px);color:#fff;transition:all .25s ease;box-shadow:inset 0 1px 0 rgba(255,255,255,0.05)}}
+input:focus,select:focus{{outline:none;border-color:rgba(255,190,77,0.5);background:rgba(15,20,36,0.8);box-shadow:0 0 0 3px rgba(255,190,77,0.15),inset 0 1px 0 rgba(255,255,255,0.08);transform:translateY(-1px)}}
+.btn-gold{{background:linear-gradient(135deg,#ffbe4d 0%,#ffb020 100%);color:#111;padding:9px 16px;border:0;border-radius:12px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(255,190,77,0.3),inset 0 1px 0 rgba(255,255,255,0.4);transition:all .25s cubic-bezier(0.4,0,0.2,1);transform:translateZ(0)}}
+.btn-gold:hover{{transform:translateY(-1px) scale(1.02) translateZ(0);box-shadow:0 6px 20px rgba(255,190,77,0.4),inset 0 1px 0 rgba(255,255,255,0.5)}}
+.btn-gold:active{{transform:translateY(0) scale(0.98)}}
+.btn-del{{background:linear-gradient(135deg,#ef4444 0%,#dc2626 100%);color:#fff;padding:8px 14px;border:0;border-radius:12px;cursor:pointer;box-shadow:0 4px 12px rgba(239,68,68,0.25);transition:all .25s ease}}
+.btn-del:hover{{transform:translateY(-1px);box-shadow:0 6px 16px rgba(239,68,68,0.35)}}
+#delModal,#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:all .3s cubic-bezier(0.4,0,0.2,1);z-index:2000}}
 #delModal.show,#editModal.show{{opacity:1;pointer-events:auto}}
-#delBox,#editBox{{background:#1e253a;padding:20px;border-radius:16px;width:92%;max-width:420px;border:1px solid #ffffff15}}
+#delBox,#editBox{{background:linear-gradient(135deg,rgba(30,37,58,0.9) 0%,rgba(20,26,42,0.95) 100%);backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);padding:22px;border-radius:20px;width:92%;max-width:420px;border:1px solid rgba(255,255,255,0.12);box-shadow:0 16px 48px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.15);transform:scale(0.9) translateY(20px);transition:transform .35s cubic-bezier(0.34,1.56,0.64,1)}}
+#delModal.show #delBox,#editModal.show #editBox{{transform:scale(1) translateY(0)}}
+.dish-card{{animation:glassSlideIn .6s cubic-bezier(0.4,0,0.2,1) forwards;opacity:0}}
+@keyframes glassSlideIn{{from{{opacity:0;transform:translateY(24px) scale(0.96);filter:blur(4px)}}to{{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}}}
+.tower-group{{animation:glassFadeIn .5s ease forwards}}
+@keyframes glassFadeIn{{from{{opacity:0;transform:translateY(16px)}}to{{opacity:1;transform:translateY(0)}}}}
 </style></head><body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
@@ -1072,7 +1138,7 @@ input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #fff
 <a href="javascript:logoutFast()" style='margin-top:12px;color:#ef4444;background:#ef444415'>خروج</a>
 </div>
 <div class=top>
-<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:20px;cursor:pointer;padding:6px 10px;background:#ffffff0a;border-radius:10px'>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" style='width:40px;padding:7px 10px'></div>
+<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:20px;cursor:pointer;padding:6px 10px;background:#ffffff0a;border-radius:10px'>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" onkeydown="if(event.key==='Enter'){{globalSearchTop(this.value);}}" style='width:40px;padding:7px 10px'></div>
 <div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <div style='display:flex;gap:6px'><button onclick="toggleThemeNoReload()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff10;padding:6px 10px;border-radius:10px'>🌓</button><button onclick="toggleLangInstant()" id=langBtn style='background:#ffffff0a;color:#fff;border:1px solid #ffffff10;padding:6px 10px;border-radius:10px'>🌐 {req_lang}</button></div>
 </div>
@@ -1080,7 +1146,7 @@ input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #fff
 <div class=main id=mn>{c}</div>
 <div id=delModal><div id=delBox><h3 style='text-align:center'>تأكيد الحذف؟</h3><div style='display:flex;gap:10px;margin-top:14px'><button onclick="closeDel()" style='flex:1;padding:10px;border-radius:10px;background:transparent;color:#fff;border:1px solid #ffffff20'>تراجع</button><button id=delYes style='flex:1;padding:10px;border-radius:10px;background:#ef4444;color:#fff;border:0;font-weight:700'>حذف</button></div></div></div>
 <div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;margin-bottom:12px'><b>تعديل</b><button onclick="closeEditModal()" style='background:#ffffff15;border:0;color:#fff;width:30px;height:30px;border-radius:50%'>✕</button></div><div id=editBody></div></div></div>
-<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
+<script>window._leafletLoaded=false; window._leafletLoading=false;</script>
 <script>
 let cur='{v}';
 function toggleSb(f){{ let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o); }}
@@ -1164,6 +1230,7 @@ window.globalSearchTop=async function(q){{
 window.logoutFast=async function(){{ await fetch('/api/logout',{{method:'POST',credentials:'same-origin'}}); location.replace('/login'); }};
 window.addEventListener('popstate',(e)=>{{ let v='home'; if(e.state&&e.state.page) v=e.state.page; else {{ let p=new URLSearchParams(location.search); v=p.get('v')||'home'; }} loadPage(v,false,false); }});
 loadPage(cur,true,false);
+
 </script></body></html>"""
 
 if __name__=='__main__':
