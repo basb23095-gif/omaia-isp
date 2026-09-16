@@ -1,3 +1,4 @@
+# OMAIA ISP - 1173 سطر كامل مصحح بدون 500 - زجاجي فخم - قمر صناعي HD - Enter يبحث - دخول سلس
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -834,7 +835,7 @@ def page_content(v):
 <div class=card>
 <b>فحص الشبكة</b>
 <div style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'>
-<input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:140px'>
+<input id=pingIp placeholder='192.168.1.1' onkeydown="if(event.key==='Enter'){{doSinglePing();}}" style='flex:1;min-width:140px'>
 <input id=pingPort placeholder='Port' value='80' style='width:70px'>
 <button class=btn-gold onclick="doSinglePing()" style='background:#22c55e;color:#fff'>Ping</button>
 <button class=btn-gold onclick="doTcpPing()" style='background:#0ea5e9;color:#fff'>TCP</button>
@@ -891,7 +892,7 @@ window.doTcpPing=async function(){
 <div class=card style='background:rgba(30,36,58,0.6);border:1px solid rgba(100,150,255,0.15);backdrop-filter:blur(10px)'>
 <div style='display:flex;justify-content:space-between;align-items:center'><b>الصحون {len(rs)}</b><div style='display:flex;gap:6px'><button onclick="checkAllDishes()" class=btn-gold style='padding:6px 10px;background:#22c55e;color:#fff;font-size:11px'>فحص الكل</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:6px 10px;font-size:11px'>Excel</a></div></div>
 <form id=formDish style='display:flex;gap:6px;margin-top:10px;flex-wrap:wrap'><input name=dish_name id=dish_name_input placeholder='اسم الصحن' required style='flex:1'><input name=ip id=dish_ip_input placeholder='192.168.1.1' required style='flex:1'><input name=location id=dish_loc_input placeholder='البرج / موقع' style='flex:1'><button class=btn-gold type=submit id=btnAddDish>إضافة</button></form>
-<input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" style='margin-top:10px'>
+<input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" onkeydown="if(event.key==='Enter'){{searchDishes(this.value);}}" style='margin-top:10px'>
 </div>
 <div id=dl style='display:grid;gap:10px'>{rows_html}</div>
 </div>
@@ -1037,7 +1038,7 @@ def layout(c,v='home'):
     return f"""<html dir=rtl lang={req_lang}><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <link rel=preconnect href='https://fonts.gstatic.com'>
 <style>
-*{{box-sizing:border-box;font-family:'Cairo',system-ui}}body{{margin:0;background:#0a0e2a;color:#fff;direction:rtl}}
+*{{box-sizing:border-box;font-family:'Cairo',system-ui}}body{{margin:0;background:radial-gradient(1200px 600px at 20% -10%, #1a2a5a 0%, #0a0e2a 55%),radial-gradient(1000px 500px at 90% 0%, #1e3a5f 0%, transparent 60%),#0a0e2a;color:#fff;direction:rtl;overflow-x:hidden}}
 .top{{position:fixed;top:0;left:0;right:0;height:56px;background:#0f172a;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid #ffffff10}}
 .sidebar{{position:fixed;top:0;right:0;width:260px;height:100%;background:#0f172a;color:#fff;z-index:1002;padding-top:64px;transform:translateX(110%);transition:transform .22s ease;overflow-y:auto;border-left:1px solid #ffffff10}}
 .sidebar.active{{transform:none}}
