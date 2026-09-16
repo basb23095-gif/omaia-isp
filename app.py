@@ -1091,34 +1091,22 @@ def layout(c,v='home'):
     return f"""<html dir=rtl lang={req_lang}><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <link rel=preconnect href='https://fonts.gstatic.com'>
 <style>
-*{box-sizing:border-box;font-family:'Cairo',system-ui}html{{scroll-behavior:smooth}}body{{margin:0;background:radial-gradient(1200px 600px at 20% -10%, #1a2a5a 0%, #0a0e2a 55%),radial-gradient(1000px 500px at 90% 0%, #1e3a5f 0%, transparent 60%),#0a0e2a;color:#fff;direction:rtl;overflow-x:hidden;-webkit-overflow-scrolling:touch}}
-.top{{position:fixed;top:0;left:0;right:0;height:56px;background:rgba(15,23,42,0.75);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 24px rgba(0,0,0,0.2)}}
-.sidebar{{position:fixed;top:0;right:0;width:270px;height:100%;background:rgba(15,23,42,0.88);backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);color:#fff;z-index:1002;padding-top:64px;transform:translateX(110%);transition:transform .35s cubic-bezier(0.4,0,0.2,1);overflow-y:auto;border-left:1px solid rgba(255,255,255,0.08);box-shadow:-8px 0 32px rgba(0,0,0,0.3)}}
+*{{box-sizing:border-box;font-family:'Cairo',system-ui}}body{{margin:0;background:#0a0e2a;color:#fff;direction:rtl}}
+.top{{position:fixed;top:0;left:0;right:0;height:56px;background:#0f172a;display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid #ffffff10}}
+.sidebar{{position:fixed;top:0;right:0;width:260px;height:100%;background:#0f172a;color:#fff;z-index:1002;padding-top:64px;transform:translateX(110%);transition:transform .22s ease;overflow-y:auto;border-left:1px solid #ffffff10}}
 .sidebar.active{{transform:none}}
-.sidebar a{{display:block;padding:11px 14px;margin:5px 8px;color:#cbd5e1;text-decoration:none;border-radius:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.05);transition:all .25s ease}}
-.sidebar a:hover{{background:rgba(255,255,255,0.08);transform:translateX(-3px)}}
-.sidebar a.active{{background:linear-gradient(135deg,#ffbe4d,#ffb020);color:#111;font-weight:800;box-shadow:0 4px 16px rgba(255,190,77,0.3);border-color:rgba(255,190,77,0.3)}}
-#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);z-index:1001;display:none;opacity:0;transition:opacity .25s}}#overlay.show{{display:block;opacity:1}}
-.main{{margin-top:64px;padding:12px;animation:fadeIn .4s ease}}
-@keyframes fadeIn{{from{{opacity:0;transform:translateY(8px)}}to{{opacity:1;transform:translateY(0)}}}}
-.card{{background:linear-gradient(135deg,rgba(255,255,255,0.12) 0%,rgba(255,255,255,0.06) 100%);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);padding:14px;border-radius:16px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.12);box-shadow:0 8px 32px rgba(0,0,0,0.25),inset 0 1px 0 rgba(255,255,255,0.15),0 0 0 1px rgba(255,255,255,0.05);transition:all .35s cubic-bezier(0.4,0,0.2,1);transform:translateZ(0)}}
-.card:hover{{transform:translateY(-2px) translateZ(0);box-shadow:0 12px 40px rgba(0,0,0,0.35),inset 0 1px 0 rgba(255,255,255,0.2),0 0 20px rgba(100,150,255,0.1);border-color:rgba(255,255,255,0.18)}}
-.glass-tech{{background:linear-gradient(135deg,rgba(255,255,255,0.14) 0%,rgba(255,255,255,0.07) 50%,rgba(30,36,58,0.6) 100%)!important;backdrop-filter:blur(22px) saturate(180%)!important;-webkit-backdrop-filter:blur(22px) saturate(180%)!important;border:1px solid rgba(255,255,255,0.14)!important;box-shadow:0 8px 32px rgba(0,0,0,0.28),inset 0 1px 0 rgba(255,255,255,0.18),0 0 0 1px rgba(255,255,255,0.06),0 0 24px rgba(59,130,246,0.08)!important}}
-input,select{{padding:11px;margin:5px 0;border-radius:12px;border:1px solid rgba(255,255,255,0.12);width:100%;background:rgba(15,20,36,0.6);backdrop-filter:blur(12px);color:#fff;transition:all .25s ease;box-shadow:inset 0 1px 0 rgba(255,255,255,0.05)}}
-input:focus,select:focus{{outline:none;border-color:rgba(255,190,77,0.5);background:rgba(15,20,36,0.8);box-shadow:0 0 0 3px rgba(255,190,77,0.15),inset 0 1px 0 rgba(255,255,255,0.08);transform:translateY(-1px)}}
-.btn-gold{{background:linear-gradient(135deg,#ffbe4d 0%,#ffb020 100%);color:#111;padding:9px 16px;border:0;border-radius:12px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(255,190,77,0.3),inset 0 1px 0 rgba(255,255,255,0.4);transition:all .25s cubic-bezier(0.4,0,0.2,1);transform:translateZ(0)}}
-.btn-gold:hover{{transform:translateY(-1px) scale(1.02) translateZ(0);box-shadow:0 6px 20px rgba(255,190,77,0.4),inset 0 1px 0 rgba(255,255,255,0.5)}}
-.btn-gold:active{{transform:translateY(0) scale(0.98)}}
-.btn-del{{background:linear-gradient(135deg,#ef4444 0%,#dc2626 100%);color:#fff;padding:8px 14px;border:0;border-radius:12px;cursor:pointer;box-shadow:0 4px 12px rgba(239,68,68,0.25);transition:all .25s ease}}
-.btn-del:hover{{transform:translateY(-1px);box-shadow:0 6px 16px rgba(239,68,68,0.35)}}
-#delModal,#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:all .3s cubic-bezier(0.4,0,0.2,1);z-index:2000}}
+.sidebar a{{display:block;padding:10px 14px;margin:4px 8px;color:#cbd5e1;text-decoration:none;border-radius:10px;background:#ffffff05}}
+.sidebar a.active{{background:#ffbe4d;color:#111;font-weight:800}}
+#overlay{{position:fixed;inset:0;background:#0006;z-index:1001;display:none}}#overlay.show{{display:block}}
+.main{{margin-top:64px;padding:12px}}
+.card{{background:#1e253a;padding:12px;border-radius:14px;margin-bottom:10px;border:1px solid #ffffff0f}}
+.glass-tech{{background:linear-gradient(135deg,rgba(30,36,58,0.8) 0%,rgba(18,24,42,0.85) 100%)!important;border:1px solid rgba(100,150,255,0.18)!important;box-shadow:0 0 0 1px rgba(100,150,255,0.06),0 8px 32px rgba(0,0,0,0.3),0 0 18px rgba(59,130,246,0.1)!important;backdrop-filter:blur(12px)!important}}
+input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #ffffff15;width:100%;background:#0f1424;color:#fff}}
+.btn-gold{{background:#ffbe4d;color:#111;padding:8px 14px;border:0;border-radius:10px;font-weight:700;cursor:pointer}}
+.btn-del{{background:#ef4444;color:#fff;padding:7px 12px;border:0;border-radius:10px;cursor:pointer}}
+#delModal,#editModal{{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}}
 #delModal.show,#editModal.show{{opacity:1;pointer-events:auto}}
-#delBox,#editBox{{background:linear-gradient(135deg,rgba(30,37,58,0.9) 0%,rgba(20,26,42,0.95) 100%);backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);padding:22px;border-radius:20px;width:92%;max-width:420px;border:1px solid rgba(255,255,255,0.12);box-shadow:0 16px 48px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.15);transform:scale(0.9) translateY(20px);transition:transform .35s cubic-bezier(0.34,1.56,0.64,1)}}
-#delModal.show #delBox,#editModal.show #editBox{{transform:scale(1) translateY(0)}}
-.dish-card{{animation:glassSlideIn .6s cubic-bezier(0.4,0,0.2,1) forwards;opacity:0}}
-@keyframes glassSlideIn{{from{{opacity:0;transform:translateY(24px) scale(0.96);filter:blur(4px)}}to{{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}}}
-.tower-group{{animation:glassFadeIn .5s ease forwards}}
-@keyframes glassFadeIn{{from{{opacity:0;transform:translateY(16px)}}to{{opacity:1;transform:translateY(0)}}}}
+#delBox,#editBox{{background:#1e253a;padding:20px;border-radius:16px;width:92%;max-width:420px;border:1px solid #ffffff15}}
 </style></head><body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
@@ -1230,7 +1218,6 @@ window.globalSearchTop=async function(q){{
 window.logoutFast=async function(){{ await fetch('/api/logout',{{method:'POST',credentials:'same-origin'}}); location.replace('/login'); }};
 window.addEventListener('popstate',(e)=>{{ let v='home'; if(e.state&&e.state.page) v=e.state.page; else {{ let p=new URLSearchParams(location.search); v=p.get('v')||'home'; }} loadPage(v,false,false); }});
 loadPage(cur,true,false);
-
 </script></body></html>"""
 
 if __name__=='__main__':
