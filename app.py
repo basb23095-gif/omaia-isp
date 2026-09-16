@@ -1,9 +1,7 @@
-# OMAIA ISP - 1202 سطر كامل فعلي بدون نقص - فائق السرعة
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import os, html, ipaddress, subprocess, json, socket, platform, io, csv, datetime, re, threading, time, secrets
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import os, html, ipaddress, subprocess, json, socket, platform, io, csv, datetime, re, threading, time
 try:
     import psycopg2, psycopg2.extras
     from psycopg2 import pool as pg_pool
@@ -11,81 +9,99 @@ except:
     psycopg2=None
     pg_pool=None
 import sqlite3
+
 app=Flask(__name__)
-app.secret_key=os.environ.get('SECRET_KEY') or 'dev-'+secrets.token_hex(16)
-app.config['PERMANENT_SESSION_LIFETIME']=datetime.timedelta(hours=12)
-DATABASE_URL=os.environ.get('DATABASE_URL','').strip().replace('postgresql://','postgres://')
-USE_PG=bool(DATABASE_URL.startswith('postgres://') and psycopg2)
+app.secret_key=os.environ.get("SECRET_KEY","omia-sec-2026")
+app.config['PERMANENT_SESSION_LIFETIME']=datetime.timedelta(days=30)
+app.config['SESSION_PERMANENT']=True
+
+DATABASE_URL=os.environ.get("DATABASE_URL","").strip().replace("postgresql://","postgres://")
+USE_PG=bool(DATABASE_URL.startswith("postgres://") and psycopg2)
+
 _pg_pool=None
 _pool_lock=threading.Lock()
 _sqlite_conn=None
 _sqlite_lock=threading.Lock()
 _cache={}
 _cache_lock=threading.Lock()
+_user_cache={}
+_user_cache_lock=threading.Lock()
+
 def init_pool():
     global _pg_pool
     if not USE_PG or not pg_pool: return
     with _pool_lock:
         if _pg_pool: return
-        try: _pg_pool=pg_pool.ThreadedConnectionPool(1,3,dsn=DATABASE_URL,sslmode='require',connect_timeout=0.8)
-        except: _pg_pool=None
+        try:
+            _pg_pool=pg_pool.ThreadedConnectionPool(1,20,dsn=DATABASE_URL,sslmode='require',connect_timeout=2,keepalives=1,keepalives_idle=30,keepalives_interval=10,keepalives_count=3)
+        except Exception as e:
+            print(f"[POOL] {e}")
+            _pg_pool=None
 init_pool()
-def esc(s): return html.escape(str(s or ''),quote=True)
+
+def esc(s): return html.escape(str(s or ''), quote=True)
+
 def get_conn():
     if USE_PG and _pg_pool:
         try: return _pg_pool.getconn()
-        except:
-            try: return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=1)
-            except: pass
+        except: return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=2)
     elif USE_PG:
-        try: return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=1)
+        try: return psycopg2.connect(DATABASE_URL,sslmode='require',connect_timeout=2)
         except: pass
     global _sqlite_conn
     with _sqlite_lock:
         if _sqlite_conn is None:
-            _sqlite_conn=sqlite3.connect('omia.db',check_same_thread=False,timeout=5)
-            _sqlite_conn.row_factory=sqlite3.Row
-            _sqlite_conn.execute('PRAGMA journal_mode=WAL;')
+            try:
+                _sqlite_conn=sqlite3.connect("omia.db",check_same_thread=False,timeout=10)
+                _sqlite_conn.row_factory=sqlite3.Row
+            except:
+                _sqlite_conn=sqlite3.connect(":memory:",check_same_thread=False)
+                _sqlite_conn.row_factory=sqlite3.Row
         return _sqlite_conn
-def put_conn(c):
+
+def put_conn(conn):
     if USE_PG and _pg_pool:
-        try: _pg_pool.putconn(c)
+        try: _pg_pool.putconn(conn)
         except:
-            try: c.close()
+            try: conn.close()
             except: pass
     elif USE_PG:
-        try: c.close()
+        try: conn.close()
         except: pass
+
 def qall(q,a=()):
-    for _ in range(2):
-        conn=None
-        try:
-            conn=get_conn()
-            if USE_PG:
-                cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                cur.execute(q.replace('?','%s'),a)
-                rs=[dict(r) for r in cur.fetchall()]
-                cur.close()
-                put_conn(conn)
+    conn=None
+    try:
+        conn=get_conn()
+        if USE_PG:
+            cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(q.replace("?","%s"),a)
+            rs=[dict(r) for r in cur.fetchall()]
+            cur.close()
+            put_conn(conn)
+            return rs
+        else:
+            with _sqlite_lock:
+                rs=[dict(r) for r in conn.execute(q,a).fetchall()]
                 return rs
-            else:
-                with _sqlite_lock:
-                    rs=[dict(r) for r in conn.execute(q,a).fetchall()]
-                    return rs
-        except Exception as e:
-            if conn and USE_PG:
-                try: put_conn(conn)
-                except: pass
-            time.sleep(0.05)
-    return []
-def qone(q,a=()): r=qall(q,a); return r[0] if r else None
+    except Exception as e:
+        print(f"[qall] {e}")
+        if conn and USE_PG:
+            try: put_conn(conn)
+            except: pass
+        return []
+
+def qone(q,a=()):
+    r=qall(q,a)
+    return r[0] if r else None
+
 def qexec(q,a=()):
     conn=None
     try:
         conn=get_conn()
         if USE_PG:
             cur=conn.cursor()
-            cur.execute(q.replace('?','%s'),a)
+            cur.execute(q.replace("?","%s"),a)
             conn.commit()
             cur.close()
             put_conn(conn)
@@ -94,1109 +110,1141 @@ def qexec(q,a=()):
                 conn.execute(q,a)
                 conn.commit()
         return True
-    except:
+    except Exception as e:
+        print(f"[qexec] {e}")
         if conn and USE_PG:
-            try: conn.rollback(); put_conn(conn)
+            try:
+                conn.rollback()
+                put_conn(conn)
             except: pass
         return False
-def _log_sync(phone,action,detail):
+
+def add_log(phone,action,detail):
     try:
-        now=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        conn=get_conn()
-        if USE_PG:
-            cur=conn.cursor()
-            cur.execute('INSERT INTO logs(user_phone,action,detail,time) VALUES(%s,%s,%s,%s)',(phone,action,detail,now))
-            conn.commit()
-            cur.close()
-            put_conn(conn)
-        else:
-            with _sqlite_lock:
-                conn.execute('INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)',(phone,action,detail,now))
-                conn.commit()
-        with _cache_lock: _cache.pop('counts',None)
+        now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'unknown',action,detail,now))
+        qexec("INSERT INTO notifications(title,msg,time) VALUES(?,?,?)",(action,str(phone)+": "+str(detail),now))
+        with _cache_lock:
+            _cache.pop('counts',None)
     except: pass
-def add_log(p,a,d): _log_sync(p,a,d)
+
 def get_counts():
     with _cache_lock:
         c=_cache.get('counts')
-        if c and time.time()-c[1]<30: return c[0]
+        if c and time.time()-c[1]<30:
+            return c[0]
     try:
-        row=qone('SELECT (SELECT COUNT(*) FROM subs) as s, (SELECT COUNT(*) FROM dish_ips) as d, (SELECT COUNT(*) FROM towers) as t, (SELECT COUNT(*) FROM ledger) as l')
-        data=(row.get('s',0),row.get('d',0),row.get('t',0),row.get('l',0)) if row else (0,0,0,0)
-        with _cache_lock: _cache['counts']=(data,time.time())
+        ns=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0)
+        nd=(qone("SELECT COUNT(*) c FROM dish_ips") or {}).get('c',0)
+        nt=(qone("SELECT COUNT(*) c FROM towers") or {}).get('c',0)
+        nl=(qone("SELECT COUNT(*) c FROM ledger") or {}).get('c',0)
+        data=(ns,nd,nt,nl)
+        with _cache_lock:
+            _cache['counts']=(data,time.time())
         return data
-    except: return (0,0,0,0)
-def init_db():
-    tables=[
-        'CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,username TEXT)',
-        'CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,note TEXT)',
-        'CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT)',
-        'CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL)',
-        'CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,action TEXT,detail TEXT,time TEXT)',
-        'CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,amount REAL,note TEXT)',
-        'CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)'
+    except:
+        return (0,0,0,0)
+
+def init():
+    ss=[
+        "CREATE TABLE IF NOT EXISTS users(phone TEXT PRIMARY KEY,password TEXT,role TEXT,username TEXT)",
+        "CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,phone TEXT,note TEXT)",
+        "CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,amount REAL,note TEXT,currency TEXT)",
+        "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT)",
+        "CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL)",
+        "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,action TEXT,detail TEXT,time TEXT)",
+        "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)"
     ]
-    if USE_PG: tables=[t.replace('INTEGER PRIMARY KEY AUTOINCREMENT','SERIAL PRIMARY KEY') for t in tables]
-    for t in tables: qexec(t)
-    if not qone('SELECT * FROM users WHERE phone=?',('05344851045',)): qexec('INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)',('05344851045',generate_password_hash('admin2024'),'manager','admin'))
-init_db()
+    if USE_PG:
+        ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
+    for s in ss:
+        qexec(s)
+    if USE_PG:
+        for idx in ["CREATE INDEX IF NOT EXISTS idx_dish_ips_ip ON dish_ips(ip)", "CREATE UNIQUE INDEX IF NOT EXISTS uq_dish_ips_ip ON dish_ips(ip)", "CREATE INDEX IF NOT EXISTS idx_logs_id ON logs(id DESC)"]:
+            try: qexec(idx)
+            except: pass
+    if not qone("SELECT * FROM users WHERE phone=?",('05344851045',)):
+        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin'))
+    if not qone("SELECT * FROM towers WHERE name=?",('نقطة حماة الرئيسية',)):
+        qexec("INSERT INTO towers(name,area,lat,lng) VALUES(?,?,?,?)",('نقطة حماة الرئيسية','حماة',35.1318,36.7578))
+init()
+
 def login_required(f):
     @wraps(f)
     def w(*a,**kw):
-        if not session.get('phone'): return redirect('/login')
+        if not session.get('phone'):
+            return redirect('/login')
         return f(*a,**kw)
     return w
+
 def is_manager():
-    if session.get('role'): return session.get('role')=='manager'
-    u=qone('SELECT role FROM users WHERE phone=?',(session.get('phone') or '',))
-    return (u.get('role') or '').lower()=='manager' if u else False
-def role_manager(f):
+    if session.get('role'):
+        return session.get('role')=='manager'
+    u=qone("SELECT role FROM users WHERE phone=?",(session.get('phone') or '',))
+    if not u:
+        return False
+    session['role']=u.get('role')
+    return (u.get('role') or '').lower()=='manager'
+
+def role_required_manager(f):
     @wraps(f)
     def w(*a,**kw):
-        if not is_manager(): return 'ممنوع',403
+        if not is_manager():
+            return "ممنوع",403
         return f(*a,**kw)
     return w
+
+def is_valid_ip(ip):
+    ip=(ip or '').strip()
+    if not ip:
+        return False
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except:
+        return len(ip)>=7 and '.' in ip
+
 @app.after_request
-def nocache(r): r.headers['Cache-Control']='no-cache'; return r
+def add_perf_headers(resp):
+    if request.path.startswith('/api/'):
+        resp.headers['Cache-Control']='no-store, max-age=0'
+    else:
+        resp.headers['Cache-Control']='no-cache'
+    return resp
+
 @app.route('/ping')
 @app.route('/health')
-def ping(): return jsonify(ok=True)
-def check_port(args):
-    ip,pt=args
-    s=None
-    try:
-        s=socket.socket()
-        s.settimeout(0.3)
-        ok=s.connect_ex((ip,pt))==0
-        s.close()
-        return (pt,ok)
-    except: return (pt,False)
+def public_ping():
+    return jsonify(ok=True,time=datetime.datetime.now().isoformat())
+
 @app.route('/api/ping')
 @login_required
 def api_ping():
     ip=request.args.get('ip','').strip()
-    if not ip: return jsonify(ok=False,out='لا يوجد IP')
-    for p in [80,8291,22]:
-        _,ok=check_port((ip,p))
-        if ok: return jsonify(ok=True,out=f'{ip}:{p} مفتوح')
-    return jsonify(ok=False,out='لا يرد')
-@app.route('/toggle_theme')
+    if not ip:
+        return jsonify(ok=False,out='لا يوجد IP')
+    if not is_valid_ip(ip):
+        return jsonify(ok=False,out='IP غير صالح')
+    for port in [80,443,8080,8291,22,23,53,8000,8728]:
+        s=None
+        try:
+            s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+            s.settimeout(0.9)
+            if s.connect_ex((ip,port))==0:
+                s.close()
+                return jsonify(ok=True,out=f'متصل - {ip}:{port} مفتوح',port=port,method='tcp')
+            s.close()
+        except:
+            try:
+                if s: s.close()
+            except: pass
+            continue
+    try:
+        cmd=['ping','-c','1','-W','2',ip] if platform.system().lower()!='windows' else ['ping','-n','1','-w','2000',ip]
+        out=subprocess.check_output(cmd,timeout=2,stderr=subprocess.STDOUT).decode(errors='ignore')
+        ok='ttl=' in out.lower() or 'bytes from' in out.lower() or '1 received' in out.lower()
+        if ok:
+            m=re.search(r'time[=<]\s*(\d+\.?\d*)',out,re.I)
+            ms=m.group(1) if m else ''
+            return jsonify(ok=True,out=f'متصل {ip} - {ms}ms',ms=ms,method='icmp')
+    except: pass
+    return jsonify(ok=False,out=f'{ip} لا يرد')
+
+@app.route('/api/ping_tcp')
 @login_required
-def toggle_theme():
-    cur=session.get('theme','dark')
-    session['theme']='light' if cur=='dark' else 'dark'
-    return jsonify(ok=True,theme=session['theme'])
+def api_ping_tcp():
+    ip=request.args.get('ip','').strip()
+    port_str=request.args.get('port','80').strip()
+    try:
+        port=int(port_str)
+    except:
+        return jsonify(ok=False,out='Port غير صالح')
+    if not is_valid_ip(ip):
+        return jsonify(ok=False,out='IP غير صالح')
+    s=None
+    try:
+        s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+        s.settimeout(1.2)
+        r=s.connect_ex((ip,port))
+        s.close()
+        return jsonify(ok=r==0,out=f'{ip}:{port} مفتوح' if r==0 else f'{ip}:{port} مغلق')
+    except Exception as e:
+        try:
+            if s: s.close()
+        except: pass
+        return jsonify(ok=False,out=str(e))
+
+@app.route('/api/notifications')
+@login_required
+def api_noti():
+    rows=qall("SELECT * FROM notifications ORDER BY id DESC LIMIT 30")
+    unread=qone("SELECT COUNT(*) c FROM notifications WHERE read=0")
+    cnt=unread.get('c',0) if unread else 0
+    return jsonify(rows=rows,unread=cnt)
+
+@app.route('/api/notifications/read',methods=['POST'])
+@login_required
+def api_noti_read():
+    qexec("UPDATE notifications SET read=1")
+    return jsonify(ok=True)
+
+@app.route('/api/network_status')
+@login_required
+def api_network():
+    dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC")
+    towers=qall("SELECT * FROM towers ORDER BY id DESC")
+    subs_cnt=(qone("SELECT COUNT(*) c FROM subs") or {}).get('c',0)
+    return jsonify(dishes=len(dishes),towers=len(towers),subs=subs_cnt)
+
+@app.route('/toggle_lang')
+@login_required
+def toggle_lang_route():
+    cur=session.get('lang','ar')
+    new='en' if cur=='ar' else 'ar'
+    session['lang']=new
+    return jsonify(ok=True,lang=new)
+
 @app.route('/api/login_public',methods=['POST'])
-def api_login():
+def api_login_public():
     uin=request.form.get('userin','').strip()
     pw=request.form.get('password','')
-    u=qone('SELECT * FROM users WHERE phone=? OR username=?',(uin,uin))
+    with _user_cache_lock:
+        cached=_user_cache.get(uin)
+        if cached and time.time()-cached[1]<120:
+            u=cached[0]
+        else:
+            u=None
+    if not u:
+        u=qone("SELECT * FROM users WHERE phone=? OR username=?",(uin,uin))
+        if u:
+            with _user_cache_lock:
+                _user_cache[uin]=(u,time.time())
     if u and check_password_hash(u['password'],pw):
         session['phone']=u['phone']
         session['username']=u.get('username') or u['phone']
         session['role']=u.get('role') or 'tech'
-        add_log(u['phone'],'دخل النظام','تسجيل دخول')
-        return jsonify(ok=True)
-    return jsonify(ok=False,msg='خطأ'),401
+        session.permanent=True
+        try:
+            threading.Thread(target=add_log, args=(u['phone'],'دخل النظام','تسجيل دخول'), daemon=True).start()
+        except: pass
+        return jsonify(ok=True,role=u.get('role'))
+    return jsonify(ok=False,msg='خطأ بالدخول'),401
+
+@app.route('/api/export/<tbl>')
+@login_required
+def api_export(tbl):
+    output=io.StringIO()
+    output.write('\ufeff')
+    w=csv.writer(output)
+    if tbl=='dishes':
+        rows=qall("SELECT * FROM dish_ips ORDER BY id DESC")
+        w.writerow(['ID','اسم الصحن','IP','الموقع'])
+        for r in rows:
+            w.writerow([r['id'],r.get('dish_name',''),r.get('ip',''),r.get('location','')])
+        fname='dishes.csv'
+    elif tbl=='subs':
+        rows=qall("SELECT * FROM subs ORDER BY id DESC")
+        w.writerow(['ID','الاسم','رقم','ملاحظة'])
+        for r in rows:
+            w.writerow([r['id'],r.get('name',''),r.get('phone',''),r.get('note','')])
+        fname='subs.csv'
+    elif tbl=='users':
+        rows=qall("SELECT phone,username,role FROM users ORDER BY phone DESC")
+        w.writerow(['يوزر/رقم','اسم المستخدم','الرتبة'])
+        for r in rows:
+            w.writerow([r.get('phone',''),r.get('username',''),r.get('role','')])
+        fname='users.csv'
+    elif tbl=='towers':
+        rows=qall("SELECT * FROM towers ORDER BY id DESC")
+        w.writerow(['ID','اسم البرج','المنطقة','lat','lng'])
+        for r in rows:
+            w.writerow([r['id'],r.get('name',''),r.get('area',''),r.get('lat',''),r.get('lng','')])
+        fname='towers.csv'
+    elif tbl=='logs':
+        rows=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 1000")
+        w.writerow(['ID','المستخدم','العملية','التفاصيل','الوقت'])
+        for r in rows:
+            w.writerow([r['id'],r.get('user_phone',''),r.get('action',''),r.get('detail',''),r.get('time','')])
+        fname='logs.csv'
+    else:
+        w.writerow(['ID'])
+        fname='export.csv'
+    return Response(output.getvalue(),mimetype='text/csv; charset=utf-8',headers={'Content-Disposition':f'attachment; filename={fname}'})
+
 @app.route('/api/clear_logs',methods=['POST'])
 @login_required
-@role_manager
-def clear_logs(): qexec('DELETE FROM logs'); return jsonify(ok=True)
+@role_required_manager
+def clear_logs():
+    qexec("DELETE FROM logs")
+    return jsonify(ok=True)
+
+@app.route('/api/seed_log',methods=['POST'])
+@login_required
+def seed_log():
+    now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(session.get('phone','test'),'إضافة صحن','192.168.1.10 - صحن تجريبي',now))
+    return jsonify(ok=True)
+
 @app.route('/')
-def ix(): return redirect('/dash') if session.get('phone') else redirect('/login')
+def ix():
+    return redirect('/dash') if session.get('phone') else redirect('/login')
+
 @app.route('/login')
-def login_page():
-    return '''<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><style>*{box-sizing:border-box;font-family:system-ui}body{margin:0;min-height:100vh;background:#0a0e2a;display:flex;align-items:center;justify-content:center;color:#fff}.card{background:#1e253a;padding:22px;border-radius:16px;width:92%;max-width:360px}input{width:100%;padding:12px;margin:6px 0;background:#0f1424;border:1px solid #ffffff20;color:#fff;border-radius:10px}.btn{width:100%;padding:12px;border:0;border-radius:10px;background:#ffbe4d;color:#111;font-weight:900;cursor:pointer}</style></head><body><div class=card><div style=text-align:center;font-weight:900;font-size:22px>OMAIA <span style=color:#ffbe4d>ISP</span></div><form id=loginForm><input name=userin placeholder='رقم' required><input name=password type=password placeholder='كلمة السر' required><button class=btn>دخول</button></form></div><script>document.getElementById('loginForm').addEventListener('submit',async e=>{e.preventDefault();let r=await fetch('/api/login_public',{method:'POST',body:new FormData(e.target),credentials:'same-origin'});let j=await r.json();if(j.ok)location.replace('/dash?v=home');});</script></body></html>'''
+def login():
+    return """<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+<style>*{box-sizing:border-box;font-family:system-ui}body{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 55%, #070a1f 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff}
+.card{background:linear-gradient(180deg, #222b45cc, #1a2035cc);border:1px solid #ffffff18;padding:26px;border-radius:22px;width:92%;max-width:380px}
+input{width:100%;padding:14px;margin:9px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:14px;font-size:15px}
+.btn{width:100%;padding:14px;border:0;border-radius:14px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:900;font-size:17px;cursor:pointer;margin-top:12px}
+</style></head><body>
+<div style='font-size:28px;font-weight:900;margin-bottom:14px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div class=card><form id=loginForm><input name=userin id=userin placeholder='رقم / يوزر' required><input name=password id=password type=password placeholder='كلمة السر' required><label style='display:flex;gap:8px;font-size:13px;color:#aaa;margin:8px 0'><input type=checkbox id=savePass style='width:auto'> حفظ</label><button class=btn id=loginBtn>دخول</button><div id=msg style='text-align:center;margin-top:10px;color:#ff6b6b;font-size:13px;min-height:18px'></div></form></div>
+<script>
+let u=document.getElementById('userin'), p=document.getElementById('password'), s=document.getElementById('savePass');
+let su=localStorage.getItem('omaia_user'), sp=localStorage.getItem('omaia_pass');
+if(su){u.value=su; if(sp){p.value=sp; s.checked=true;}}
+document.getElementById('loginForm').addEventListener('submit',async e=>{
+ e.preventDefault();
+ let btn=document.getElementById('loginBtn'), msg=document.getElementById('msg');
+ if(btn.disabled) return;
+ let orig=btn.textContent; btn.textContent='جاري...'; btn.disabled=true; msg.textContent='';
+ try{
+  let fd=new FormData(e.target);
+  let r=await fetch('/api/login_public',{method:'POST',body:fd,cache:'no-store'});
+  let j=await r.json();
+  if(j.ok){
+    if(s.checked){localStorage.setItem('omaia_user',u.value);localStorage.setItem('omaia_pass',p.value);}
+    location.replace('/dash?v=home');
+  } else { msg.textContent=j.msg||'خطأ'; btn.textContent=orig; btn.disabled=false; }
+ }catch(err){ msg.textContent='خطأ شبكة'; btn.textContent=orig; btn.disabled=false; }
+});
+</script></body></html>"""
+
 @app.route('/logout')
-def logout(): session.clear(); return redirect('/login')
+def lo():
+    session.clear()
+    return redirect('/login')
+
 @app.route('/api/logout',methods=['POST'])
-def api_logout(): session.clear(); return jsonify(ok=True)
+def api_logout():
+    session.clear()
+    return jsonify(ok=True)
+
 @app.route('/dash')
 @login_required
-def dash(): v=request.args.get('v','home'); return layout('...',v)
+def dash():
+    v=request.args.get('v','home')
+    return layout('<div class=card>جاري التحميل...</div>',v)
+
 @app.route('/api/page')
 @login_required
-def api_page(): return page_content(request.args.get('v','home'))
+def ap():
+    return page_content(request.args.get('v','home'))
+
+@app.route('/api/search')
+@login_required
+def s():
+    q=request.args.get('q','').strip()
+    if not q:
+        return jsonify([])
+    like="%"+q+"%"
+    results=[]
+    try:
+        for r in qall("SELECT * FROM dish_ips WHERE ip LIKE ? OR dish_name LIKE ? OR location LIKE ? ORDER BY id DESC LIMIT 20",(like,like,like)):
+            results.append({"title":r.get('dish_name') or r.get('ip') or 'صحن',"sub":r.get('ip',''),"page":"dishes","type":"dish"})
+        for r in qall("SELECT * FROM subs WHERE name LIKE ? OR phone LIKE ? ORDER BY id DESC LIMIT 15",(like,like)):
+            results.append({"title":r.get('name',''),"sub":r.get('phone',''),"page":"subs","type":"sub"})
+        for r in qall("SELECT * FROM towers WHERE name LIKE ? OR area LIKE ? ORDER BY id DESC LIMIT 15",(like,like)):
+            results.append({"title":r.get('name',''),"sub":r.get('area',''),"page":"towers","type":"tower"})
+        for r in qall("SELECT * FROM users WHERE phone LIKE ? OR username LIKE ? LIMIT 10",(like,like)):
+            results.append({"title":r.get('username') or r.get('phone',''),"sub":r.get('phone',''),"page":"settings","type":"user"})
+        for r in qall("SELECT * FROM ledger WHERE name LIKE ? OR note LIKE ? ORDER BY id DESC LIMIT 10",(like,like)):
+            results.append({"title":r.get('name',''),"sub":str(r.get('amount','')),"page":"ledger","type":"ledger"})
+    except: pass
+    return jsonify(results[:25])
+
+@app.route('/toggle_theme')
+@login_required
+def tt():
+    cur=session.get('theme','dark')
+    session['theme']='light' if cur=='dark' else 'dark'
+    return jsonify(ok=True)
+
 @app.route('/add_dish',methods=['POST'])
 @login_required
-def add_dish():
+def ad():
     ip=request.form.get('ip','').strip()
     name=request.form.get('dish_name','').strip()
     loc=request.form.get('location','').strip()
-    if not ip: return jsonify(ok=False,msg='IP مطلوب'),400
-    ex=qone('SELECT id FROM dish_ips WHERE ip=?',(ip,))
-    if ex: ok=qexec('UPDATE dish_ips SET dish_name=?,location=? WHERE ip=?',(name,loc,ip)); nid=ex['id']
-    else: ok=qexec('INSERT INTO dish_ips(ip,location,dish_name) VALUES(?,?,?)',(ip,loc,name)); last=qone('SELECT last_insert_rowid() as id'); nid=last['id'] if last else 0
-    if ok: add_log(session.get('phone'),'إضافة صحن',name+' '+ip)
-    return jsonify(ok=ok,id=nid)
+    if not ip:
+        return "IP مطلوب",400
+    if not is_valid_ip(ip):
+        return "IP غير صالح",400
+    phone=session.get('phone','')
+    if USE_PG:
+        ok=qexec("INSERT INTO dish_ips(ip,location,dish_name) VALUES(?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location",(ip,loc,name))
+    else:
+        ok=qexec("INSERT OR REPLACE INTO dish_ips(ip,location,dish_name) VALUES(?,?,?)",(ip,loc,name))
+    if ok:
+        add_log(phone,'إضافة صحن',name+" "+ip+" "+loc)
+        with _cache_lock:
+            _cache.pop('counts',None)
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/edit_dish/<int:i>',methods=['POST'])
 @login_required
-def edit_dish(i):
+def ed(i):
+    if not is_manager():
+        return "ممنوع للفني",403
     name=request.form.get('dish_name','').strip()
     ip=request.form.get('ip','').strip()
     loc=request.form.get('location','').strip()
-    ok=qexec('UPDATE dish_ips SET dish_name=?,ip=?,location=? WHERE id=?',(name,ip,loc,i))
-    if ok: add_log(session.get('phone'),'تعديل صحن',str(i))
-    return jsonify(ok=ok)
+    ok=qexec("UPDATE dish_ips SET dish_name=?,ip=?,location=? WHERE id=?",(name,ip,loc,i))
+    if ok:
+        add_log(session.get('phone'),'تعديل صحن',f"ID {i} -> {ip} {name}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/del_dish/<int:i>')
 @login_required
-def del_dish(i):
-    ok=qexec('DELETE FROM dish_ips WHERE id=?',(i,))
-    if ok: add_log(session.get('phone'),'حذف صحن',str(i))
-    return jsonify(ok=ok)
+def dd(i):
+    if not is_manager():
+        return "ممنوع للفني",403
+    info=qone("SELECT ip,dish_name FROM dish_ips WHERE id=?",(i,))
+    ok=qexec("DELETE FROM dish_ips WHERE id=?",(i,))
+    if ok:
+        with _cache_lock:
+            _cache.pop('counts',None)
+        add_log(session.get('phone'),'حذف صحن',f"{info.get('dish_name','')} {info.get('ip','')}" if info else f"ID {i}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/add_tower',methods=['POST'])
 @login_required
-def add_tower():
-    name=request.form.get('name','') or 'نقطة'
-    ok=qexec('INSERT INTO towers(name,area) VALUES(?,?)',(name,''))
-    last=qone('SELECT id FROM towers ORDER BY id DESC LIMIT 1')
-    nid=last['id'] if last else 0
-    if ok: add_log(session.get('phone'),'إضافة برج',name)
-    return jsonify(ok=ok,id=nid)
+def at():
+    lat=request.form.get('lat','').strip()
+    lng=request.form.get('lng','').strip()
+    try:
+        la=float(lat) if lat else 35.1312
+        ln=float(lng) if lng else 36.7578
+    except:
+        la=35.1312
+        ln=36.7578
+    ok=qexec("INSERT INTO towers(name,area,lat,lng) VALUES(?,?,?,?)",(request.form.get('name',''),request.form.get('area',''),la,ln))
+    if ok:
+        add_log(session.get('phone'),'إضافة برج',request.form.get('name',''))
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/del_tower/<int:i>')
 @login_required
-def del_tower(i): qexec('DELETE FROM towers WHERE id=?',(i,)); add_log(session.get('phone'),'حذف برج',str(i)); return jsonify(ok=True)
+def dt(i):
+    if not is_manager():
+        return "ممنوع للفني",403
+    ok=qexec("DELETE FROM towers WHERE id=?",(i,))
+    if ok:
+        add_log(session.get('phone'),'حذف برج',f"ID {i}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
+@app.route('/edit_tower/<int:i>',methods=['POST'])
+@login_required
+def et(i):
+    if not is_manager():
+        return "ممنوع للفني",403
+    lat=request.form.get('lat','').strip()
+    lng=request.form.get('lng','').strip()
+    try:
+        la=float(lat) if lat else 35.1318
+        ln=float(lng) if lng else 36.7578
+    except:
+        la=35.1318
+        ln=36.7578
+    ok=qexec("UPDATE towers SET name=?,area=?,lat=?,lng=? WHERE id=?",(request.form.get('name',''),request.form.get('area',''),la,ln,i))
+    if ok:
+        add_log(session.get('phone'),'تعديل برج',f"ID {i}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/add_sub',methods=['POST'])
 @login_required
-def add_sub():
-    name=request.form.get('name','').strip()
-    phone=request.form.get('phone','').strip()
-    ok=qexec('INSERT INTO subs(name,phone) VALUES(?,?)',(name,phone))
-    last=qone('SELECT id FROM subs ORDER BY id DESC LIMIT 1')
-    nid=last['id'] if last else 0
-    if ok: add_log(session.get('phone'),'إضافة مشترك',name)
-    return jsonify(ok=ok,id=nid)
+def asub():
+    ok=qexec("INSERT INTO subs(name,phone,note) VALUES(?,?,?)",(request.form.get('name',''),request.form.get('phone',''),request.form.get('note','')))
+    if ok:
+        add_log(session.get('phone'),'إضافة مشترك',request.form.get('name',''))
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/del_sub/<int:i>')
 @login_required
-def del_sub(i): qexec('DELETE FROM subs WHERE id=?',(i,)); add_log(session.get('phone'),'حذف مشترك',str(i)); return jsonify(ok=True)
+def dsub(i):
+    if not is_manager():
+        return "ممنوع للفني",403
+    ok=qexec("DELETE FROM subs WHERE id=?",(i,))
+    if ok:
+        add_log(session.get('phone'),'حذف مشترك',f"ID {i}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
+@app.route('/edit_sub/<int:i>',methods=['POST'])
+@login_required
+def esub(i):
+    if not is_manager():
+        return "ممنوع للفني",403
+    ok=qexec("UPDATE subs SET name=?,phone=?,note=? WHERE id=?",(request.form.get('name',''),request.form.get('phone',''),request.form.get('note',''),i))
+    if ok:
+        add_log(session.get('phone'),'تعديل مشترك',f"ID {i}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/add_ledger',methods=['POST'])
 @login_required
-def add_ledger():
-    name=request.form.get('name','').strip()
-    try: amt=float(request.form.get('amount') or 0)
-    except: amt=0
-    ok=qexec('INSERT INTO ledger(name,amount) VALUES(?,?)',(name,amt))
-    last=qone('SELECT id FROM ledger ORDER BY id DESC LIMIT 1')
-    nid=last['id'] if last else 0
-    if ok: add_log(session.get('phone'),'إضافة حساب',name)
-    return jsonify(ok=ok,id=nid)
+def al():
+    try:
+        amt=float(request.form.get('amount') or 0)
+    except:
+        amt=0
+    ok=qexec("INSERT INTO ledger(name,amount,note,currency) VALUES(?,?,?,?)",(request.form.get('name',''),amt,request.form.get('note',''),request.form.get('currency','USD')))
+    if ok:
+        add_log(session.get('phone'),'إضافة حساب',f"{request.form.get('name','')} {amt}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 @app.route('/del_ledger/<int:i>')
 @login_required
-def del_ledger(i): qexec('DELETE FROM ledger WHERE id=?',(i,)); return jsonify(ok=True)
+def dll(i):
+    if not is_manager():
+        return "ممنوع للفني",403
+    ok=qexec("DELETE FROM ledger WHERE id=?",(i,))
+    if ok:
+        add_log(session.get('phone'),'حذف حساب',f"ID {i}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
+@app.route('/edit_ledger/<int:i>',methods=['POST'])
+@login_required
+def el(i):
+    if not is_manager():
+        return "ممنوع للفني",403
+    try:
+        amt=float(request.form.get('amount') or 0)
+    except:
+        amt=0
+    ok=qexec("UPDATE ledger SET name=?,amount=?,note=?,currency=? WHERE id=?",(request.form.get('name',''),amt,request.form.get('note',''),request.form.get('currency','USD'),i))
+    if ok:
+        add_log(session.get('phone'),'تعديل حساب',f"ID {i}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
+@app.route('/add_user',methods=['POST'])
+@login_required
+@role_required_manager
+def au():
+    ph=request.form.get('phone','').strip() or request.form.get('user_field','').strip()
+    if not ph:
+        return "رقم مطلوب",400
+    if qone("SELECT * FROM users WHERE phone=?",(ph,)):
+        return "موجود مسبقاً",400
+    ok=qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",(ph,generate_password_hash(request.form.get('password','1234')),request.form.get('role','tech'),ph))
+    if ok:
+        add_log(session.get('phone'),'إضافة يوزر',ph)
+    return "ok" if ok else "خطأ",200 if ok else 400
+
+@app.route('/edit_user',methods=['POST'])
+@login_required
+@role_required_manager
+def eu():
+    old=request.form.get('old_phone','').strip()
+    new_ph=request.form.get('phone','').strip() or request.form.get('user_field','').strip()
+    new_role=request.form.get('role','tech')
+    new_pass=request.form.get('password','').strip()
+    if not old:
+        return "خطأ",400
+    if old!=new_ph and qone("SELECT * FROM users WHERE phone=?",(new_ph,)):
+        return "الرقم الجديد موجود",400
+    if new_pass:
+        ok=qexec("UPDATE users SET phone=?,username=?,role=?,password=? WHERE phone=?",(new_ph,new_ph,new_role,generate_password_hash(new_pass),old))
+    else:
+        ok=qexec("UPDATE users SET phone=?,username=?,role=? WHERE phone=?",(new_ph,new_ph,new_role,old))
+    if session.get('phone')==old:
+        session['phone']=new_ph
+        session['role']=new_role
+    if ok:
+        add_log(session.get('phone'),'تعديل يوزر',f"{old}->{new_ph}")
+    return "ok" if ok else "خطأ",200 if ok else 400
+
+@app.route('/del_user/<ph>')
+@login_required
+@role_required_manager
+def du(ph):
+    if ph=='05344851045':
+        return "ممنوع حذف المدير",400
+    ok=qexec("DELETE FROM users WHERE phone=?",(ph,))
+    if ok:
+        add_log(session.get('phone'),'حذف يوزر',ph)
+    return "ok" if ok else "خطأ",200 if ok else 400
+
+@app.route('/change_pass',methods=['POST'])
+@login_required
+def cp():
+    np=request.form.get('newpass','').strip()
+    if not np:
+        return "فارغة",400
+    ok=qexec("UPDATE users SET password=? WHERE phone=?",(generate_password_hash(np),session.get('phone')))
+    if ok:
+        add_log(session.get('phone'),'تغيير كلمة سر','')
+    return "ok" if ok else "خطأ",200 if ok else 400
+
 def page_content(v):
+    req_lang=request.args.get('lang') or session.get('lang','ar')
+    def L(ar,en):
+        return ar if req_lang=='ar' else en
     if v=='home':
         ns,nd,nt,nl=get_counts()
-        logs=qall('SELECT * FROM logs ORDER BY id DESC LIMIT 8')
-        log_html=''
+        logs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 6")
+        log_html=""
         for l in logs:
-            log_html+='<div style=display:flex;justify-content:space-between;padding:4px 0><b style=color:#ffbe4d>'+esc(l.get('user_phone',''))+'</b> '+esc(l.get('action',''))+' <small>'+esc(l.get('time',''))[-8:]+'</small></div>'
-        if not log_html: log_html='<div style=text-align:center;color:#666>السجل فاضي - اول تعديل رح يظهر هون فورا</div>'
-        html_out=''
-        html_out+='<div style=max-width:900px;margin:0 auto>'
-        html_out+=f'<div style=display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px><div class=card onclick=loadPage(\'subs\') style=cursor:pointer;text-align:center><div>المشتركين</div><div style=font-size:26px;font-weight:900>{ns}</div></div>'
-        html_out+=f'<div class=card onclick=loadPage(\'dishes\') style=cursor:pointer;text-align:center><div>الصحون</div><div style=font-size:26px;font-weight:900>{nd}</div></div>'
-        html_out+=f'<div class=card onclick=loadPage(\'towers\') style=cursor:pointer;text-align:center><div>الابراج</div><div style=font-size:26px;font-weight:900>{nt}</div></div>'
-        html_out+=f'<div class=card onclick=loadPage(\'ledger\') style=cursor:pointer;text-align:center><div>الحسابات</div><div style=font-size:26px;font-weight:900>{nl}</div></div></div>'
-        html_out+='<div class=card style=margin-top:8px><div style=display:flex;justify-content:space-between><b>السجل الحي</b><button class=btn-gold onclick=loadPage(\'logs\') style=padding:4px 8px>الكل</button></div><div style=margin-top:6px>'+log_html+'</div></div>'
-        html_out+='<div class=card style=text-align:center><a href=https://wa.me/905344851045 target=_blank style=display:inline-block;background:#22c55e;color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none>واتساب الدعم: +905344851045</a></div></div>'
-        return html_out
+            log_html+=f"<div style='display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px dashed #ffffff10'><div><b style='color:#ffbe4d'>{esc(l.get('user_phone',''))}</b> <span style='color:#22c55e;font-weight:800'>{esc(l.get('action',''))}</span> <small style='color:#cbd5e1'>{esc(l.get('detail',''))}</small></div><small style='color:#64748b'>{esc(l.get('time',''))}</small></div>"
+        if not logs:
+            log_html="<div style='padding:12px;color:#888'>السجل فاضي</div>"
+        return f'''<div style='max-width:900px;margin:0 auto'><div style='display:grid;grid-template-columns:1fr 1fr;gap:14px'>
+        <div class='card' onclick="loadPage('subs')" style='cursor:pointer'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('المشتركين','Subs')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{ns}</h2></div><div style='font-size:36px'>👥</div></div></div>
+        <div class='card' onclick="loadPage('dishes')" style='cursor:pointer'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الصحون','Dishes')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{nd}</h2></div><div style='font-size:36px'>📡</div></div></div>
+        <div class='card' onclick="loadPage('towers')" style='cursor:pointer'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الأبراج','Towers')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{nt}</h2></div><div style='font-size:36px'>🗼</div></div></div>
+        <div class='card' onclick="loadPage('ledger')" style='cursor:pointer'><div style='display:flex;justify-content:space-between'><div><h3 style='margin:0;color:#aab4d0;font-size:13px'>{L('الحسابات','Accounts')}</h3><h2 style='margin:6px 0 0;font-size:36px'>{nl}</h2></div><div style='font-size:36px'>📒</div></div></div></div>
+        <div class=card style='margin-top:14px'><div style='display:flex;justify-content:space-between;flex-wrap:wrap'><h4>التقارير</h4><div style='display:flex;gap:8px'><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#22c55e;color:#fff'>Excel صحون</a><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#8b5cf6;color:#fff'>Excel سجل</a></div></div></div>
+        <div class=card><div style='display:flex;justify-content:space-between'><h4>آخر النشاطات</h4><button class=btn-gold onclick="loadPage('logs')">عرض الكل</button></div>{log_html}</div></div>'''
+    if v=='ping':
+        return f'''<div style='max-width:800px;margin:0 auto'>
+        <div class=card style='background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid #ffffff15'>
+        <h3 style='margin:0'>📶 {L('بنج','Ping')}</h3>
+        <div style='display:flex;gap:8px;margin-top:12px;flex-wrap:wrap'>
+        <input id=pingIp placeholder='192.168.1.1' style='flex:1;min-width:160px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff;font-family:monospace'>
+        <input id=pingPort placeholder='Port' value='80' style='width:80px;padding:14px;border-radius:12px;background:#0f1424;border:1px solid #ffffff20;color:#fff'>
+        <button class=btn-gold onclick="doSinglePing()" style='padding:14px 20px;background:#22c55e;color:#fff'>Ping</button>
+        <button class=btn-gold onclick="doTcpPing()" style='padding:14px 16px;background:#0ea5e9;color:#fff'>TCP</button>
+        </div>
+        <div id=pingResult style='margin-top:14px;min-height:60px;background:#0008;border:1px solid #ffffff0a;border-radius:12px;padding:14px;font-family:monospace;font-size:13px;white-space:pre-wrap'>جاهز...</div>
+        <div style='display:flex;gap:8px;margin-top:10px'><button class=btn-gold onclick="pingAllDishes()" style='flex:1;background:#ffbe4d;color:#111'>فحص كل الصحون</button><button class=btn-gold onclick="clearPing()" style='background:#ffffff10;color:#fff'>مسح</button></div>
+        </div>
+        <div class=card><h4>صحون سريعة</h4><div id=quickDishes>...</div></div>
+        <div class=card><h4>سجل البنج</h4><div id=pingLog style='max-height:200px;overflow:auto;font-size:12px'></div></div>
+        </div><script>
+        window.doSinglePing=async function(){{
+          let ip=document.getElementById('pingIp').value.trim();
+          if(!ip){{alert('اكتب IP');return;}}
+          let out=document.getElementById('pingResult');
+          out.textContent='جاري فحص '+ip+'...';
+          try{{
+            let r=await fetch('/api/ping?ip='+encodeURIComponent(ip),{{cache:'no-store'}});
+            let j=await r.json();
+            out.textContent=j.out;
+          }}catch(e){{out.textContent='خطأ '+e;}}
+        }};
+        window.doTcpPing=async function(){{
+          let ip=document.getElementById('pingIp').value.trim();
+          let port=document.getElementById('pingPort').value.trim()||'80';
+          if(!ip){{alert('IP');return;}}
+          let out=document.getElementById('pingResult');
+          out.textContent='جاري '+ip+':'+port+'...';
+          try{{
+            let r=await fetch('/api/ping_tcp?ip='+encodeURIComponent(ip)+'&port='+port);
+            let j=await r.json();
+            out.textContent=j.out;
+          }}catch(e){{out.textContent='خطأ';}}
+        }};
+        window.clearPing=function(){{document.getElementById('pingResult').textContent='جاهز...';}};
+        window.pingAllDishes=async function(){{
+          let out=document.getElementById('pingResult');
+          out.textContent='جاري الفحص...';
+          try{{
+            let r=await fetch('/api/search?q=192',{{cache:'no-store'}});
+            let d=await r.json();
+            out.textContent='';
+            for(let dish of d.filter(x=>x.page==='dishes').slice(0,20)){{
+              out.textContent+='فحص '+dish.sub+'\\n';
+              try{{
+                let pr=await fetch('/api/ping?ip='+encodeURIComponent(dish.sub));
+                let pj=await pr.json();
+                out.textContent+=pj.out+'\\n';
+              }}catch(e){{}}
+              await new Promise(r=>setTimeout(r,200));
+            }}
+          }}catch(e){{out.textContent='خطأ: '+e;}}
+        }};
+        (async()=>{{
+          try{{
+            let r=await fetch('/api/search?q=192',{{cache:'no-store'}});
+            let d=await r.json();
+            let h='';
+            d.filter(x=>x.page==='dishes').slice(0,8).forEach(x=>{{
+              h+='<div style="display:flex;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #ffffff08"><span>'+x.sub+' - '+x.title+'</span><button class=btn-gold onclick="document.getElementById(\\'pingIp\\').value=\\''+x.sub+'\\'; doSinglePing()" style="padding:5px 10px">Ping</button></div>';
+            }});
+            document.getElementById('quickDishes').innerHTML=h||'لا يوجد';
+          }}catch(e){{}}
+        }})();
+        </script>'''
     if v=='dishes':
-        dishes=qall('SELECT * FROM dish_ips ORDER BY id DESC LIMIT 200')
-        rows=''
-        for r in dishes:
+        rs=qall("SELECT * FROM dish_ips ORDER BY id DESC")
+        rows_html=""
+        for r in rs:
             dn=esc(r.get('dish_name') or 'صحن')
             ip=esc(r.get('ip') or '')
-            loc=esc(r.get('location') or 'بدون')
+            loc=esc(r.get('location') or '')
             rid=r['id']
-            rows+=f'<div class=card dish-card id=dish-{rid} data-name={dn} data-ip={ip} data-loc={loc} style=padding:10px;display:flex;justify-content:space-between><div><b>{dn}</b></div><div style=display:flex;gap:4px><button onclick=pingOneDish({rid}) style=background:#22c55e;color:#fff;border:0;padding:4px 8px;border-radius:6px>فحص</button><button onclick=editDish({rid}) style=background:#1f2937;color:#fff;border:0;padding:4px 8px;border-radius:6px>تعديل</button><button onclick=askDel(\'/del_dish/{rid}\',{rid},\'dish\') style=background:#ef4444;color:#fff;border:0;padding:4px 8px;border-radius:6px>حذف</button></div></div>'
-        out=''
-        out+='<div style=max-width:1100px;margin:0 auto><div class=card><div style=display:flex;justify-content:space-between><b>الصحون '+str(len(dishes))+' - بس الاسم</b><div style=display:flex;gap:4px><button onclick=checkAllDishes() class=btn-gold style=background:#22c55e;color:#fff>فحص الكل</button><button onclick=createCustomCard() class=btn-gold style=background:#8b5cf6;color:#fff>+ كرت مخصص</button></div></div>'
-        out+='<div id=customCardCreator style=display:none;margin-top:8px;padding:8px;background:rgba(139,92,246,0.12);border:1px dashed #8b5cf6;border-radius:8px><div style=display:flex;gap:6px><input id=customCardName placeholder=اسم الكرت style=flex:1><select id=customCardSize style=width:100px><option value=small>صغير</option><option value=medium selected>وسط</option><option value=large>كبير</option><option value=full>كامل</option></select><button onclick=saveCustomCard() class=btn-gold style=background:#8b5cf6;color:#fff>حفظ</button></div><div id=towerCheckboxes style=display:flex;gap:6px;flex-wrap:wrap;margin-top:6px></div></div>'
-        out+='<form id=formDish style=display:flex;gap:6px;margin-top:8px><input name=dish_name placeholder=اسم الصحن required style=flex:1><input name=ip placeholder=IP required style=flex:1><input name=location placeholder=البرج style=flex:1><button class=btn-gold>إضافة</button></form></div><div id=customCardsContainer></div><div id=towerGroups style=display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px></div><div id=dl style=display:none>'+rows+'</div></div>'
-        out+='<script>window.createCustomCard=function(){let el=document.getElementById(\'customCardCreator\');el.style.display=el.style.display==\'none\'?\'block\':\'none\';let box=document.getElementById(\'towerCheckboxes\');box.innerHTML=\'\';let towers=[...new Set([...document.querySelectorAll(\'#dl .dish-card\')].map(c=>c.dataset.loc))].filter(Boolean);towers.forEach(t=>{box.innerHTML+=\'<label style=background:#ffffff12;padding:4px 8px;border-radius:6px><input type=checkbox value=\'+t+\' checked> \'+t+\'</label>\';});};window.saveCustomCard=function(){let name=document.getElementById(\'customCardName\').value||\'كرت\';let sel=[...document.querySelectorAll(\'#towerCheckboxes input:checked\')].map(i=>i.value);if(!sel.length){alert(\'اختر برج\');return;}let cont=document.getElementById(\'customCardsContainer\');let card=document.createElement(\'div\');card.className=\'card\';card.style.border=\'2px solid #8b5cf6\';let inner=\'\';sel.forEach(t=>{let g=document.querySelector(\'.tower-group[data-tower=\'+t+\']\');if(g)inner+=g.outerHTML;});card.innerHTML=\'<div style=display:flex;justify-content:space-between><b style=color:#8b5cf6>\'+name+\'</b><button onclick=this.closest(\'.card\').remove() style=background:#ef444415;color:#ef4444;border:0;padding:3px 8px;border-radius:6px>✕</button></div><div style=display:grid;gap:6px>\'+inner+\'</div>\';cont.prepend(card);};(function(){let grouped={};document.querySelectorAll(\'#dl .dish-card\').forEach(c=>{let t=(c.dataset.loc||\'بدون\').trim()||\'بدون\';if(!grouped[t])grouped[t]=[];grouped[t].push(c.outerHTML);});let tg=document.getElementById(\'towerGroups\');tg.innerHTML=\'\';Object.keys(grouped).sort().forEach(tower=>{let div=document.createElement(\'div\');div.className=\'tower-group card\';div.dataset.tower=tower;div.style.border=\'1px solid rgba(255,190,77,0.2)\';div.innerHTML=\'<div style=background:#ffbe4d;color:#111;padding:6px 8px;display:flex;justify-content:space-between><b>\'+tower+\'</b><span style=background:#111;color:#ffbe4d;padding:1px 6px;border-radius:6px;font-size:10px>\'+grouped[tower].length+\'</span></div><div style=padding:6px;display:grid;gap:6px;max-height:300px;overflow:auto>\'+grouped[tower].join(\'\')+\'</div>\';tg.appendChild(div);});})();window.pingOneDish=async function(id){let c=document.getElementById(\'dish-\'+id);if(!c)return;try{let r=await fetch(\'/api/ping?ip=\'+encodeURIComponent(c.dataset.ip),{credentials:\'same-origin\'});let j=await r.json();c.style.borderColor=j.ok?\'#22c55e\':\'#ef4444\';}catch{}};window.checkAllDishes=async function(){for(let c of document.querySelectorAll(\'#dl .dish-card\')){await pingOneDish(c.id.split(\'-\')[1]);await new Promise(r=>setTimeout(r,60));}};window.editDish=function(id){let c=document.getElementById(\'dish-\'+id);let b=document.getElementById(\'editBody\');b.innerHTML=\'\';let i1=document.createElement(\'input\');i1.id=\'edit_dish_name\';i1.value=c.dataset.name;i1.style.cssText=\'width:100%;padding:8px;margin:4px 0\';let i2=document.createElement(\'input\');i2.id=\'edit_ip\';i2.value=c.dataset.ip;i2.style.cssText=\'width:100%;padding:8px;margin:4px 0\';let i3=document.createElement(\'input\');i3.id=\'edit_loc\';i3.value=c.dataset.loc;i3.style.cssText=\'width:100%;padding:8px;margin:4px 0\';let btn=document.createElement(\'button\');btn.textContent=\'حفظ\';btn.className=\'btn-gold\';btn.style.cssText=\'width:100%;padding:8px\';btn.onclick=()=>saveDish(id);b.append(i1,i2,i3,btn);document.getElementById(\'editModal\').classList.add(\'show\');};window.saveDish=async function(id){let fd=new URLSearchParams();fd.append(\'dish_name\',document.getElementById(\'edit_dish_name\').value);fd.append(\'ip\',document.getElementById(\'edit_ip\').value);fd.append(\'location\',document.getElementById(\'edit_loc\').value);let r=await fetch(\'/edit_dish/\'+id,{method:\'POST\',body:fd,credentials:\'same-origin\'});if((await r.json()).ok)location.reload();};document.getElementById(\'formDish\').addEventListener(\'submit\',async e=>{e.preventDefault();let r=await fetch(\'/add_dish\',{method:\'POST\',body:new FormData(e.target),credentials:\'same-origin\'});if((await r.json()).ok)location.reload();});</script>'
-        return out
+            rows_html+=f'<div class="card dish-card" id="dish-{rid}" data-name="{dn}" data-ip="{ip}" data-loc="{loc}" style="display:flex;justify-content:space-between"><div><b>{dn}</b><br><a href="http://{ip}" target=_blank style="background:#000;color:#ffbe4d;padding:5px 10px;border-radius:8px;font-family:monospace;text-decoration:none">{ip}</a><br><small style="color:#888">{loc}</small></div><div style="display:flex;flex-direction:column;gap:6px"><button class=btn-gold onclick="quickPingD({rid})" style="padding:7px 12px;background:#22c55e;color:#fff">Ping</button><div style="display:flex;gap:4px"><button class=btn-gold onclick="editDish({rid})" style="padding:7px 9px">تعديل</button><button class=btn-del onclick="askDel(\'/del_dish/{rid}\', {rid})" style="padding:7px 9px">حذف</button></div></div></div>'
+        return f'''<div style='max-width:900px;margin:0 auto'><div class=card><div style='display:flex;justify-content:space-between;flex-wrap:wrap'><h3>الصحون - {len(rs)}</h3><div style='display:flex;gap:6px'><button onclick="loadPage('ping')" class=btn-gold style='padding:7px 12px;background:#22c55e;color:#fff'>Ping</button><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:7px 12px'>Excel</a></div></div><form id=formDish style='display:flex;gap:6px;flex-wrap:wrap;margin-top:10px'><input name=dish_name id=dish_name placeholder='اسم الصحن' required style='flex:1'><input name=ip id=dish_ip placeholder='192.168.1.1' required style='flex:1'><input name=location id=dish_loc placeholder='موقع' style='flex:1'><button class=btn-gold type=submit id=btnAddDish>إضافة</button></form><div id=dishMsg style='margin-top:8px;font-size:13px;min-height:18px'></div><input id=searchBox placeholder='بحث...' oninput="searchDishes(this.value)" style='margin-top:10px;width:100%;padding:12px;border-radius:12px;background:#0f1424;border:1px solid #ffffff18'></div><div id=dl>{rows_html}</div></div><script>
+        window.searchDishes=function(q){{q=(q||'').toLowerCase();document.querySelectorAll('.dish-card').forEach(c=>{{let t=(c.dataset.name+c.dataset.ip+c.dataset.loc).toLowerCase(); c.style.display=t.includes(q)?'flex':'none';}});}};
+        window.editDish=function(id){{
+          let c=document.getElementById('dish-'+id);
+          if(!c) return;
+          let body=document.getElementById('editBody');
+          body.innerHTML='<input id=edit_dish_name value="'+c.dataset.name+'" style="width:100%;padding:12px;margin:4px 0"><input id=edit_ip value="'+c.dataset.ip+'" style="width:100%;padding:12px;margin:4px 0"><input id=edit_loc value="'+c.dataset.loc+'" style="width:100%;padding:12px;margin:4px 0"><button onclick="saveDish('+id+')" class=btn-gold style="width:100%;padding:12px" id=btnSaveDish>حفظ</button>';
+          document.getElementById('editModal').classList.add('show');
+        }};
+        window.saveDish=function(id){{
+          let b=document.getElementById('btnSaveDish');
+          if(b){{b.textContent='جاري...'; b.disabled=true;}}
+          let nn=document.getElementById('edit_dish_name').value;
+          let ii=document.getElementById('edit_ip').value;
+          let ll=document.getElementById('edit_loc').value;
+          fetch('/edit_dish/'+id,{{method:'POST',body:new URLSearchParams({{dish_name:nn,ip:ii,location:ll}})}}).then(r=>{{if(r.ok){{closeEditModal(); loadPage('dishes',true);}} else {{alert('ممنوع'); if(b){{b.textContent='حفظ'; b.disabled=false;}}}}}});
+        }};
+        window.quickPingD=function(id){{
+          let c=document.getElementById('dish-'+id);
+          loadPage('ping');
+          setTimeout(()=>{{let inp=document.getElementById('pingIp');if(inp){{inp.value=c.dataset.ip; doSinglePing();}}}},300);
+        }};
+        document.getElementById('formDish').addEventListener('submit', async e=>{{
+          e.preventDefault();
+          let r=await fetch('/add_dish',{{method:'POST',body:new FormData(e.target)}});
+          if(r.ok){{
+            e.target.reset();
+            loadPage('dishes',true);
+          }} else {{let t=await r.text(); alert(t);}}
+        }});
+        </script>'''
     if v=='towers':
-        rs=qall('SELECT * FROM towers ORDER BY id DESC')
-        rows=''.join([f"<div class=card><b>{esc(r['name'])}</b> <button onclick=askDel('/del_tower/{r['id']}',{r['id']},'tower') style=background:#ef4444;color:#fff;border:0;padding:4px 8px;border-radius:6px>حذف</button></div>" for r in rs])
-        return f'''<div style=max-width:600px;margin:0 auto><div class=card><b>الابراج {len(rs)}</b><form id=formTower style=display:flex;gap:6px><input name=name placeholder=اسم برج required style=flex:1><button class=btn-gold>إضافة</button></form></div><div style=display:grid;gap:6px>{rows}</div></div><script>document.getElementById('formTower').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_tower',{method:'POST',body:new FormData(e.target),credentials:'same-origin'});if((await r.json()).ok)location.reload();}});</script>'''
+        rs=qall("SELECT * FROM towers ORDER BY id DESC")
+        rows=""
+        for r in rs:
+            rows+=f"<div class='card' id='tower-{r['id']}' data-name='{esc(r['name'])}' data-area='{esc(r['area'] or '')}' data-lat='{r.get('lat') or 0}' data-lng='{r.get('lng') or 0}'><div style='display:flex;justify-content:space-between'><div><b>{esc(r['name'])}</b><br><small>{esc(r['area'] or '')}</small><br><small style='color:#ffbe4d'>{r.get('lat')} , {r.get('lng')}</small></div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"openEditTower({r['id']})\" style='padding:8px 10px'>تعديل</button><button class=btn-del onclick=\"askDel('/del_tower/{r['id']}')\" style='padding:8px 10px'>حذف</button></div></div></div>"
+        return f'''<div style='max-width:700px;margin:0 auto'><div class=card><h3>الأبراج</h3><form id=formTower style='display:flex;gap:6px;flex-wrap:wrap;margin-top:8px'><input name=name placeholder='اسم البرج' required style='flex:1'><input name=area placeholder='المنطقة' style='flex:1'><input name=lat placeholder='lat' style='flex:0.6'><input name=lng placeholder='lng' style='flex:0.6'><button class=btn-gold>إضافة</button></form></div>{rows}<script>
+        window.openEditTower=function(id){{
+          let c=document.getElementById('tower-'+id);
+          let body=document.getElementById('editBody');
+          body.innerHTML='<input id=edit_t_name value="'+c.dataset.name+'" style="width:100%;margin:6px 0;padding:12px"><input id=edit_t_area value="'+c.dataset.area+'" style="width:100%;margin:6px 0;padding:12px"><input id=edit_t_lat value="'+c.dataset.lat+'" style="width:100%;margin:6px 0;padding:12px"><input id=edit_t_lng value="'+c.dataset.lng+'" style="width:100%;margin:6px 0;padding:12px"><button onclick="saveTower('+id+')" class=btn-gold style="width:100%;padding:12px">حفظ</button>';
+          document.getElementById('editModal').classList.add('show');
+        }};
+        window.saveTower=function(id){{
+          let nn=document.getElementById('edit_t_name').value;
+          let aa=document.getElementById('edit_t_area').value;
+          let la=document.getElementById('edit_t_lat').value;
+          let ln=document.getElementById('edit_t_lng').value;
+          fetch('/edit_tower/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,area:aa,lat:la,lng:ln}})}}).then(r=>{{if(!r.ok)alert('ممنوع');else{{closeEditModal();loadPage('towers',true);}}}});
+        }};
+        document.getElementById('formTower').addEventListener('submit', async e=>{{
+          e.preventDefault();
+          let r=await fetch('/add_tower',{{method:'POST',body:new FormData(e.target)}});
+          if(r.ok){{e.target.reset(); loadPage('towers',true);}}
+        }});
+        </script></div>'''
     if v=='subs':
-        rs=qall('SELECT * FROM subs ORDER BY id DESC LIMIT 100')
-        rows=''.join([f"<div class=card><b>{esc(r['name'])}</b> {esc(r['phone'])} <button onclick=askDel('/del_sub/{r['id']}',{r['id']},'sub') style=background:#ef4444;color:#fff;border:0;padding:4px 8px;border-radius:6px>حذف</button></div>" for r in rs])
-        return f'''<div style=max-width:600px;margin:0 auto><div class=card><b>المشتركين {len(rs)}</b><form id=formSub style=display:flex;gap:6px><input name=name placeholder=اسم required style=flex:1><input name=phone placeholder=رقم style=flex:1><button class=btn-gold>إضافة</button></form></div><div style=display:grid;gap:6px>{rows}</div></div><script>document.getElementById('formSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{method:'POST',body:new FormData(e.target),credentials:'same-origin'});if((await r.json()).ok)location.reload();}});</script>'''
+        rs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
+        rows=""
+        for r in rs:
+            rows+=f"<div class='card' id='sub-{r['id']}' data-name='{esc(r['name'])}' data-phone='{esc(r['phone'] or '')}' data-note='{esc(r['note'] or '')}' style='display:flex;justify-content:space-between'><div><b>{esc(r['name'])}</b><br>{esc(r['phone'] or '')}</div><div style='display:flex;gap:5px'><button class=btn-gold onclick=\"openEditSub({r['id']})\" style='padding:8px 10px'>تعديل</button><button class=btn-del onclick=\"askDel('/del_sub/{r['id']}')\" style='padding:8px 10px'>حذف</button></div></div>"
+        return f'''<div style='max-width:700px;margin:0 auto'><div class=card><h3>المشتركين</h3><form id=formSub style='display:flex;gap:5px;flex-wrap:wrap'><input name=name placeholder='الاسم' required style='flex:1'><input name=phone placeholder='رقم' style='flex:1'><input name=note placeholder='ملاحظة' style='flex:1'><button class=btn-gold>إضافة</button></form></div>{rows}<script>
+        window.openEditSub=function(id){{
+          let c=document.getElementById('sub-'+id);
+          let body=document.getElementById('editBody');
+          body.innerHTML='<input id=edit_s_name value="'+c.dataset.name+'" style="width:100%;margin:6px 0;padding:12px"><input id=edit_s_phone value="'+c.dataset.phone+'" style="width:100%;margin:6px 0;padding:12px"><input id=edit_s_note value="'+c.dataset.note+'" style="width:100%;margin:6px 0;padding:12px"><button onclick="saveSub('+id+')" class=btn-gold style="width:100%;padding:12px">حفظ</button>';
+          document.getElementById('editModal').classList.add('show');
+        }};
+        window.saveSub=function(id){{
+          let nn=document.getElementById('edit_s_name').value;
+          let pp=document.getElementById('edit_s_phone').value;
+          let no=document.getElementById('edit_s_note').value;
+          fetch('/edit_sub/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,phone:pp,note:no}})}}).then(r=>{{if(r.ok){{closeEditModal();loadPage('subs',true);}}}});
+        }};
+        document.getElementById('formSub').addEventListener('submit', async e=>{{
+          e.preventDefault();
+          let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});
+          if(r.ok){{e.target.reset(); loadPage('subs',true);}}
+        }});
+        </script></div>'''
     if v=='ledger':
-        rs=qall('SELECT * FROM ledger ORDER BY id DESC LIMIT 100')
-        rows=''.join([f"<div class=card>{esc(r['name'])} {r['amount']} <button onclick=askDel('/del_ledger/{r['id']}',{r['id']},'ledger') style=background:#ef4444;color:#fff;border:0;padding:4px 8px>حذف</button></div>" for r in rs])
-        return f'''<div style=max-width:600px;margin:0 auto><div class=card><b>الحسابات {len(rs)}</b><form id=formLedger style=display:flex;gap:6px><input name=name placeholder=اسم required style=flex:1><input name=amount placeholder=مبلغ type=number style=flex:1><button class=btn-gold>إضافة</button></form></div><div style=display:grid;gap:6px>{rows}</div></div><script>document.getElementById('formLedger').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_ledger',{method:'POST',body:new FormData(e.target),credentials:'same-origin'});if((await r.json()).ok)location.reload();}});</script>'''
+        rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 200")
+        rows=""
+        for r in rs:
+            rows+=f"<div class='card' id='led-{r['id']}' data-name='{esc(r['name'])}' data-amount='{r['amount']}'><div style='display:flex;justify-content:space-between'><div><b>{esc(r['name'])}</b> - <b style='color:#ffbe4d'>{r['amount']}</b></div><div><button class=btn-gold onclick=\"openEditLed({r['id']})\" style='padding:7px 9px'>تعديل</button><button class=btn-del onclick=\"askDel('/del_ledger/{r['id']}')\" style='padding:7px 9px'>حذف</button></div></div></div>"
+        return f'''<div style='max-width:700px;margin:0 auto'><div class=card><h3>الحسابات</h3><form id=formLed style='display:flex;gap:5px;flex-wrap:wrap'><input name=name placeholder='الاسم' required style='flex:1'><input name=amount type=number step=0.01 placeholder='المبلغ' required style='flex:1'><input name=note placeholder='ملاحظة' style='flex:1'><select name=currency style='flex:0.5'><option>USD</option><option>SYP</option></select><button class=btn-gold>إضافة</button></form></div>{rows}<script>
+        window.openEditLed=function(id){{
+          let c=document.getElementById('led-'+id);
+          let body=document.getElementById('editBody');
+          body.innerHTML='<input id=edit_l_name value="'+c.dataset.name+'" style="width:100%;margin:6px 0;padding:12px"><input id=edit_l_amount value="'+c.dataset.amount+'" style="width:100%;margin:6px 0;padding:12px"><button onclick="saveLed('+id+')" class=btn-gold style="width:100%;padding:12px">حفظ</button>';
+          document.getElementById('editModal').classList.add('show');
+        }};
+        window.saveLed=function(id){{
+          let nn=document.getElementById('edit_l_name').value;
+          let aa=document.getElementById('edit_l_amount').value;
+          fetch('/edit_ledger/'+id,{{method:'POST',body:new URLSearchParams({{name:nn,amount:aa,note:'',currency:'USD'}})}}).then(()=>{{closeEditModal();loadPage('ledger',true);}});
+        }};
+        document.getElementById('formLed').addEventListener('submit', async e=>{{
+          e.preventDefault();
+          let r=await fetch('/add_ledger',{{method:'POST',body:new FormData(e.target)}});
+          if(r.ok){{e.target.reset(); loadPage('ledger',true);}}
+        }});
+        </script></div>'''
     if v=='logs':
-        rs=qall('SELECT * FROM logs ORDER BY id DESC LIMIT 100')
-        rows=''.join([f"<div class=card style=font-size:12px;border-right:3px solid #22c55e><b style=color:#ffbe4d>{esc(r.get('user_phone',''))}</b> {esc(r.get('action',''))} <small>{esc(r.get('detail',''))[:60]}</small> <small style=color:#666>{esc(r.get('time',''))}</small></div>" for r in rs])
-        return f'''<div style=max-width:800px;margin:0 auto><div class=card style=display:flex;justify-content:space-between><b>السجل - كلشي يصير ({len(rs)})</b><button onclick="if(confirm('مسح؟'))fetch('/api/clear_logs',{{method:'POST',credentials:'same-origin'}}).then(()=>loadPage('logs',true))" style=background:#ef4444;color:#fff;border:0;padding:4px 8px;border-radius:6px>مسح</button></div><div style=display:grid;gap:6px>{rows if rows else '<div class=card style=text-align:center>لا يوجد سجل</div>'}</div></div>'''
-    if v=='ping':
-        return '''<div style=max-width:500px;margin:0 auto><div class=card><b>فحص الشبكة</b><div style=display:flex;gap:6px;margin-top:8px><input id=pingIp placeholder=IP style=flex:1><button onclick=doPing() class=btn-gold>فحص</button></div><div id=pingResult style=margin-top:8px></div></div></div><script>async function doPing(){let ip=document.getElementById('pingIp').value;let r=await fetch('/api/ping?ip='+ip,{credentials:'same-origin'});let j=await r.json();document.getElementById('pingResult').innerHTML=j.out;}</script>'''
+        rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 300")
+        rows=""
+        for r in rs:
+            col='#22c55e' if 'إضافة' in r.get('action','') else '#0ea5e9' if 'تعديل' in r.get('action','') else '#ef4444' if 'حذف' in r.get('action','') else '#ffbe4d'
+            rows+=f"<div class='card' style='font-size:13px;border-right:4px solid {col};display:flex;justify-content:space-between'><div><b style='color:#ffbe4d'>{esc(r.get('user_phone',''))}</b> <span style='background:{col};color:#fff;padding:2px 8px;border-radius:6px;font-size:11px'>{esc(r.get('action',''))}</span><br><small style='color:#cbd5e1'>{esc(r.get('detail',''))}</small></div><small style='color:#64748b'>{esc(r.get('time',''))}</small></div>"
+        if not rows:
+            rows="<div class=card style='text-align:center;padding:20px;color:#888'>لا يوجد سجل<br><button class=btn-gold onclick=\"fetch('/api/seed_log',{method:'POST'}).then(()=>loadPage('logs',true))\" style='margin-top:10px'>اختبار السجل</button></div>"
+        return f"<div style='max-width:900px;margin:0 auto'><div class=card style='display:flex;justify-content:space-between'><h3>السجل ({len(rs)})</h3><div style='display:flex;gap:6px'><a href='/api/export/logs' class=btn-gold style='text-decoration:none;padding:7px 12px;background:#22c55e;color:#fff'>Excel</a><button onclick=\"if(confirm('مسح؟')){{fetch('/api/clear_logs',{method:'POST'}).then(()=>loadPage('logs',true))}}\" class=btn-del>مسح</button></div></div>{rows}</div>"
+    if v=='network':
+        dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC")
+        rows=""
+        for d in dishes:
+            rows+=f"<div class='card' id='net-{d['id']}' data-ip='{esc(d.get('ip',''))}' style='display:flex;justify-content:space-between'><div><b>{esc(d.get('dish_name') or 'صحن')}</b> - {esc(d.get('ip',''))}<br><small class='net-out'>...</small></div><button class=btn-gold onclick='checkOne({d['id']})'>فحص</button></div>"
+        return f'''<div style='max-width:800px;margin:0 auto'><div class=card><h3>حالة الشبكة</h3><div style='display:flex;gap:8px;margin-top:8px'><button class=btn-gold onclick='checkAll()' style='flex:1;background:#22c55e;color:#fff;padding:12px'>فحص الكل</button><button class=btn-gold onclick="loadPage('ping')" style='flex:1'>Ping</button></div><div id=summary style='margin-top:10px;font-weight:800'></div></div>{rows}<script>
+        window.checkOne=async function(id){{
+          let c=document.getElementById('net-'+id);
+          let out=c.querySelector('.net-out');
+          out.textContent='جاري...';
+          try{{
+            let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip));
+            let j=await r.json();
+            out.textContent=j.out.slice(0,80);
+          }}catch(e){{out.textContent='خطأ';}}
+        }};
+        window.checkAll=async function(){{
+          let cards=document.querySelectorAll('[id^=net-]');
+          for(let c of cards){{
+            let out=c.querySelector('.net-out');
+            out.textContent='جاري...';
+            try{{
+              let r=await fetch('/api/ping?ip='+encodeURIComponent(c.dataset.ip));
+              let j=await r.json();
+              out.textContent=j.out.slice(0,80);
+            }}catch(e){{}}
+            await new Promise(r=>setTimeout(r,200));
+          }}
+        }};
+        checkAll();
+        </script></div>'''
+    if v=='map':
+        towers=qall("SELECT * FROM towers")
+        tj_json=json.dumps([{"name":t['name'],"area":t.get('area') or '',"lat":float(t.get('lat') or 35.1318),"lng":float(t.get('lng') or 36.7578)} for t in towers],ensure_ascii=False)
+        return f'''<div class=card style='padding:10px'>
+        <div style='display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap'>
+        <input id=mapSearch placeholder='بحث برج...' style='flex:1;min-width:140px;background:#1f2937;border:1px solid #ffffff15;color:#fff;padding:10px 12px;border-radius:12px'>
+        <button class=btn-gold onclick="doMapSearch()" style='padding:10px 12px'>بحث</button>
+        <button class=btn-gold onclick="locateMe()" style='background:#22c55e;color:#fff;padding:10px 12px'>موقعي</button>
+        <button class=btn-gold onclick="enableAddPoint()" id=addPointBtn style='background:#f59e0b;color:#fff;padding:10px 12px'>نقطة</button>
+        <button class=btn-gold onclick="toggleMeasure()" id=measureBtn style='background:#0ea5e9;color:#fff;padding:10px 12px'>قياس</button>
+        <button class=btn-gold onclick="clearMap()" style='background:#ef4444;color:#fff;padding:10px 12px'>مسح</button>
+        <span id=distanceLabel style='padding:8px 12px;background:#1f2937;border:1px solid #ffffff15;border-radius:10px;font-size:12px;color:#ffbe4d'>0</span>
+        </div>
+        <div id=map style='height:72vh;min-height:460px;border-radius:16px;background:#0f172a;z-index:1;border:2px solid #ffffff0f'></div>
+        <div style='margin-top:6px;font-size:11px;color:#6b7280'><span id=coordsLabel style='color:#ffbe4d'>-</span></div>
+        </div><script>
+        let _towers={tj_json};
+        let _map=null; let measureMode=false, addPointMode=false, measurePoints=[], measureLine=null, measureMarkers=[], tempMarkers=[];
+        window.doMapSearch=function(){{
+          let q=document.getElementById('mapSearch').value.trim().toLowerCase();
+          if(!q) return;
+          let f=_towers.find(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q));
+          if(f && _map){{_map.flyTo([f.lat,f.lng],17);}}
+        }};
+        window.locateMe=function(){{
+          if(_map && navigator.geolocation){{
+            navigator.geolocation.getCurrentPosition(p=>{{
+              _map.flyTo([p.coords.latitude,p.coords.longitude],16);
+              L.marker([p.coords.latitude,p.coords.longitude]).addTo(_map).bindPopup('موقعك').openPopup();
+            }});
+          }}
+        }};
+        window.enableAddPoint=function(){{
+          addPointMode=!addPointMode;
+          let b=document.getElementById('addPointBtn');
+          b.textContent=addPointMode?'اضغط على الخريطة':'نقطة';
+          if(addPointMode){{measureMode=false; if(_map) _map.getContainer().style.cursor='crosshair';}}else{{if(_map) _map.getContainer().style.cursor='';}}
+        }};
+        window.toggleMeasure=function(){{
+          measureMode=!measureMode;
+          let b=document.getElementById('measureBtn');
+          b.textContent=measureMode?'إلغاء القياس':'قياس';
+          if(measureMode){{addPointMode=false; if(_map) _map.getContainer().style.cursor='crosshair';}}else{{if(_map) _map.getContainer().style.cursor='';}}
+        }};
+        window.clearMap=function(){{
+          measurePoints=[];
+          if(measureLine){{_map.removeLayer(measureLine); measureLine=null;}}
+          measureMarkers.forEach(m=>_map.removeLayer(m));
+          measureMarkers=[];
+          tempMarkers.forEach(m=>_map.removeLayer(m));
+          tempMarkers=[];
+          document.getElementById('distanceLabel').textContent='0';
+        }};
+        setTimeout(()=>{{
+          _map=L.map('map').setView([35.1318,36.7578],13);
+          let osm=L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(_map);
+          let sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}').addTo(_map);
+          L.control.layers({{"عادية":osm,"قمر":sat}}).addTo(_map);
+          setTimeout(()=>_map.invalidateSize(),300);
+          _towers.forEach(t=>{{L.marker([t.lat,t.lng]).addTo(_map).bindPopup(t.name);}});
+          _map.on('click',e=>{{
+            document.getElementById('coordsLabel').textContent=e.latlng.lat.toFixed(5)+','+e.latlng.lng.toFixed(5);
+            if(measureMode){{
+              measurePoints.push(e.latlng);
+              let mk=L.marker(e.latlng).addTo(_map);
+              measureMarkers.push(mk);
+              if(measureLine) _map.removeLayer(measureLine);
+              if(measurePoints.length>1){{
+                measureLine=L.polyline(measurePoints,{{color:'#ffbe4d',weight:4,dashArray:'8,8'}}).addTo(_map);
+                let d=0;
+                for(let i=1;i<measurePoints.length;i++){{d+=measurePoints[i-1].distanceTo(measurePoints[i]);}}
+                document.getElementById('distanceLabel').textContent=(d/1000).toFixed(3)+' كم';
+              }}
+              return;
+            }}
+            if(addPointMode){{
+              let lat=e.latlng.lat.toFixed(6), lng=e.latlng.lng.toFixed(6);
+              L.popup().setLatLng(e.latlng).setContent('<div><b>نقطة جديدة</b><br><input id="newPointName" placeholder="اسم" style="width:100%;margin:6px 0;padding:8px"><input id="newPointArea" placeholder="منطقة" style="width:100%;margin:4px 0;padding:8px"><button onclick="saveNewPoint('+lat+','+lng+')" style="width:100%;background:#ffbe4d;border:0;padding:9px;border-radius:8px;font-weight:800">حفظ</button></div>').openOn(_map);
+            }}
+          }});
+          window.saveNewPoint=function(lat,lng){{
+            let name=document.getElementById('newPointName').value||'نقطة';
+            let area=document.getElementById('newPointArea').value||'';
+            fetch('/add_tower',{{method:'POST',body:new URLSearchParams({{name:name,area:area,lat:lat,lng:lng}})}}).then(r=>{{if(r.ok){{_map.closePopup(); alert('تمت إضافة '+name);}}}});
+          }};
+        }},300);
+        </script>'''
     if v=='support':
-        return '''<div style=max-width:500px;margin:0 auto><div class=card style=text-align:center;padding:16px><b>💬 الدعم الفني</b><div style=font-size:18px;color:#ffbe4d;margin:8px 0>+90 534 485 10 45</div><a href=https://wa.me/905344851045 target=_blank style=display:inline-block;background:#22c55e;color:#fff;padding:8px 16px;border-radius:8px;text-decoration:none>واتساب</a></div></div>'''
+        return """<div class=card style='text-align:center;max-width:500px;margin:0 auto'><h2>الدعم</h2><a href='https://wa.me/905344851045' target=_blank style='display:inline-block;background:#22c55e;color:#fff;padding:14px 24px;border-radius:14px;text-decoration:none;margin:6px;font-weight:800'>واتساب</a><br><a href='tel:+905344851045' style='display:inline-block;background:#0ea5e9;color:#fff;padding:12px 22px;border-radius:14px;text-decoration:none;margin:6px'>اتصال</a></div>"""
     if v=='settings':
-        return '''<div style=max-width:500px;margin:0 auto><div class=card><b>الإعدادات</b><div style=margin-top:8px><button onclick=toggleThemeNoReload() class=btn-gold>تبديل ليل/نهار فوري</button></div></div></div>'''
-    return '<div class=card>غير موجود</div>'
+        us=qall("SELECT * FROM users ORDER BY phone DESC")
+        uh=""
+        for u in us:
+            ph=esc(u["phone"])
+            un=esc(u.get("username") or "")
+            ro=esc(u.get("role") or "")
+            badge="<span style='background:#ffbe4d;color:#111;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:800'>مدير</span>" if ro=='manager' else "<span style='background:#ffffff15;color:#aaa;padding:2px 8px;border-radius:8px;font-size:11px'>فني</span>"
+            uh+=f'<div class="card" id="user-{ph}" data-phone="{ph}" data-username="{un}" data-role="{ro}" style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center"><div><b>{un}</b><br><span style="color:#ffbe4d;font-family:monospace">{ph}</span> {badge}</div><div style="display:flex;gap:6px"><button class=btn-gold onclick="openEditUser(\'{ph}\')" style="padding:8px 10px">تعديل</button><button class=btn-del onclick="askDel(\'/del_user/{ph}\')" style="padding:8px 10px">حذف</button></div></div>'
+        return f'''<div style='max-width:800px;margin:0 auto'><div class=card><h3>كلمة السر</h3><form id=formPass style='display:flex;gap:8px'><input name=newpass type=password placeholder='جديدة' required style='flex:1'><button class=btn-gold>حفظ</button></form></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px'><div class=card style='text-align:center'><h4>اللغة</h4><button onclick="toggleLang()" style='width:100%;padding:14px;border-radius:12px;background:#1f2937;color:#fff;font-weight:800;cursor:pointer'>تغيير اللغة</button></div><div class=card><h4>إضافة يوزر</h4><form id=formUser style='display:flex;flex-direction:column;gap:10px'><input name=user_field placeholder='رقم / يوزر' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><input name=password type=password placeholder='كلمة السر' required style='padding:14px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><select name=role style='padding:12px;background:#0f1424;border:1px solid #ffffff20;border-radius:12px;color:#fff'><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold style='padding:14px'>إضافة</button></form></div></div><div class=card><h4>تصدير</h4><div style='display:flex;gap:8px'><a href='/api/export/users' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#22c55e;color:#fff'>يوزرات Excel</a><a href='/api/export/dishes' class=btn-gold style='text-decoration:none;padding:8px 12px;background:#0ea5e9;color:#fff'>صحون Excel</a></div></div>{uh}</div><script>
+        window.openEditUser=function(ph){{
+          let c=document.getElementById('user-'+ph);
+          let body=document.getElementById('editBody');
+          body.innerHTML='<input id=edit_u_field value="'+c.dataset.phone+'" style="width:100%;padding:12px"><input id=edit_u_pass type="password" placeholder="كلمة سر جديدة (اتركه فارغ اذا ما بدك تغير)" style="width:100%;padding:12px;margin-top:8px"><select id=edit_u_role style="width:100%;padding:12px;margin-top:8px"><option value="tech" '+(c.dataset.role=='tech'?'selected':'')+'>فني</option><option value="manager" '+(c.dataset.role=='manager'?'selected':'')+'>مدير</option></select><button onclick="saveUser(\\''+ph+'\\')" class=btn-gold style="width:100%;padding:14px;margin-top:12px">حفظ</button>';
+          document.getElementById('editModal').classList.add('show');
+        }};
+        window.saveUser=function(oldPh){{
+          let ff=document.getElementById('edit_u_field').value.trim();
+          let pw=document.getElementById('edit_u_pass').value;
+          let ro=document.getElementById('edit_u_role').value;
+          if(!ff){{alert('مطلوب');return;}}
+          let data={{old_phone:oldPh,phone:ff,username:ff,role:ro}};
+          if(pw.trim()!='') data.password=pw.trim();
+          fetch('/edit_user',{{method:'POST',body:new URLSearchParams(data)}}).then(r=>{{if(!r.ok)r.text().then(t=>alert(t));else{{closeEditModal();loadPage('settings',true);}}}});
+        }};
+        document.getElementById('formPass').addEventListener('submit', async e=>{{
+          e.preventDefault();
+          let r=await fetch('/change_pass',{{method:'POST',body:new FormData(e.target)}});
+          if(r.ok){{e.target.reset(); alert('تم');}}
+        }});
+        document.getElementById('formUser').addEventListener('submit', async e=>{{
+          e.preventDefault();
+          let r=await fetch('/add_user',{{method:'POST',body:new FormData(e.target)}});
+          if(r.ok){{e.target.reset(); loadPage('settings',true);}} else {{let t=await r.text(); alert(t);}}
+        }});
+        </script>'''
+    return "<div class=card>الصفحة غير موجودة</div>"
+
 def layout(c,v='home'):
-    user=esc(session.get('username') or session.get('phone') or '')
     th=session.get('theme','dark')
-    return f'''<html dir=rtl lang=ar><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><style>*{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;background:#0a0e2a;color:#fff;direction:rtl}}body.light{{background:#eef2f7;color:#111}}body.light .card{{background:#fff;color:#111}}.top{{position:fixed;top:0;left:0;right:0;height:50px;background:#0f172a;display:flex;align-items:center;justify-content:space-between;padding:0 10px;z-index:1003}}.sidebar{{position:fixed;top:0;right:0;width:240px;height:100%;background:#0f172a;z-index:1002;padding-top:58px;transform:translateX(110%);transition:transform .18s;overflow-y:auto}}.sidebar.active{{transform:none}}.sidebar a{{display:block;padding:10px 12px;margin:4px 8px;color:#cbd5e1;text-decoration:none;border-radius:8px;background:#ffffff08}}.sidebar a.active{{background:#ffbe4d;color:#111;font-weight:900}}.main{{margin-top:58px;padding:8px}}.card{{background:#1e253a;padding:10px;border-radius:10px;margin-bottom:6px;border:1px solid #ffffff08}}.btn-gold{{background:#ffbe4d;color:#111;padding:6px 12px;border:0;border-radius:8px;font-weight:700}}#delModal,#editModal{{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.15s;z-index:2000}}#delModal.show,#editModal.show{{opacity:1;pointer-events:auto}}#delBox,#editBox{{background:#1e253a;padding:16px;border-radius:12px;width:92%;max-width:360px}}</style></head><body class="{th}"><div id=overlay onclick="toggleSb(false)"></div><div class=sidebar id=sb><div style='padding:0 12px 8px;border-bottom:1px solid #ffffff10'><div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><small style='color:#888'>{user}</small></div><a href="javascript:loadPage('home')" id=nav-home>🏠 الرئيسية</a><a href="javascript:loadPage('dishes')" id=nav-dishes>📦 الصحون</a><a href="javascript:loadPage('ping')" id=nav-ping>📶 بنج</a><a href="javascript:loadPage('towers')" id=nav-towers>🏰 الأبراج</a><a href="javascript:loadPage('subs')" id=nav-subs>👥 المشتركين</a><a href="javascript:loadPage('ledger')" id=nav-ledger>💰 الحسابات</a><a href="javascript:loadPage('logs')" id=nav-logs>📝 السجل</a><a href="javascript:loadPage('support')" id=nav-support style='background:#22c55e;color:#fff;font-weight:900'>💬 الدعم الفني - 905344851045+</a><a href="javascript:loadPage('settings')" id=nav-settings>⚙️ الإعدادات</a><a href="javascript:logoutFast()" style='margin-top:10px;color:#ef4444;background:#ef444415'>خروج</a></div><div class=top><div style='display:flex;gap:6px'><span onclick="toggleSb()" style='font-size:18px;cursor:pointer;padding:4px 8px;background:#ffffff10;border-radius:8px'>☰</span><input id=topsearch placeholder='بحث...' style='width:120px;padding:6px'></div><div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><div><button onclick="toggleThemeNoReload()" style='background:#ffffff10;color:#fff;border:1px solid #ffffff15;padding:5px 8px;border-radius:8px'>🌓</button></div></div><div class=main id=mn>{c}</div><div id=delModal><div id=delBox><h3 style='text-align:center'>حذف؟</h3><div style='display:flex;gap:8px'><button onclick="closeDel()" style='flex:1;padding:8px;border-radius:8px;background:transparent;color:#fff;border:1px solid #ffffff20'>تراجع</button><button id=delYes style='flex:1;padding:8px;border-radius:8px;background:#ef4444;color:#fff;border:0'>حذف</button></div></div></div><div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between'><b>تعديل</b><button onclick="closeEditModal()" style='background:#ffffff15;border:0;color:#fff;width:24px;height:24px;border-radius:50%'>✕</button></div><div id=editBody></div></div></div><script>let cur='{v}';function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay');let o=f!==undefined?f:!sb.classList.contains('active');sb.classList.toggle('active',o);ov.classList.toggle('show',o);}}let pageCache={{}};async function loadPage(v,force=false,push=true){{if(push&&cur!==v){{try{{history.pushState({{page:v}},'', '/dash?v='+v);}}catch{{}}}}cur=v;toggleSb(false);document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));let n=document.getElementById('nav-'+v);if(n)n.classList.add('active');let mn=document.getElementById('mn');if(!force&&pageCache[v]){{mn.innerHTML=pageCache[v];execScripts();}}else mn.innerHTML='<div class=card>...</div>';try{{let r=await fetch('/api/page?v='+v,{{credentials:'same-origin',cache:'no-store'}});let h=await r.text();pageCache[v]=h;mn.innerHTML=h;execScripts();}}catch{{mn.innerHTML='<div class=card>خطأ</div>';}}}}function execScripts(){{let mn=document.getElementById('mn');mn.querySelectorAll('script').forEach(old=>{{let s=document.createElement('script');s.textContent=old.textContent;document.body.appendChild(s);s.remove();}});}}function askDel(url,id,type){{window._delUrl=url;window._delId=id;window._delType=type;document.getElementById('delModal').classList.add('show');}}function closeDel(){{document.getElementById('delModal').classList.remove('show');}}window.closeEditModal=function(){{document.getElementById('editModal').classList.remove('show');}};document.getElementById('delYes').onclick=()=>{{let el=document.getElementById((window._delType||'dish')+'-'+window._delId);let url=window._delUrl;document.getElementById('delModal').classList.remove('show');if(el){{el.style.transform='scale(0.9)';el.style.opacity='0';setTimeout(()=>el.style.display='none',180);}}if(url)fetch(url,{{credentials:'same-origin'}});}};window.toggleThemeNoReload=function(){{let isLight=document.body.classList.contains('light');document.body.classList.toggle('light',!isLight);document.body.classList.toggle('dark',isLight);localStorage.setItem('omaia_theme',isLight?'dark':'light');try{{fetch('/toggle_theme',{{credentials:'same-origin'}});}}catch(e){{}}}};window.logoutFast=async function(){{await fetch('/api/logout',{method:'POST',credentials:'same-origin'});location.replace('/login');}};(function(){{let th=localStorage.getItem('omaia_theme');if(th)document.body.className=th;}})();loadPage(cur,true,false);</script></body></html>'''
+    is_dark=(th=='dark')
+    bg='radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)' if is_dark else '#f1f5f9'
+    card_bg='#1e2433' if is_dark else '#ffffff'
+    txt='#ffffff' if is_dark else '#0f172a'
+    border='#ffffff12' if is_dark else '#e2e8f0'
+    cur_user=qone("SELECT * FROM users WHERE phone=?",(session.get('phone') or '',)) or {}
+    role=cur_user.get('role') or session.get('role') or 'tech'
+    req_lang=session.get('lang','ar')
+    is_rtl=req_lang=='ar'
+    def L(ar,en):
+        return ar if is_rtl else en
+    username_display=esc(cur_user.get('username') or session.get('phone') or '')
+    sidebar_pos="right:0; left:auto; transform:translateX(110%);" if is_rtl else "left:0; right:auto; transform:translateX(-110%);"
+    side="right" if is_rtl else "left"
+    dir_attr="rtl" if is_rtl else "ltr"
+    return f"""<html dir={dir_attr} lang={req_lang}><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+<link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
+<style>
+*{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;background:{bg};color:{txt};overflow-x:hidden;direction:{dir_attr}}}
+.top{{position:fixed;top:0;left:0;right:0;height:62px;background:linear-gradient(90deg,#0f172af2,#111827f2);backdrop-filter:blur(16px);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1003;border-bottom:1px solid #ffffff12}}
+.sidebar{{position:fixed;top:0;width:285px;height:100%;background:linear-gradient(180deg,#0f172a 0%,#070e22 100%);color:#fff;z-index:1002;padding-top:70px;{sidebar_pos}transition:transform .28s cubic-bezier(.4,0,.2,1);overflow-y:auto}}
+.sidebar.active{{transform:none}}
+.sidebar a{{display:flex;align-items:center;gap:11px;padding:12px 15px;margin:6px 11px;color:#cbd5e1;text-decoration:none;border-radius:13px;background:#ffffff06}}
+.sidebar a.active{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800}}
+#overlay{{position:fixed;inset:0;background:#0008;z-index:1001;display:none}}#overlay.show{{display:block}}
+.main{{margin-top:74px;padding:14px;min-height:90vh}}
+.card{{background:{card_bg};color:{txt};padding:15px;border-radius:15px;margin-bottom:11px;border:1px solid {border}}}
+input,select{{padding:12px 14px;margin:5px 0;border-radius:11px;border:1px solid {border};width:100%;background:#ffffff07;color:{txt}}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:9px 16px;border:0;border-radius:11px;font-weight:800;cursor:pointer}}
+.btn-del{{background:linear-gradient(90deg,#ef4444,#dc2626);color:#fff;padding:8px 13px;border:0;border-radius:11px;cursor:pointer}}
+#delModal, #editModal{{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.28s;z-index:2000}}
+#delModal.show, #editModal.show{{opacity:1;pointer-events:auto}}
+#delBox, #editBox{{background:{card_bg};color:{txt};padding:24px;border-radius:18px;width:92%;max-width:450px}}
+</style></head><body>
+<div id=overlay onclick="toggleSb(false)"></div>
+<div class=sidebar id=sb>
+<div style='padding:0 18px 10px;border-bottom:1px solid #ffffff0a;margin-bottom:8px'><div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><small style='color:#888'>{username_display} • {role}</small></div>
+<a href="javascript:loadPage('home')" id=nav-home>🏠 {L('الرئيسية','Home')}</a>
+<a href="javascript:loadPage('dishes')" id=nav-dishes>📡 {L('الصحون','Dishes')}</a>
+<a href="javascript:loadPage('ping')" id=nav-ping>📶 {L('بنج','Ping')}</a>
+<a href="javascript:loadPage('network')" id=nav-network>📊 {L('حالة الشبكة','Network')}</a>
+<a href="javascript:loadPage('towers')" id=nav-towers>🗼 {L('الأبراج','Towers')}</a>
+<a href="javascript:loadPage('subs')" id=nav-subs>👥 {L('المشتركين','Subs')}</a>
+<a href="javascript:loadPage('ledger')" id=nav-ledger>📒 {L('الحسابات','Accounts')}</a>
+<a href="javascript:loadPage('logs')" id=nav-logs>📜 {L('السجل','Logs')}</a>
+<a href="javascript:loadPage('map')" id=nav-map>🗺 {L('الخريطة','Map')}</a>
+<a href="javascript:loadPage('settings')" id=nav-settings>⚙ {L('الإعدادات','Settings')}</a>
+<a href="javascript:logoutFast()" style='margin-top:10px;background:#ef444418'>🚪 {L('خروج','Logout')}</a>
+</div>
+<div class=top>
+<div style='display:flex;gap:8px;align-items:center'><span onclick="toggleSb()" style='font-size:24px;cursor:pointer;padding:6px 8px;background:#ffffff0a;border-radius:8px'>☰</span><input id=topsearch placeholder='بحث...' oninput="globalSearchTop(this.value)" style='background:#1f2937;border:1px solid #ffffff15;color:#fff;padding:8px 12px;border-radius:10px;width:42px;transition:all .22s' onfocus="this.style.width='160px'" onblur="setTimeout(()=>this.style.width='42px',200)"></div>
+<div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div style='display:flex;gap:8px'><button onclick="toggleTheme()" style='background:#ffffff0a;color:#fff;border:1px solid #ffffff0f;padding:8px 10px;border-radius:10px'>🌓</button></div>
+</div>
+<div id=searchResults style='position:fixed;top:66px;{side}:12px;max-width:400px;width:90%;background:#1e2433;border:1px solid #ffffff15;border-radius:12px;z-index:1500;display:none;max-height:60vh;overflow:auto'></div>
+<div class=main id=mn>{c}</div>
+<div id=delModal><div id=delBox><div style='font-size:32px;text-align:center'>🗑</div><h3 style='text-align:center'>تأكيد الحذف؟</h3><div style='display:flex;gap:10px;margin-top:14px'><button onclick="closeDel()" style='flex:1;padding:12px;border-radius:10px;background:transparent;color:{txt};border:1px solid {border}'>تراجع</button><button id=delYes style='flex:1;padding:12px;border-radius:10px;background:#ef4444;color:#fff;border:0;font-weight:800'>حذف</button></div></div></div>
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;margin-bottom:12px'><h3 style='margin:0'>تعديل</h3><button onclick="closeEditModal()" style='background:#ffffff12;border:0;color:{txt};width:32px;height:32px;border-radius:50%'>✕</button></div><div id=editBody></div></div></div>
+<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
+<script>
+let cur='{v}';
+function toggleSb(f){{
+  let sb=document.getElementById('sb'),ov=document.getElementById('overlay');
+  let o=f!==undefined?f:!sb.classList.contains('active');
+  sb.classList.toggle('active',o);
+  ov.classList.toggle('show',o);
+}}
+let pageCache={{}};
+try{{pageCache=JSON.parse(localStorage.getItem('omaia_cache_v5')||'{{}}');}}catch(e){{pageCache={{}};}}
+function saveCache(){{try{{localStorage.setItem('omaia_cache_v5',JSON.stringify(pageCache));}}catch(e){{}}}}
+function prefetchPage(v){{
+  if(pageCache[v]) return;
+  fetch('/api/page?v='+v,{{cache:'no-store'}}).then(r=>r.text()).then(h=>{{ if(h && h.length>100){{ pageCache[v]=h; saveCache(); }} }}).catch(()=>{{}});
+}}
+async function loadPage(v,force=false,push=true){{
+  if(push && cur!==v){{try{{history.pushState({{page:v}},'', '/dash?v='+v);}}catch(e){{}}}}
+  cur=v;
+  toggleSb(false);
+  document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
+  let n=document.getElementById('nav-'+v);
+  if(n) n.classList.add('active');
+  let mn=document.getElementById('mn');
+  if(!force && pageCache[v]){{
+    mn.innerHTML=pageCache[v];
+    execScripts();
+    bind();
+    fetch('/api/page?v='+v,{{cache:'no-store'}}).then(r=>r.text()).then(h=>{{ if(h && h.length>100){{ pageCache[v]=h; saveCache(); }} }}).catch(()=>{{}});
+    return;
+  }}
+  mn.innerHTML='<div class=card>جاري التحميل...</div>';
+  try{{
+    let r=await fetch('/api/page?v='+v,{{cache:'no-store'}});
+    let h=await r.text();
+    pageCache[v]=h;
+    saveCache();
+    mn.innerHTML=h;
+    execScripts();
+    bind();
+  }}catch(e){{mn.innerHTML='<div class=card>خطأ: '+e+'</div>';}}
+}}
+function execScripts(){{
+  let mn=document.getElementById('mn');
+  mn.querySelectorAll('script').forEach(old=>{{
+    let s=document.createElement('script');
+    s.textContent=old.textContent;
+    document.body.appendChild(s);
+    old.remove();
+  }});
+}}
+function bind(){{
+  document.querySelectorAll('form[data-ajax]').forEach(f=>{{
+    if(f.dataset.bound) return;
+    f.dataset.bound='1';
+    f.addEventListener('submit', async e=>{{
+      e.preventDefault();
+      let r=await fetch(f.action,{{method:'POST',body:new FormData(f)}});
+      if(r.ok){{ delete pageCache[cur]; loadPage(cur,true,false); }} else {{ let t=await r.text(); alert(t); }}
+    }});
+  }});
+}}
+function askDel(url, id){{
+  window._delUrl=url;
+  window._delId=id;
+  document.getElementById('delModal').classList.add('show');
+}}
+function closeDel(){{
+  document.getElementById('delModal').classList.remove('show');
+  window._delUrl=null;
+}}
+window.closeEditModal=function(){{
+  document.getElementById('editModal').classList.remove('show');
+}};
+document.getElementById('delYes').onclick=async()=>{{
+  if(!window._delUrl) return;
+  let btn=document.getElementById('delYes');
+  let orig=btn.textContent;
+  btn.textContent='جاري...';
+  btn.disabled=true;
+  try{{
+    let r=await fetch(window._delUrl);
+    if(r.ok){{
+      if(window._delId){{
+        let el=document.getElementById('dish-'+window._delId);
+        if(el) el.style.display='none';
+        el=document.getElementById('tower-'+window._delId);
+        if(el) el.style.display='none';
+      }}
+      closeDel();
+      delete pageCache[cur];
+      setTimeout(()=>loadPage(cur,true,false),300);
+    }} else {{let t=await r.text(); alert(t);}}
+  }}catch(e){{alert(e);}}
+  btn.textContent=orig;
+  btn.disabled=false;
+}};
+async function toggleTheme(){{
+  await fetch('/toggle_theme');
+  location.reload();
+}}
+window.toggleLang=async function(){{
+  try{{await fetch('/toggle_lang');}}catch(e){{}}
+  location.reload();
+}};
+window.globalSearchTop=async function(q){{
+  let box=document.getElementById('searchResults');
+  if(!q || q.length<2){{box.style.display='none'; return;}}
+  let r=await fetch('/api/search?q='+encodeURIComponent(q));
+  let d=await r.json();
+  if(!d.length){{box.style.display='none'; return;}}
+  let h='';
+  d.forEach(x=>{{h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid #ffffff08"><b>'+x.title+'</b><br><small style="color:#888">'+x.sub+'</small></div>';}});
+  box.innerHTML=h;
+  box.style.display='block';
+}};
+window.logoutFast=async function(){{
+  await fetch('/api/logout',{{method:'POST'}});
+  try{{localStorage.clear();}}catch(e){{}}
+  location.replace('/login');
+}};
+window.addEventListener('popstate',(e)=>{{
+  let v='home';
+  if(e.state && e.state.page) v=e.state.page;
+  else {{let p=new URLSearchParams(location.search); v=p.get('v')||'home';}}
+  loadPage(v,false,false);
+}});
+bind();
+execScripts();
+loadPage(cur,true,false);
+if(!history.state){{try{{history.replaceState({{page:cur}},'', '/dash?v='+cur);}}catch(e){{}}}}
+setTimeout(()=>{{['home','dishes','ping','logs','towers','subs'].forEach(p=>prefetchPage(p));}},600);
+</script></body></html>"""
+
 if __name__=='__main__':
-    app.run(host='0.0.0.0',port=int(os.environ.get('PORT',10000)),debug=False)
-# line 347 - safe - no نقص
-# line 348 - safe - no نقص
-# line 349 - safe - no نقص
-# ---- block 350 - OMAIA ISP optimized - no error - line 350 ----
-# line 351 - safe - no نقص
-# line 352 - safe - no نقص
-# line 353 - safe - no نقص
-# line 354 - safe - no نقص
-def _helper_355(): return 355
-# line 356 - safe - no نقص
-# line 357 - safe - no نقص
-# line 358 - safe - no نقص
-# line 359 - safe - no نقص
-# ---- block 360 - OMAIA ISP optimized - no error - line 360 ----
-# line 361 - safe - no نقص
-# line 362 - safe - no نقص
-# line 363 - safe - no نقص
-# line 364 - safe - no نقص
-def _helper_365(): return 365
-# line 366 - safe - no نقص
-# line 367 - safe - no نقص
-# line 368 - safe - no نقص
-# line 369 - safe - no نقص
-# ---- block 370 - OMAIA ISP optimized - no error - line 370 ----
-# line 371 - safe - no نقص
-# line 372 - safe - no نقص
-# line 373 - safe - no نقص
-# line 374 - safe - no نقص
-def _helper_375(): return 375
-# line 376 - safe - no نقص
-# line 377 - safe - no نقص
-# line 378 - safe - no نقص
-# line 379 - safe - no نقص
-# ---- block 380 - OMAIA ISP optimized - no error - line 380 ----
-# line 381 - safe - no نقص
-# line 382 - safe - no نقص
-# line 383 - safe - no نقص
-# line 384 - safe - no نقص
-def _helper_385(): return 385
-# line 386 - safe - no نقص
-# line 387 - safe - no نقص
-# line 388 - safe - no نقص
-# line 389 - safe - no نقص
-# ---- block 390 - OMAIA ISP optimized - no error - line 390 ----
-# line 391 - safe - no نقص
-# line 392 - safe - no نقص
-# line 393 - safe - no نقص
-# line 394 - safe - no نقص
-def _helper_395(): return 395
-# line 396 - safe - no نقص
-# line 397 - safe - no نقص
-# line 398 - safe - no نقص
-# line 399 - safe - no نقص
-# ---- block 400 - OMAIA ISP optimized - no error - line 400 ----
-# line 401 - safe - no نقص
-# line 402 - safe - no نقص
-# line 403 - safe - no نقص
-# line 404 - safe - no نقص
-def _helper_405(): return 405
-# line 406 - safe - no نقص
-# line 407 - safe - no نقص
-# line 408 - safe - no نقص
-# line 409 - safe - no نقص
-# ---- block 410 - OMAIA ISP optimized - no error - line 410 ----
-# line 411 - safe - no نقص
-# line 412 - safe - no نقص
-# line 413 - safe - no نقص
-# line 414 - safe - no نقص
-def _helper_415(): return 415
-# line 416 - safe - no نقص
-# line 417 - safe - no نقص
-# line 418 - safe - no نقص
-# line 419 - safe - no نقص
-# ---- block 420 - OMAIA ISP optimized - no error - line 420 ----
-# line 421 - safe - no نقص
-# line 422 - safe - no نقص
-# line 423 - safe - no نقص
-# line 424 - safe - no نقص
-def _helper_425(): return 425
-# line 426 - safe - no نقص
-# line 427 - safe - no نقص
-# line 428 - safe - no نقص
-# line 429 - safe - no نقص
-# ---- block 430 - OMAIA ISP optimized - no error - line 430 ----
-# line 431 - safe - no نقص
-# line 432 - safe - no نقص
-# line 433 - safe - no نقص
-# line 434 - safe - no نقص
-def _helper_435(): return 435
-# line 436 - safe - no نقص
-# line 437 - safe - no نقص
-# line 438 - safe - no نقص
-# line 439 - safe - no نقص
-# ---- block 440 - OMAIA ISP optimized - no error - line 440 ----
-# line 441 - safe - no نقص
-# line 442 - safe - no نقص
-# line 443 - safe - no نقص
-# line 444 - safe - no نقص
-def _helper_445(): return 445
-# line 446 - safe - no نقص
-# line 447 - safe - no نقص
-# line 448 - safe - no نقص
-# line 449 - safe - no نقص
-# ---- block 450 - OMAIA ISP optimized - no error - line 450 ----
-# line 451 - safe - no نقص
-# line 452 - safe - no نقص
-# line 453 - safe - no نقص
-# line 454 - safe - no نقص
-def _helper_455(): return 455
-# line 456 - safe - no نقص
-# line 457 - safe - no نقص
-# line 458 - safe - no نقص
-# line 459 - safe - no نقص
-# ---- block 460 - OMAIA ISP optimized - no error - line 460 ----
-# line 461 - safe - no نقص
-# line 462 - safe - no نقص
-# line 463 - safe - no نقص
-# line 464 - safe - no نقص
-def _helper_465(): return 465
-# line 466 - safe - no نقص
-# line 467 - safe - no نقص
-# line 468 - safe - no نقص
-# line 469 - safe - no نقص
-# ---- block 470 - OMAIA ISP optimized - no error - line 470 ----
-# line 471 - safe - no نقص
-# line 472 - safe - no نقص
-# line 473 - safe - no نقص
-# line 474 - safe - no نقص
-def _helper_475(): return 475
-# line 476 - safe - no نقص
-# line 477 - safe - no نقص
-# line 478 - safe - no نقص
-# line 479 - safe - no نقص
-# ---- block 480 - OMAIA ISP optimized - no error - line 480 ----
-# line 481 - safe - no نقص
-# line 482 - safe - no نقص
-# line 483 - safe - no نقص
-# line 484 - safe - no نقص
-def _helper_485(): return 485
-# line 486 - safe - no نقص
-# line 487 - safe - no نقص
-# line 488 - safe - no نقص
-# line 489 - safe - no نقص
-# ---- block 490 - OMAIA ISP optimized - no error - line 490 ----
-# line 491 - safe - no نقص
-# line 492 - safe - no نقص
-# line 493 - safe - no نقص
-# line 494 - safe - no نقص
-def _helper_495(): return 495
-# line 496 - safe - no نقص
-# line 497 - safe - no نقص
-# line 498 - safe - no نقص
-# line 499 - safe - no نقص
-# ---- block 500 - OMAIA ISP optimized - no error - line 500 ----
-# line 501 - safe - no نقص
-# line 502 - safe - no نقص
-# line 503 - safe - no نقص
-# line 504 - safe - no نقص
-def _helper_505(): return 505
-# line 506 - safe - no نقص
-# line 507 - safe - no نقص
-# line 508 - safe - no نقص
-# line 509 - safe - no نقص
-# ---- block 510 - OMAIA ISP optimized - no error - line 510 ----
-# line 511 - safe - no نقص
-# line 512 - safe - no نقص
-# line 513 - safe - no نقص
-# line 514 - safe - no نقص
-def _helper_515(): return 515
-# line 516 - safe - no نقص
-# line 517 - safe - no نقص
-# line 518 - safe - no نقص
-# line 519 - safe - no نقص
-# ---- block 520 - OMAIA ISP optimized - no error - line 520 ----
-# line 521 - safe - no نقص
-# line 522 - safe - no نقص
-# line 523 - safe - no نقص
-# line 524 - safe - no نقص
-def _helper_525(): return 525
-# line 526 - safe - no نقص
-# line 527 - safe - no نقص
-# line 528 - safe - no نقص
-# line 529 - safe - no نقص
-# ---- block 530 - OMAIA ISP optimized - no error - line 530 ----
-# line 531 - safe - no نقص
-# line 532 - safe - no نقص
-# line 533 - safe - no نقص
-# line 534 - safe - no نقص
-def _helper_535(): return 535
-# line 536 - safe - no نقص
-# line 537 - safe - no نقص
-# line 538 - safe - no نقص
-# line 539 - safe - no نقص
-# ---- block 540 - OMAIA ISP optimized - no error - line 540 ----
-# line 541 - safe - no نقص
-# line 542 - safe - no نقص
-# line 543 - safe - no نقص
-# line 544 - safe - no نقص
-def _helper_545(): return 545
-# line 546 - safe - no نقص
-# line 547 - safe - no نقص
-# line 548 - safe - no نقص
-# line 549 - safe - no نقص
-# ---- block 550 - OMAIA ISP optimized - no error - line 550 ----
-# line 551 - safe - no نقص
-# line 552 - safe - no نقص
-# line 553 - safe - no نقص
-# line 554 - safe - no نقص
-def _helper_555(): return 555
-# line 556 - safe - no نقص
-# line 557 - safe - no نقص
-# line 558 - safe - no نقص
-# line 559 - safe - no نقص
-# ---- block 560 - OMAIA ISP optimized - no error - line 560 ----
-# line 561 - safe - no نقص
-# line 562 - safe - no نقص
-# line 563 - safe - no نقص
-# line 564 - safe - no نقص
-def _helper_565(): return 565
-# line 566 - safe - no نقص
-# line 567 - safe - no نقص
-# line 568 - safe - no نقص
-# line 569 - safe - no نقص
-# ---- block 570 - OMAIA ISP optimized - no error - line 570 ----
-# line 571 - safe - no نقص
-# line 572 - safe - no نقص
-# line 573 - safe - no نقص
-# line 574 - safe - no نقص
-def _helper_575(): return 575
-# line 576 - safe - no نقص
-# line 577 - safe - no نقص
-# line 578 - safe - no نقص
-# line 579 - safe - no نقص
-# ---- block 580 - OMAIA ISP optimized - no error - line 580 ----
-# line 581 - safe - no نقص
-# line 582 - safe - no نقص
-# line 583 - safe - no نقص
-# line 584 - safe - no نقص
-def _helper_585(): return 585
-# line 586 - safe - no نقص
-# line 587 - safe - no نقص
-# line 588 - safe - no نقص
-# line 589 - safe - no نقص
-# ---- block 590 - OMAIA ISP optimized - no error - line 590 ----
-# line 591 - safe - no نقص
-# line 592 - safe - no نقص
-# line 593 - safe - no نقص
-# line 594 - safe - no نقص
-def _helper_595(): return 595
-# line 596 - safe - no نقص
-# line 597 - safe - no نقص
-# line 598 - safe - no نقص
-# line 599 - safe - no نقص
-# ---- block 600 - OMAIA ISP optimized - no error - line 600 ----
-# line 601 - safe - no نقص
-# line 602 - safe - no نقص
-# line 603 - safe - no نقص
-# line 604 - safe - no نقص
-def _helper_605(): return 605
-# line 606 - safe - no نقص
-# line 607 - safe - no نقص
-# line 608 - safe - no نقص
-# line 609 - safe - no نقص
-# ---- block 610 - OMAIA ISP optimized - no error - line 610 ----
-# line 611 - safe - no نقص
-# line 612 - safe - no نقص
-# line 613 - safe - no نقص
-# line 614 - safe - no نقص
-def _helper_615(): return 615
-# line 616 - safe - no نقص
-# line 617 - safe - no نقص
-# line 618 - safe - no نقص
-# line 619 - safe - no نقص
-# ---- block 620 - OMAIA ISP optimized - no error - line 620 ----
-# line 621 - safe - no نقص
-# line 622 - safe - no نقص
-# line 623 - safe - no نقص
-# line 624 - safe - no نقص
-def _helper_625(): return 625
-# line 626 - safe - no نقص
-# line 627 - safe - no نقص
-# line 628 - safe - no نقص
-# line 629 - safe - no نقص
-# ---- block 630 - OMAIA ISP optimized - no error - line 630 ----
-# line 631 - safe - no نقص
-# line 632 - safe - no نقص
-# line 633 - safe - no نقص
-# line 634 - safe - no نقص
-def _helper_635(): return 635
-# line 636 - safe - no نقص
-# line 637 - safe - no نقص
-# line 638 - safe - no نقص
-# line 639 - safe - no نقص
-# ---- block 640 - OMAIA ISP optimized - no error - line 640 ----
-# line 641 - safe - no نقص
-# line 642 - safe - no نقص
-# line 643 - safe - no نقص
-# line 644 - safe - no نقص
-def _helper_645(): return 645
-# line 646 - safe - no نقص
-# line 647 - safe - no نقص
-# line 648 - safe - no نقص
-# line 649 - safe - no نقص
-# ---- block 650 - OMAIA ISP optimized - no error - line 650 ----
-# line 651 - safe - no نقص
-# line 652 - safe - no نقص
-# line 653 - safe - no نقص
-# line 654 - safe - no نقص
-def _helper_655(): return 655
-# line 656 - safe - no نقص
-# line 657 - safe - no نقص
-# line 658 - safe - no نقص
-# line 659 - safe - no نقص
-# ---- block 660 - OMAIA ISP optimized - no error - line 660 ----
-# line 661 - safe - no نقص
-# line 662 - safe - no نقص
-# line 663 - safe - no نقص
-# line 664 - safe - no نقص
-def _helper_665(): return 665
-# line 666 - safe - no نقص
-# line 667 - safe - no نقص
-# line 668 - safe - no نقص
-# line 669 - safe - no نقص
-# ---- block 670 - OMAIA ISP optimized - no error - line 670 ----
-# line 671 - safe - no نقص
-# line 672 - safe - no نقص
-# line 673 - safe - no نقص
-# line 674 - safe - no نقص
-def _helper_675(): return 675
-# line 676 - safe - no نقص
-# line 677 - safe - no نقص
-# line 678 - safe - no نقص
-# line 679 - safe - no نقص
-# ---- block 680 - OMAIA ISP optimized - no error - line 680 ----
-# line 681 - safe - no نقص
-# line 682 - safe - no نقص
-# line 683 - safe - no نقص
-# line 684 - safe - no نقص
-def _helper_685(): return 685
-# line 686 - safe - no نقص
-# line 687 - safe - no نقص
-# line 688 - safe - no نقص
-# line 689 - safe - no نقص
-# ---- block 690 - OMAIA ISP optimized - no error - line 690 ----
-# line 691 - safe - no نقص
-# line 692 - safe - no نقص
-# line 693 - safe - no نقص
-# line 694 - safe - no نقص
-def _helper_695(): return 695
-# line 696 - safe - no نقص
-# line 697 - safe - no نقص
-# line 698 - safe - no نقص
-# line 699 - safe - no نقص
-# ---- block 700 - OMAIA ISP optimized - no error - line 700 ----
-# line 701 - safe - no نقص
-# line 702 - safe - no نقص
-# line 703 - safe - no نقص
-# line 704 - safe - no نقص
-def _helper_705(): return 705
-# line 706 - safe - no نقص
-# line 707 - safe - no نقص
-# line 708 - safe - no نقص
-# line 709 - safe - no نقص
-# ---- block 710 - OMAIA ISP optimized - no error - line 710 ----
-# line 711 - safe - no نقص
-# line 712 - safe - no نقص
-# line 713 - safe - no نقص
-# line 714 - safe - no نقص
-def _helper_715(): return 715
-# line 716 - safe - no نقص
-# line 717 - safe - no نقص
-# line 718 - safe - no نقص
-# line 719 - safe - no نقص
-# ---- block 720 - OMAIA ISP optimized - no error - line 720 ----
-# line 721 - safe - no نقص
-# line 722 - safe - no نقص
-# line 723 - safe - no نقص
-# line 724 - safe - no نقص
-def _helper_725(): return 725
-# line 726 - safe - no نقص
-# line 727 - safe - no نقص
-# line 728 - safe - no نقص
-# line 729 - safe - no نقص
-# ---- block 730 - OMAIA ISP optimized - no error - line 730 ----
-# line 731 - safe - no نقص
-# line 732 - safe - no نقص
-# line 733 - safe - no نقص
-# line 734 - safe - no نقص
-def _helper_735(): return 735
-# line 736 - safe - no نقص
-# line 737 - safe - no نقص
-# line 738 - safe - no نقص
-# line 739 - safe - no نقص
-# ---- block 740 - OMAIA ISP optimized - no error - line 740 ----
-# line 741 - safe - no نقص
-# line 742 - safe - no نقص
-# line 743 - safe - no نقص
-# line 744 - safe - no نقص
-def _helper_745(): return 745
-# line 746 - safe - no نقص
-# line 747 - safe - no نقص
-# line 748 - safe - no نقص
-# line 749 - safe - no نقص
-# ---- block 750 - OMAIA ISP optimized - no error - line 750 ----
-# line 751 - safe - no نقص
-# line 752 - safe - no نقص
-# line 753 - safe - no نقص
-# line 754 - safe - no نقص
-def _helper_755(): return 755
-# line 756 - safe - no نقص
-# line 757 - safe - no نقص
-# line 758 - safe - no نقص
-# line 759 - safe - no نقص
-# ---- block 760 - OMAIA ISP optimized - no error - line 760 ----
-# line 761 - safe - no نقص
-# line 762 - safe - no نقص
-# line 763 - safe - no نقص
-# line 764 - safe - no نقص
-def _helper_765(): return 765
-# line 766 - safe - no نقص
-# line 767 - safe - no نقص
-# line 768 - safe - no نقص
-# line 769 - safe - no نقص
-# ---- block 770 - OMAIA ISP optimized - no error - line 770 ----
-# line 771 - safe - no نقص
-# line 772 - safe - no نقص
-# line 773 - safe - no نقص
-# line 774 - safe - no نقص
-def _helper_775(): return 775
-# line 776 - safe - no نقص
-# line 777 - safe - no نقص
-# line 778 - safe - no نقص
-# line 779 - safe - no نقص
-# ---- block 780 - OMAIA ISP optimized - no error - line 780 ----
-# line 781 - safe - no نقص
-# line 782 - safe - no نقص
-# line 783 - safe - no نقص
-# line 784 - safe - no نقص
-def _helper_785(): return 785
-# line 786 - safe - no نقص
-# line 787 - safe - no نقص
-# line 788 - safe - no نقص
-# line 789 - safe - no نقص
-# ---- block 790 - OMAIA ISP optimized - no error - line 790 ----
-# line 791 - safe - no نقص
-# line 792 - safe - no نقص
-# line 793 - safe - no نقص
-# line 794 - safe - no نقص
-def _helper_795(): return 795
-# line 796 - safe - no نقص
-# line 797 - safe - no نقص
-# line 798 - safe - no نقص
-# line 799 - safe - no نقص
-# ---- block 800 - OMAIA ISP optimized - no error - line 800 ----
-# line 801 - safe - no نقص
-# line 802 - safe - no نقص
-# line 803 - safe - no نقص
-# line 804 - safe - no نقص
-def _helper_805(): return 805
-# line 806 - safe - no نقص
-# line 807 - safe - no نقص
-# line 808 - safe - no نقص
-# line 809 - safe - no نقص
-# ---- block 810 - OMAIA ISP optimized - no error - line 810 ----
-# line 811 - safe - no نقص
-# line 812 - safe - no نقص
-# line 813 - safe - no نقص
-# line 814 - safe - no نقص
-def _helper_815(): return 815
-# line 816 - safe - no نقص
-# line 817 - safe - no نقص
-# line 818 - safe - no نقص
-# line 819 - safe - no نقص
-# ---- block 820 - OMAIA ISP optimized - no error - line 820 ----
-# line 821 - safe - no نقص
-# line 822 - safe - no نقص
-# line 823 - safe - no نقص
-# line 824 - safe - no نقص
-def _helper_825(): return 825
-# line 826 - safe - no نقص
-# line 827 - safe - no نقص
-# line 828 - safe - no نقص
-# line 829 - safe - no نقص
-# ---- block 830 - OMAIA ISP optimized - no error - line 830 ----
-# line 831 - safe - no نقص
-# line 832 - safe - no نقص
-# line 833 - safe - no نقص
-# line 834 - safe - no نقص
-def _helper_835(): return 835
-# line 836 - safe - no نقص
-# line 837 - safe - no نقص
-# line 838 - safe - no نقص
-# line 839 - safe - no نقص
-# ---- block 840 - OMAIA ISP optimized - no error - line 840 ----
-# line 841 - safe - no نقص
-# line 842 - safe - no نقص
-# line 843 - safe - no نقص
-# line 844 - safe - no نقص
-def _helper_845(): return 845
-# line 846 - safe - no نقص
-# line 847 - safe - no نقص
-# line 848 - safe - no نقص
-# line 849 - safe - no نقص
-# ---- block 850 - OMAIA ISP optimized - no error - line 850 ----
-# line 851 - safe - no نقص
-# line 852 - safe - no نقص
-# line 853 - safe - no نقص
-# line 854 - safe - no نقص
-def _helper_855(): return 855
-# line 856 - safe - no نقص
-# line 857 - safe - no نقص
-# line 858 - safe - no نقص
-# line 859 - safe - no نقص
-# ---- block 860 - OMAIA ISP optimized - no error - line 860 ----
-# line 861 - safe - no نقص
-# line 862 - safe - no نقص
-# line 863 - safe - no نقص
-# line 864 - safe - no نقص
-def _helper_865(): return 865
-# line 866 - safe - no نقص
-# line 867 - safe - no نقص
-# line 868 - safe - no نقص
-# line 869 - safe - no نقص
-# ---- block 870 - OMAIA ISP optimized - no error - line 870 ----
-# line 871 - safe - no نقص
-# line 872 - safe - no نقص
-# line 873 - safe - no نقص
-# line 874 - safe - no نقص
-def _helper_875(): return 875
-# line 876 - safe - no نقص
-# line 877 - safe - no نقص
-# line 878 - safe - no نقص
-# line 879 - safe - no نقص
-# ---- block 880 - OMAIA ISP optimized - no error - line 880 ----
-# line 881 - safe - no نقص
-# line 882 - safe - no نقص
-# line 883 - safe - no نقص
-# line 884 - safe - no نقص
-def _helper_885(): return 885
-# line 886 - safe - no نقص
-# line 887 - safe - no نقص
-# line 888 - safe - no نقص
-# line 889 - safe - no نقص
-# ---- block 890 - OMAIA ISP optimized - no error - line 890 ----
-# line 891 - safe - no نقص
-# line 892 - safe - no نقص
-# line 893 - safe - no نقص
-# line 894 - safe - no نقص
-def _helper_895(): return 895
-# line 896 - safe - no نقص
-# line 897 - safe - no نقص
-# line 898 - safe - no نقص
-# line 899 - safe - no نقص
-# ---- block 900 - OMAIA ISP optimized - no error - line 900 ----
-# line 901 - safe - no نقص
-# line 902 - safe - no نقص
-# line 903 - safe - no نقص
-# line 904 - safe - no نقص
-def _helper_905(): return 905
-# line 906 - safe - no نقص
-# line 907 - safe - no نقص
-# line 908 - safe - no نقص
-# line 909 - safe - no نقص
-# ---- block 910 - OMAIA ISP optimized - no error - line 910 ----
-# line 911 - safe - no نقص
-# line 912 - safe - no نقص
-# line 913 - safe - no نقص
-# line 914 - safe - no نقص
-def _helper_915(): return 915
-# line 916 - safe - no نقص
-# line 917 - safe - no نقص
-# line 918 - safe - no نقص
-# line 919 - safe - no نقص
-# ---- block 920 - OMAIA ISP optimized - no error - line 920 ----
-# line 921 - safe - no نقص
-# line 922 - safe - no نقص
-# line 923 - safe - no نقص
-# line 924 - safe - no نقص
-def _helper_925(): return 925
-# line 926 - safe - no نقص
-# line 927 - safe - no نقص
-# line 928 - safe - no نقص
-# line 929 - safe - no نقص
-# ---- block 930 - OMAIA ISP optimized - no error - line 930 ----
-# line 931 - safe - no نقص
-# line 932 - safe - no نقص
-# line 933 - safe - no نقص
-# line 934 - safe - no نقص
-def _helper_935(): return 935
-# line 936 - safe - no نقص
-# line 937 - safe - no نقص
-# line 938 - safe - no نقص
-# line 939 - safe - no نقص
-# ---- block 940 - OMAIA ISP optimized - no error - line 940 ----
-# line 941 - safe - no نقص
-# line 942 - safe - no نقص
-# line 943 - safe - no نقص
-# line 944 - safe - no نقص
-def _helper_945(): return 945
-# line 946 - safe - no نقص
-# line 947 - safe - no نقص
-# line 948 - safe - no نقص
-# line 949 - safe - no نقص
-# ---- block 950 - OMAIA ISP optimized - no error - line 950 ----
-# line 951 - safe - no نقص
-# line 952 - safe - no نقص
-# line 953 - safe - no نقص
-# line 954 - safe - no نقص
-def _helper_955(): return 955
-# line 956 - safe - no نقص
-# line 957 - safe - no نقص
-# line 958 - safe - no نقص
-# line 959 - safe - no نقص
-# ---- block 960 - OMAIA ISP optimized - no error - line 960 ----
-# line 961 - safe - no نقص
-# line 962 - safe - no نقص
-# line 963 - safe - no نقص
-# line 964 - safe - no نقص
-def _helper_965(): return 965
-# line 966 - safe - no نقص
-# line 967 - safe - no نقص
-# line 968 - safe - no نقص
-# line 969 - safe - no نقص
-# ---- block 970 - OMAIA ISP optimized - no error - line 970 ----
-# line 971 - safe - no نقص
-# line 972 - safe - no نقص
-# line 973 - safe - no نقص
-# line 974 - safe - no نقص
-def _helper_975(): return 975
-# line 976 - safe - no نقص
-# line 977 - safe - no نقص
-# line 978 - safe - no نقص
-# line 979 - safe - no نقص
-# ---- block 980 - OMAIA ISP optimized - no error - line 980 ----
-# line 981 - safe - no نقص
-# line 982 - safe - no نقص
-# line 983 - safe - no نقص
-# line 984 - safe - no نقص
-def _helper_985(): return 985
-# line 986 - safe - no نقص
-# line 987 - safe - no نقص
-# line 988 - safe - no نقص
-# line 989 - safe - no نقص
-# ---- block 990 - OMAIA ISP optimized - no error - line 990 ----
-# line 991 - safe - no نقص
-# line 992 - safe - no نقص
-# line 993 - safe - no نقص
-# line 994 - safe - no نقص
-def _helper_995(): return 995
-# line 996 - safe - no نقص
-# line 997 - safe - no نقص
-# line 998 - safe - no نقص
-# line 999 - safe - no نقص
-# ---- block 1000 - OMAIA ISP optimized - no error - line 1000 ----
-# line 1001 - safe - no نقص
-# line 1002 - safe - no نقص
-# line 1003 - safe - no نقص
-# line 1004 - safe - no نقص
-def _helper_1005(): return 1005
-# line 1006 - safe - no نقص
-# line 1007 - safe - no نقص
-# line 1008 - safe - no نقص
-# line 1009 - safe - no نقص
-# ---- block 1010 - OMAIA ISP optimized - no error - line 1010 ----
-# line 1011 - safe - no نقص
-# line 1012 - safe - no نقص
-# line 1013 - safe - no نقص
-# line 1014 - safe - no نقص
-def _helper_1015(): return 1015
-# line 1016 - safe - no نقص
-# line 1017 - safe - no نقص
-# line 1018 - safe - no نقص
-# line 1019 - safe - no نقص
-# ---- block 1020 - OMAIA ISP optimized - no error - line 1020 ----
-# line 1021 - safe - no نقص
-# line 1022 - safe - no نقص
-# line 1023 - safe - no نقص
-# line 1024 - safe - no نقص
-def _helper_1025(): return 1025
-# line 1026 - safe - no نقص
-# line 1027 - safe - no نقص
-# line 1028 - safe - no نقص
-# line 1029 - safe - no نقص
-# ---- block 1030 - OMAIA ISP optimized - no error - line 1030 ----
-# line 1031 - safe - no نقص
-# line 1032 - safe - no نقص
-# line 1033 - safe - no نقص
-# line 1034 - safe - no نقص
-def _helper_1035(): return 1035
-# line 1036 - safe - no نقص
-# line 1037 - safe - no نقص
-# line 1038 - safe - no نقص
-# line 1039 - safe - no نقص
-# ---- block 1040 - OMAIA ISP optimized - no error - line 1040 ----
-# line 1041 - safe - no نقص
-# line 1042 - safe - no نقص
-# line 1043 - safe - no نقص
-# line 1044 - safe - no نقص
-def _helper_1045(): return 1045
-# line 1046 - safe - no نقص
-# line 1047 - safe - no نقص
-# line 1048 - safe - no نقص
-# line 1049 - safe - no نقص
-# ---- block 1050 - OMAIA ISP optimized - no error - line 1050 ----
-# line 1051 - safe - no نقص
-# line 1052 - safe - no نقص
-# line 1053 - safe - no نقص
-# line 1054 - safe - no نقص
-def _helper_1055(): return 1055
-# line 1056 - safe - no نقص
-# line 1057 - safe - no نقص
-# line 1058 - safe - no نقص
-# line 1059 - safe - no نقص
-# ---- block 1060 - OMAIA ISP optimized - no error - line 1060 ----
-# line 1061 - safe - no نقص
-# line 1062 - safe - no نقص
-# line 1063 - safe - no نقص
-# line 1064 - safe - no نقص
-def _helper_1065(): return 1065
-# line 1066 - safe - no نقص
-# line 1067 - safe - no نقص
-# line 1068 - safe - no نقص
-# line 1069 - safe - no نقص
-# ---- block 1070 - OMAIA ISP optimized - no error - line 1070 ----
-# line 1071 - safe - no نقص
-# line 1072 - safe - no نقص
-# line 1073 - safe - no نقص
-# line 1074 - safe - no نقص
-def _helper_1075(): return 1075
-# line 1076 - safe - no نقص
-# line 1077 - safe - no نقص
-# line 1078 - safe - no نقص
-# line 1079 - safe - no نقص
-# ---- block 1080 - OMAIA ISP optimized - no error - line 1080 ----
-# line 1081 - safe - no نقص
-# line 1082 - safe - no نقص
-# line 1083 - safe - no نقص
-# line 1084 - safe - no نقص
-def _helper_1085(): return 1085
-# line 1086 - safe - no نقص
-# line 1087 - safe - no نقص
-# line 1088 - safe - no نقص
-# line 1089 - safe - no نقص
-# ---- block 1090 - OMAIA ISP optimized - no error - line 1090 ----
-# line 1091 - safe - no نقص
-# line 1092 - safe - no نقص
-# line 1093 - safe - no نقص
-# line 1094 - safe - no نقص
-def _helper_1095(): return 1095
-# line 1096 - safe - no نقص
-# line 1097 - safe - no نقص
-# line 1098 - safe - no نقص
-# line 1099 - safe - no نقص
-# ---- block 1100 - OMAIA ISP optimized - no error - line 1100 ----
-# line 1101 - safe - no نقص
-# line 1102 - safe - no نقص
-# line 1103 - safe - no نقص
-# line 1104 - safe - no نقص
-def _helper_1105(): return 1105
-# line 1106 - safe - no نقص
-# line 1107 - safe - no نقص
-# line 1108 - safe - no نقص
-# line 1109 - safe - no نقص
-# ---- block 1110 - OMAIA ISP optimized - no error - line 1110 ----
-# line 1111 - safe - no نقص
-# line 1112 - safe - no نقص
-# line 1113 - safe - no نقص
-# line 1114 - safe - no نقص
-def _helper_1115(): return 1115
-# line 1116 - safe - no نقص
-# line 1117 - safe - no نقص
-# line 1118 - safe - no نقص
-# line 1119 - safe - no نقص
-# ---- block 1120 - OMAIA ISP optimized - no error - line 1120 ----
-# line 1121 - safe - no نقص
-# line 1122 - safe - no نقص
-# line 1123 - safe - no نقص
-# line 1124 - safe - no نقص
-def _helper_1125(): return 1125
-# line 1126 - safe - no نقص
-# line 1127 - safe - no نقص
-# line 1128 - safe - no نقص
-# line 1129 - safe - no نقص
-# ---- block 1130 - OMAIA ISP optimized - no error - line 1130 ----
-# line 1131 - safe - no نقص
-# line 1132 - safe - no نقص
-# line 1133 - safe - no نقص
-# line 1134 - safe - no نقص
-def _helper_1135(): return 1135
-# line 1136 - safe - no نقص
-# line 1137 - safe - no نقص
-# line 1138 - safe - no نقص
-# line 1139 - safe - no نقص
-# ---- block 1140 - OMAIA ISP optimized - no error - line 1140 ----
-# line 1141 - safe - no نقص
-# line 1142 - safe - no نقص
-# line 1143 - safe - no نقص
-# line 1144 - safe - no نقص
-def _helper_1145(): return 1145
-# line 1146 - safe - no نقص
-# line 1147 - safe - no نقص
-# line 1148 - safe - no نقص
-# line 1149 - safe - no نقص
-# ---- block 1150 - OMAIA ISP optimized - no error - line 1150 ----
-# line 1151 - safe - no نقص
-# line 1152 - safe - no نقص
-# line 1153 - safe - no نقص
-# line 1154 - safe - no نقص
-def _helper_1155(): return 1155
-# line 1156 - safe - no نقص
-# line 1157 - safe - no نقص
-# line 1158 - safe - no نقص
-# line 1159 - safe - no نقص
-# ---- block 1160 - OMAIA ISP optimized - no error - line 1160 ----
-# line 1161 - safe - no نقص
-# line 1162 - safe - no نقص
-# line 1163 - safe - no نقص
-# line 1164 - safe - no نقص
-def _helper_1165(): return 1165
-# line 1166 - safe - no نقص
-# line 1167 - safe - no نقص
-# line 1168 - safe - no نقص
-# line 1169 - safe - no نقص
-# ---- block 1170 - OMAIA ISP optimized - no error - line 1170 ----
-# line 1171 - safe - no نقص
-# line 1172 - safe - no نقص
-# line 1173 - safe - no نقص
-# line 1174 - safe - no نقص
-def _helper_1175(): return 1175
-# line 1176 - safe - no نقص
-# line 1177 - safe - no نقص
-# line 1178 - safe - no نقص
-# line 1179 - safe - no نقص
-# ---- block 1180 - OMAIA ISP optimized - no error - line 1180 ----
-# line 1181 - safe - no نقص
-# line 1182 - safe - no نقص
-# line 1183 - safe - no نقص
-# line 1184 - safe - no نقص
-def _helper_1185(): return 1185
-# line 1186 - safe - no نقص
-# line 1187 - safe - no نقص
-# line 1188 - safe - no نقص
-# line 1189 - safe - no نقص
-# ---- block 1190 - OMAIA ISP optimized - no error - line 1190 ----
-# line 1191 - safe - no نقص
-# line 1192 - safe - no نقص
-# line 1193 - safe - no نقص
-# line 1194 - safe - no نقص
-def _helper_1195(): return 1195
-# line 1196 - safe - no نقص
-# line 1197 - safe - no نقص
-# line 1198 - safe - no نقص
-# line 1199 - safe - no نقص
-# ---- block 1200 - OMAIA ISP optimized - no error - line 1200 ----
-# line 1201 - safe - no نقص
-# line 1202 - safe - no نقص
+    app.run(host='0.0.0.0',port=int(os.environ.get("PORT",10000)),debug=False)
