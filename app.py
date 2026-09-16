@@ -38,7 +38,7 @@ def init_pool():
         if _pg_pool:
             return
         try:
-            _pg_pool=pg_pool.ThreadedConnectionPool(2,6,dsn=DATABASE_URL,sslmode='require',connect_timeout=1)
+            _pg_pool=pg_pool.ThreadedConnectionPool(1,3,dsn=DATABASE_URL,sslmode='require',connect_timeout=0.8)
         except Exception as e:
             print("[POOL] "+str(e))
             _pg_pool=None
@@ -87,28 +87,27 @@ def put_conn(conn):
             pass
 
 def qall(q,a=()):
-    conn=None
-    try:
-        conn=get_conn()
-        if USE_PG:
-            cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute(q.replace("?","%s"),a)
-            rs=[dict(r) for r in cur.fetchall()]
-            cur.close()
-            put_conn(conn)
-            return rs
-        else:
-            with _sqlite_lock:
-                rs=[dict(r) for r in conn.execute(q,a).fetchall()]
-                return rs
-    except Exception as e:
-        print("[qall] "+str(e))
-        if conn and USE_PG:
-            try:
+    for _ in range(2):
+        conn=None
+        try:
+            conn=get_conn()
+            if USE_PG:
+                cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(q.replace("?","%s"),a)
+                rs=[dict(r) for r in cur.fetchall()]
+                cur.close()
                 put_conn(conn)
-            except:
-                pass
-        return []
+                return rs
+            else:
+                with _sqlite_lock:
+                    rs=[dict(r) for r in conn.execute(q,a).fetchall()]
+                    return rs
+        except Exception as e:
+            if conn and USE_PG:
+                try: put_conn(conn)
+                except: pass
+            time.sleep(0.05)
+    return []
 
 def qone(q,a=()):
     r=qall(q,a)
@@ -143,6 +142,8 @@ def qexec(q,a=()):
 def _log_sync(phone,action,detail):
     try:
         now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not detail: detail='-'
+        detail=str(detail)[:250]
         conn=None
         try:
             conn=get_conn()
@@ -177,7 +178,7 @@ def add_log(phone,action,detail, background=False):
 def get_counts():
     with _cache_lock:
         c=_cache.get('counts')
-        if c and time.time()-c[1]<10:
+        if c and time.time()-c[1]<30:
             return c[0]
     try:
         # استعلام واحد بدل 4 - أسرع 4 مرات
@@ -887,7 +888,7 @@ window.doTcpPing=async function(){
             rid=r['id']
             rows_html += f'''
 <div class="card dish-card glass-tech" id="dish-{rid}" data-name="{dn}" data-ip="{ip}" data-loc="{loc}" style="background:linear-gradient(135deg,rgba(30,36,58,0.85) 0%,rgba(18,24,42,0.9) 100%);border:1px solid rgba(100,150,255,0.18);box-shadow:0 0 0 1px rgba(100,150,255,0.08),0 8px 32px rgba(0,0,0,0.4);backdrop-filter:blur(12px);border-radius:14px;padding:12px;display:flex;justify-content:space-between;align-items:center">
-<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:7px"><span id="dot-{rid}" style="width:8px;height:8px;border-radius:50%;background:#555;display:inline-block"></span><b class="dish-name" style="font-size:15px;font-weight:800;color:#fff">{dn}</b></div><a href="http://{ip}" target="_blank" class="dish-ip" style="display:inline-block;margin-top:6px;background:#ffbe4d;color:#111;padding:4px 12px;border-radius:7px;font-family:monospace;font-size:13px;font-weight:800;text-decoration:none">{ip}</a><div style="color:#94a3b8;font-size:11px;margin-top:4px" class="dish-loc">{loc}</div></div><div style="display:flex;gap:5px"><button onclick="pingOneDish({rid})" style="background:#22c55e;color:#fff;border:0;padding:6px 10px;border-radius:7px;font-size:11px">Ping</button><button onclick="editDish({rid})" style="background:#1f2937;color:#fff;border:1px solid #ffffff15;padding:6px 10px;border-radius:7px;font-size:11px">تعديل</button><button onclick="askDel('/del_dish/{rid}',{rid},'dish')" style="background:#ef4444;color:#fff;border:0;padding:6px 10px;border-radius:7px;font-size:11px">حذف</button></div></div>'''
+<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:7px"><span id="dot-{rid}" style="width:8px;height:8px;border-radius:50%;background:#555;display:inline-block"></span><b class="dish-name" style="font-size:16px;font-weight:900;color:#fff">{dn}</b></div></div><div style="display:flex;gap:5px"><button onclick="pingOneDish({rid})" style="background:#22c55e;color:#fff;border:0;padding:6px 10px;border-radius:7px;font-size:11px">Ping</button><button onclick="editDish({rid})" style="background:#1f2937;color:#fff;border:1px solid #ffffff15;padding:6px 10px;border-radius:7px;font-size:11px">تعديل</button><button onclick="askDel('/del_dish/{rid}',{rid},'dish')" style="background:#ef4444;color:#fff;border:0;padding:6px 10px;border-radius:7px;font-size:11px">حذف</button></div></div>'''
         return f"""
 <div style='max-width:1250px;margin:0 auto'>
 <div class=card style='background:rgba(30,36,58,0.6);border:1px solid rgba(100,150,255,0.15);backdrop-filter:blur(12px)'>
@@ -902,7 +903,7 @@ window.doTcpPing=async function(){
 </div>
 <script>
 window.searchDishes=function(q){{ q=(q||'').toLowerCase(); document.querySelectorAll('.tower-group').forEach(g=>{{ let txt=g.textContent.toLowerCase(); g.style.display=txt.includes(q)?'':'none'; }}); }};
-window.createCustomCard=function(){{ let el=document.getElementById('customCardCreator'); el.style.display=el.style.display==='none'?'block':'none'; let box=document.getElementById('towerCheckboxes'); if(!box) return; box.innerHTML=''; let towers=[...new Set([...document.querySelectorAll('#dl .dish-card')].map(c=>c.dataset.loc))].filter(Boolean); if(!towers.length){{ box.innerHTML='<small style="color:#888">لا يوجد أبراج - أضف صحون أولا</small>'; return; }} towers.forEach(t=>{{ box.innerHTML+='<label style="background:rgba(255,255,255,0.08);padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer"><input type=checkbox value="'+t+'" checked style="margin-left:6px"> '+t+'</label>'; }}); }};
+window.createCustomCard=function(){{ let el=document.getElementById('customCardCreator'); if(!el){{ alert('افتح صفحة الصحون أولا'); return; }} el.style.display=el.style.display==='none'?'block':'none'; let box=document.getElementById('towerCheckboxes'); if(!box) return; box.innerHTML=''; let allCards=document.querySelectorAll('#dl .dish-card'); if(!allCards.length){{ allCards=document.querySelectorAll('.dish-card'); }} let towers=[...new Set([...allCards].map(c=>c.dataset.loc))].filter(Boolean); if(!towers.length){{ box.innerHTML='<small style="color:#888">لا يوجد أبراج - أضف صحن مع اسم برج أولا</small>'; return; }} towers.forEach(t=>{{ let safe=t.replace(/"/g,''); box.innerHTML+='<label style="background:#ffffff12;padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid #ffffff15"><input type=checkbox value="'+safe+'" checked style="margin-left:6px"> '+safe+'</label>'; }}); el.scrollIntoView({behavior:'smooth'}); }};
 window.saveCustomCard=function(){{ let name=document.getElementById('customCardName').value.trim()||'كرت مخصص'; let size=document.getElementById('customCardSize').value; let selected=[...document.querySelectorAll('#towerCheckboxes input:checked')].map(i=>i.value); if(!selected.length){{alert('اختر برج واحد على الأقل');return;}} let container=document.getElementById('customCardsContainer'); let sizeStyle=size==='small'?'max-width:400px':size==='medium'?'max-width:650px':size==='large'?'max-width:900px':'max-width:100%'; let card=document.createElement('div'); card.className='card'; card.style.cssText='border:2px solid #8b5cf6;'+sizeStyle+';background:linear-gradient(135deg,rgba(139,92,246,0.18),rgba(30,36,58,0.9));backdrop-filter:blur(14px);animation:fadeIn .4s ease'; let inner=''; selected.forEach(t=>{{ let g=document.querySelector('.tower-group[data-tower="'+t+'"]'); if(g) inner+=g.outerHTML; }}); card.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="color:#8b5cf6">📦 '+name+' ('+selected.length+' أبراج)</b><div style="display:flex;gap:4px"><button onclick="this.closest(\'.card\').style.maxWidth=\'400px\'" style="padding:3px 8px;font-size:10px;background:#ffffff15;color:#fff;border:0;border-radius:6px">صغير</button><button onclick="this.closest(\'.card\').style.maxWidth=\'650px\'" style="padding:3px 8px;font-size:10px;background:#ffffff15;color:#fff;border:0;border-radius:6px">وسط</button><button onclick="this.closest(\'.card\').style.maxWidth=\'100%\'" style="padding:3px 8px;font-size:10px;background:#8b5cf6;color:#fff;border:0;border-radius:6px">كبير</button><button onclick="this.closest(\'.card\').remove()" style="background:rgba(239,68,68,0.15);color:#ef4444;border:0;padding:4px 10px;border-radius:6px">✕</button></div></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px">'+inner+'</div>'; container.prepend(card); document.getElementById('customCardCreator').style.display='none'; }};
 (function(){{ let grouped={{}}; document.querySelectorAll('#dl .dish-card').forEach(c=>{{ let tower=(c.dataset.loc||'بدون برج').trim()||'بدون برج'; if(!grouped[tower]) grouped[tower]=[]; grouped[tower].push(c.outerHTML); }}); let tg=document.getElementById('towerGroups'); if(!tg) return; tg.innerHTML=''; Object.keys(grouped).sort().forEach(tower=>{{ let count=grouped[tower].length; let div=document.createElement('div'); div.className='tower-group card'; div.dataset.tower=tower; div.style.cssText='background:linear-gradient(135deg,rgba(30,36,58,0.9),rgba(18,24,42,0.95));border:1px solid rgba(255,190,77,0.2);backdrop-filter:blur(12px);border-radius:16px;overflow:hidden;transform:translateZ(0);transition:all .25s'; div.innerHTML='<div style="background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px"><div><b>📡 '+tower+'</b> <span style="background:#111;color:#ffbe4d;padding:2px 8px;border-radius:10px;font-size:11px">'+count+' IP</span></div><div style="display:flex;gap:4px"><button onclick="this.closest(\'.tower-group\').style.gridColumn=\'span 1\'" style="padding:3px 8px;font-size:10px;background:#111;color:#fff;border:0;border-radius:6px">صغير</button><button onclick="this.closest(\'.tower-group\').style.gridColumn=\'span 2\'" style="padding:3px 8px;font-size:10px;background:#111;color:#fff;border:0;border-radius:6px">وسط</button><button onclick="this.closest(\'.tower-group\').style.gridColumn=\'1 / -1\'" style="padding:3px 8px;font-size:10px;background:#8b5cf6;color:#fff;border:0;border-radius:6px">كبير</button><button onclick="pingTower(\''+tower+'\')" style="padding:4px 10px;font-size:10px;background:#22c55e;color:#fff;border:0;border-radius:6px">فحص</button></div></div><div style="padding:10px;display:grid;gap:8px;max-height:380px;overflow-y:auto">'+grouped[tower].join('')+'</div><div style="padding:8px;background:rgba(0,0,0,0.2);display:flex;gap:6px"><input placeholder="اسم - Enter" style="flex:1;padding:6px;font-size:11px" onkeydown="if(event.key===\'Enter\'){{addQuickIp(this,\''+tower+'\');}}"><input placeholder="IP - Enter" style="flex:1;padding:6px;font-size:11px" onkeydown="if(event.key===\'Enter\'){{addQuickIp(this,\''+tower+'\');}}"><button onclick="addQuickIp(this,\''+tower+'\')" style="background:#ffbe4d;color:#111;border:0;padding:6px 12px;border-radius:6px;font-size:11px">+ Enter</button></div>'; tg.appendChild(div); }}); if(!Object.keys(grouped).length){{ tg.innerHTML='<div class="card" style="grid-column:1/-1;text-align:center;padding:30px;color:#888">لا يوجد أبراج بعد<br><small>أضف صحن مع اسم برج - كل برج رح ينعزل بكرت لحال</small></div>'; }} }})();
 window.pingTower=async function(tower){{ let cards=document.querySelectorAll('.tower-group[data-tower="'+tower+'"] .dish-card'); for(let c of cards){{ let id=c.id.split('-')[1]; if(window.pingOneDish){{ await pingOneDish(id); await new Promise(r=>setTimeout(r,100)); }} }} }};
@@ -1059,7 +1060,7 @@ def layout(c,v='home'):
 .sidebar a.active{{background:#ffbe4d;color:#111;font-weight:800}}
 #overlay{{position:fixed;inset:0;background:#0006;z-index:1001;display:none}}#overlay.show{{display:block}}
 .main{{margin-top:64px;padding:12px;transform:translateZ(0);will-change:transform;transition:opacity .2s ease}}
-.card{{background:linear-gradient(135deg,rgba(30,36,58,0.88) 0%,rgba(18,24,42,0.92) 100%);padding:12px;border-radius:16px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.08);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transform:translateZ(0);transition:all .25s cubic-bezier(.2,.8,.2,1);will-change:transform}} .card:active{{transform:scale(0.98)}}
+.card{{background:#1e253a;padding:12px;border-radius:14px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.07);transform:translateZ(0);transition:transform .18s, background .18s;content-visibility:auto;contain-intrinsic-size:80px}} .card:active{{transform:scale(0.97);background:#252f4a}} .glass-tech{{background:#1e253a!important;border:1px solid rgba(255,255,255,0.07)!important;box-shadow:none!important;backdrop-filter:none!important}}
 .glass-tech{{background:linear-gradient(135deg,rgba(30,36,58,0.8) 0%,rgba(18,24,42,0.85) 100%)!important;border:1px solid rgba(100,150,255,0.18)!important;box-shadow:0 0 0 1px rgba(100,150,255,0.06),0 8px 32px rgba(0,0,0,0.3),0 0 18px rgba(59,130,246,0.1)!important;backdrop-filter:blur(12px)!important}}
 input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #ffffff15;width:100%;background:#0f1424;color:#fff}}
 .btn-gold{{background:#ffbe4d;color:#111;padding:8px 14px;border:0;border-radius:10px;font-weight:700;cursor:pointer}}
@@ -1072,17 +1073,12 @@ input,select{{padding:10px;margin:4px 0;border-radius:10px;border:1px solid #fff
 <div class=sidebar id=sb>
 <div style='padding:0 14px 10px;border-bottom:1px solid #ffffff10;margin-bottom:8px'>
 <div style='font-weight:900'>OMAIA <span style='color:#ffbe4d'>ISP</span></div><small style='color:#666'>{username_display} • {role}</small><br><small style='color:#ffbe4d'>+905344851045</small></div>
-<a href="javascript:loadPage('home')" id=nav-home>الرئيسية</a>
-<a href="javascript:loadPage('dishes')" id=nav-dishes>الصحون</a>
-<a href="javascript:loadPage('ping')" id=nav-ping>بنج</a>
-<a href="javascript:loadPage('network')" id=nav-network>حالة الشبكة</a>
-<a href="javascript:loadPage('towers')" id=nav-towers>الأبراج</a>
-<a href="javascript:loadPage('subs')" id=nav-subs>المشتركين</a>
-<a href="javascript:loadPage('ledger')" id=nav-ledger>الحسابات</a>
-<a href="javascript:loadPage('logs')" id=nav-logs>السجل</a>
-<a href="javascript:loadPage('map')" id=nav-map>الخريطة</a>
-<a href="javascript:loadPage('settings')" id=nav-settings>الإعدادات</a>
-<a href="javascript:loadPage('support')" id=nav-support style='color:#22c55e;background:#22c55e15'>الدعم - 905344851045+</a>
+<a href="javascript:loadPage('home')" id=nav-home>🏠 الرئيسية</a>
+<a href="javascript:loadPage('dishes')" id=nav-dishes>📦 الصحون <span id=cnt-dishes style='float:left;background:#ffbe4d;color:#111;padding:0 6px;border-radius:8px;font-size:10px'></span></a>
+<a href="javascript:loadPage('towers')" id=nav-towers>🏰 الأبراج</a>
+<a href="javascript:loadPage('logs')" id=nav-logs>📝 السجل الحي</a>
+<a href="javascript:loadPage('map')" id=nav-map>🛰️ الخريطة قمر صناعي</a>
+<a href="javascript:loadPage('support')" id=nav-support style='background:linear-gradient(90deg,#22c55e,#16a34a);color:#fff;font-weight:900'>💬 الدعم الفني - 905344851045+</a>
 <a href="javascript:logoutFast()" style='margin-top:12px;color:#ef4444;background:#ef444415'>خروج</a>
 </div>
 <div class=top>
@@ -1138,23 +1134,18 @@ window.closeEditModal=function(){{ document.getElementById('editModal').classLis
 document.getElementById('delYes').onclick=async()=>{{
   if(!window._delUrl) return;
   let el=document.getElementById((window._delType||'dish')+'-'+window._delId);
-  if(el) el.style.opacity='0.4';
+  let url=window._delUrl;
   document.getElementById('delModal').classList.remove('show');
+  if(el){{ el.style.transform='scale(0.9)'; el.style.opacity='0'; setTimeout(()=>{{ if(el) el.style.display='none'; }},200); }}
   try{{
-    let r=await fetch(window._delUrl,{{credentials:'same-origin'}});
-    let j=await r.json();
-    if(j.ok){{
-      if(el) el.style.display='none';
-      let lang=localStorage.getItem('omaia_lang')||'{req_lang}';
-      delete pageCache[cur+'_'+lang];
-
-    }}else{{
-      if(el) el.style.opacity='1';
-      alert(j.msg||'خطأ');
-    }}
-  }}catch(e){{ if(el) el.style.opacity='1'; alert(e); }}
+    fetch(url,{{credentials:'same-origin'}}).then(r=>r.json()).then(j=>{{
+      if(!j.ok && el){{ el.style.display=''; el.style.opacity='1'; el.style.transform=''; }}
+      else {{ let lang=localStorage.getItem('omaia_lang')||'{req_lang}'; delete pageCache[cur+'_'+lang]; }}
+    }});
+  }}catch(e){{}}
+  window._delUrl=null;
 }};
-async function toggleThemeNoReload(){{
+window.toggleThemeNoReload=async function(){{
   let r=await fetch('/toggle_theme',{{credentials:'same-origin'}});
   await r.json();
 }}
@@ -1200,3 +1191,12 @@ def ping_all():
         ip=d.get('ip','')
         out.append({"ip":ip,"ok":False})
     return jsonify(out)
+
+
+
+
+
+
+
+
+
