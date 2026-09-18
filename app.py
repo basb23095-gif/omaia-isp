@@ -125,7 +125,8 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT,tower_id INTEGER)",
         "CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL,created_at TEXT)",
         "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,action TEXT,detail TEXT,time TEXT)",
-        "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)"
+        "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS system_config(key TEXT PRIMARY KEY,value TEXT)"
     ]
     if USE_PG: ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
@@ -136,6 +137,10 @@ def init_db():
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",('05344851045',generate_password_hash('admin2024'),'manager','admin'))
     if not qone("SELECT * FROM towers WHERE name=?",('نقطة حماة الرئيسية',)):
         qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)",('نقطة حماة الرئيسية','حماة',35.1318,36.7578,datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    # default system config
+    for k,v in [('card_size','160'),('card_style','compact'),('show_icons','1'),('manager_panel','1')]:
+        if not qone("SELECT * FROM system_config WHERE key=?",(k,)):
+            qexec("INSERT INTO system_config(key,value) VALUES(?,?)",(k,v))
 init_db()
 def login_required(f):
     @wraps(f)
@@ -193,6 +198,64 @@ def toggle_lang():
 def toggle_theme():
     cur=session.get('theme','dark'); session['theme']='light' if cur=='dark' else 'dark'
     return jsonify(ok=True,theme=session['theme'])
+
+@app.route('/api/get_config')
+@login_required
+def get_config():
+    try:
+        rows=qall("SELECT * FROM system_config")
+        cfg={r['key']:r['value'] for r in rows}
+        return jsonify(ok=True,config=cfg)
+    except Exception as e:
+        return jsonify(ok=False,msg=str(e)),500
+
+@app.route('/api/set_config',methods=['POST'])
+@login_required
+@role_required_manager
+def set_config():
+    try:
+        d=request.json if request.is_json else request.form
+        k=(d.get('key') or '').strip()
+        v=(d.get('value') or '').strip()
+        if not k: return jsonify(ok=False,msg='key مطلوب'),400
+        if USE_PG:
+            qexec("INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",(k,v))
+        else:
+            qexec("INSERT OR REPLACE INTO system_config(key,value) VALUES(?,?)",(k,v))
+        add_log_async(session.get('phone'),'تعديل إعداد نظام',f"{k}={v}")
+        return jsonify(ok=True)
+    except Exception as e:
+        return jsonify(ok=False,msg=str(e)),500
+
+@app.route('/api/system_action',methods=['POST'])
+@login_required
+@role_required_manager
+def system_action():
+    try:
+        d=request.json if request.is_json else request.form
+        act=(d.get('action') or '').strip()
+        if act=='clear_logs':
+            qexec("DELETE FROM logs"); qexec("DELETE FROM notifications")
+            add_log_async(session.get('phone'),'مسح السجل','manager action')
+        elif act=='clear_dishes':
+            qexec("DELETE FROM dish_ips")
+        elif act=='clear_towers':
+            qexec("DELETE FROM dish_ips"); qexec("DELETE FROM towers")
+        elif act=='reset_counts':
+            with _clock: _cache.clear()
+        elif act=='clear_subs':
+            qexec("DELETE FROM subs")
+        elif act=='clear_ledger':
+            qexec("DELETE FROM ledger")
+        elif act=='backup_info':
+            pass
+        else:
+            return jsonify(ok=False,msg='action غير معروف'),400
+        with _clock: _cache.pop('counts',None)
+        return jsonify(ok=True,msg='تم '+act)
+    except Exception as e:
+        return jsonify(ok=False,msg=str(e)),500
+
 @app.route('/api/login_public',methods=['POST'])
 def api_login_public():
     try:
@@ -515,24 +578,68 @@ def page_content(v):
             dishes=qall("SELECT * FROM dish_ips ORDER BY id DESC")
             rows="".join([f"<tr id=net-{d.get('id')} data-ip='{esc(d.get('ip') or '')}'><td style='font-size:11px'>{esc(d.get('dish_name') or '')}</td><td><a href='http://{esc(d.get('ip') or '')}' target=_blank class=ip>{esc(d.get('ip') or '')}</a></td><td class=net-out style='font-size:10px'>...</td><td><a href='http://{esc(d.get('ip') or '')}' target=_blank class=mini-btn>🌐</a><button class=mini-btn onclick='checkOne({d.get('id')})'>فحص</button></td></tr>" for d in dishes])
             return f'<div class=card small><div class=row style="justify-content:space-between"><b style="font-size:12px">📊 الشبكة</b><button class=btn-gold onclick="checkAll()" style="padding:4px 8px;font-size:10px">فحص الكل</button></div><table style="width:100%;border-collapse:collapse;margin-top:6px"><thead><tr><th style="font-size:11px;text-align:right">اسم</th><th style="font-size:11px">IP</th><th style="font-size:11px">حالة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div><script>window.checkOne=async id=>{{let c=document.getElementById("net-"+id); let out=c.querySelector(".net-out"); out.textContent="..."; try{{let r=await fetch("/api/ping?ip="+c.dataset.ip); let j=await r.json(); out.textContent=j.out;}}catch{{out.textContent="خطأ";}}}};window.checkAll=async()=>{{for(let c of document.querySelectorAll("[id^=net-]")){{await checkOne(c.id.split("-")[1]); await new Promise(r=>setTimeout(r,120));}}}};</script>'
+        
         if v=='settings':
             us=qall("SELECT * FROM users ORDER BY id DESC")
+            cfg_rows=qall("SELECT * FROM system_config")
+            cfg={r['key']:r['value'] for r in cfg_rows} if cfg_rows else {}
+            card_size=cfg.get('card_size','160')
+            is_mgr=is_manager()
             cards="".join([f"<div class='card small user-card' id=user-{esc(u.get('phone') or '')} data-phone='{esc(u.get('phone') or '')}' data-role='{esc(u.get('role') or '')}'><div style='text-align:center'><b style='font-size:13px'>{esc(u.get('username') or u.get('phone') or '')}</b><br><span class=ip style='font-size:11px'>{esc(u.get('phone') or '')}</span><br><span class=badge>{esc(u.get('role') or '')}</span><div style='display:flex;gap:6px;justify-content:center;margin-top:8px'><button class=mini-btn onclick=\"openEditUser('{esc(u.get('phone') or '')}')\">✏ تعديل</button><button class=mini-btn-del onclick=\"askDel('/del_user/{esc(u.get('phone') or '')}','{esc(u.get('phone') or '')}')\">🗑 حذف</button></div></div></div>" for u in us])
-            return f'''
-<div style="max-width:1000px;margin:0 auto">
-<div class=grid-small>
-<div class=card small><h4 style="margin:0 0 6px;font-size:11px">🔑 باسورد</h4><form id=formPass class=row><input name=newpass type=password placeholder="جديدة" required style="flex:1;padding:6px"><button class=mini-btn-gold>حفظ</button></form></div>
-<div class=card small><h4 style="margin:0 0 6px;font-size:11px">👤 يوزر</h4><form id=formUser class=row style="flex-wrap:wrap;gap:4px"><input name=user_field placeholder="يوزر" required style="flex:1;padding:6px"><input name=password type=password placeholder="باس" required style="flex:1;padding:6px"><select name=role style="padding:6px"><option value=tech>فني</option><option value=manager>مدير</option></select><button class=mini-btn-gold>إضافة</button></form></div>
-<div class=card small><h4 style="margin:0 0 6px;font-size:11px">⚙ سريع بدون تحميل</h4><div class=row><button class=btn-gold onclick="toggleLangFast()" style="padding:6px 10px">🌐 لغة</button><button class=btn-gold onclick="toggleThemeFast()" style="padding:6px 10px">🌓 نهار/ليل</button></div></div>
+            manager_panel = ""
+            if is_mgr:
+                manager_panel = f'''
+<div class="card small" style="border:2px solid #ffbe4d;background:linear-gradient(135deg,#1e2433,#2a344f);margin-bottom:12px">
+<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:14px">🎛️ لوحة تحكم المدير - التحكم الكامل بالنظام</b><span class=badge style="background:#22c55e">مدير فقط</span></div>
+
+<div style="margin-top:12px"><b style="font-size:12px">📐 حجم الكروت - تتحكم بكل الكروت بالنظام</b>
+<div class=row style="margin-top:8px;gap:8px">
+<button class="btn-gold" onclick="setCardSize(120)" style="padding:8px 12px">🔍 صغير 120</button>
+<button class="btn-gold" onclick="setCardSize(160)" style="padding:8px 12px">📄 متوسط 160</button>
+<button class="btn-gold" onclick="setCardSize(220)" style="padding:8px 12px">📦 كبير 220</button>
+<button class="btn-gold" onclick="setCardSize(300)" style="padding:8px 12px">🗼 ضخم 300</button>
+<span style="font-size:11px">الحالي: <span id=curSize>{card_size}</span>px</span>
 </div>
-<div style="margin-top:12px"><b style="font-size:13px">👥 يوزرات - أكبر ومرتبة - {len(us)}</b><div class=user-grid>{cards}</div></div>
+<input type=range id=sizeSlider min=100 max=400 value={card_size} oninput="setCardSize(this.value)" style="width:100%;margin-top:8px">
+</div>
+
+<div style="margin-top:14px"><b style="font-size:12px">⚙️ تحكم سريع بكلشي - أيقونات</b>
+<div class=grid-small style="margin-top:8px">
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">🗼</div><b style="font-size:11px">الأبراج</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="loadPage('towers')">👁️ عرض</button><button class=mini-btn onclick="sysAction('clear_towers')" style="background:#ef4444;color:#fff">🗑️ مسح الكل</button><a href="/api/export/towers" class=mini-btn-gold style="text-decoration:none">📤 تصدير</a></div></div>
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">📡</div><b style="font-size:11px">الصحون</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="loadPage('dishes')">👁️ عرض</button><button class=mini-btn onclick="sysAction('clear_dishes')" style="background:#ef4444;color:#fff">🗑️ مسح</button><a href="/api/export/dishes" class=mini-btn-gold style="text-decoration:none">📤 تصدير</a></div></div>
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">👥</div><b style="font-size:11px">المشتركين</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="loadPage('subs')">👁️ عرض</button><button class=mini-btn onclick="sysAction('clear_subs')" style="background:#ef4444;color:#fff">🗑️ مسح</button></div></div>
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">📒</div><b style="font-size:11px">الحسابات</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="loadPage('ledger')">👁️ عرض</button><button class=mini-btn onclick="sysAction('clear_ledger')" style="background:#ef4444;color:#fff">🗑️ مسح</button></div></div>
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">📜</div><b style="font-size:11px">السجل</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="loadPage('logs')">👁️ عرض</button><button class=mini-btn onclick="sysAction('clear_logs')" style="background:#ef4444;color:#fff">🧹 مسح</button><a href="/api/export/logs" class=mini-btn-gold style="text-decoration:none">📤 تصدير</a></div></div>
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">🗺</div><b style="font-size:11px">الخريطة</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="loadPage('map')">👁️ فتح</button><button class=mini-btn onclick="locateMeAll()">📍 موقعي</button></div></div>
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">📶</div><b style="font-size:11px">البنج</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="loadPage('ping')">📶 فحص</button><button class=mini-btn onclick="loadPage('network')">📊 شبكة</button></div></div>
+<div class="card small" style="text-align:center;padding:10px"><div style="font-size:20px">⚙️</div><b style="font-size:11px">النظام</b><div class=row style="justify-content:center;margin-top:6px"><button class=mini-btn onclick="sysAction('reset_counts')">🔄 تحديث</button><button class=mini-btn onclick="toggleThemeFast()">🌓 ثيم</button><button class=mini-btn onclick="toggleLangFast()">🌐 لغة</button></div></div>
+</div>
+</div>
+
+<div style="margin-top:12px" class=card small><b style="font-size:12px">🔧 إعدادات إضافية للمدير</b><div class=row style="margin-top:8px"><button class=btn-gold onclick="if(confirm('مسح كل الصحون؟'))sysAction('clear_dishes')" style="background:#ef4444">🗑️ مسح كل الصحون</button><button class=btn-gold onclick="if(confirm('مسح كل الأبراج؟'))sysAction('clear_towers')" style="background:#ef4444">🗑️ مسح كل الأبراج</button><button class=btn-gold onclick="sysAction('clear_logs')">🧹 تنظيف السجل</button><button class=btn-gold onclick="sysAction('reset_counts')" style="background:#0ea5e9">🔄 تحديث العدادات</button></div></div>
+</div>
+'''
+            return f'''
+<div style="max-width:1100px;margin:0 auto">
+{manager_panel}
+<div class=grid-small>
+<div class=card small><h4 style="margin:0 0 6px;font-size:11px">🔑 باسوردي</h4><form id=formPass class=row><input name=newpass type=password placeholder="جديدة" required style="flex:1;padding:6px"><button class=mini-btn-gold>حفظ</button></form></div>
+<div class=card small><h4 style="margin:0 0 6px;font-size:11px">👤 إضافة يوزر</h4><form id=formUser class=row style="flex-wrap:wrap;gap:4px"><input name=user_field placeholder="يوزر" required style="flex:1;padding:6px"><input name=password type=password placeholder="باس" required style="flex:1;padding:6px"><select name=role style="padding:6px"><option value=tech>فني - يشوف بس</option><option value=manager>مدير - تحكم كامل</option></select><button class=mini-btn-gold>إضافة</button></form></div>
+<div class=card small><h4 style="margin:0 0 6px;font-size:11px">⚙ سريع</h4><div class=row><button class=btn-gold onclick="toggleLangFast()" style="padding:6px 10px">🌐 لغة</button><button class=btn-gold onclick="toggleThemeFast()" style="padding:6px 10px">🌓 ثيم</button></div><div style="margin-top:8px;font-size:10px;color:#888">حساب مدير: تحكم كامل + لوحة تحكم + تغيير حجم الكروت</div></div>
+</div>
+<div style="margin-top:12px"><b style="font-size:13px">👥 اليوزرات - كروت كبيرة مرتبة - {len(us)}</b><div class=user-grid>{cards}</div></div>
 </div>
 <script>
-window.openEditUser=ph=>{{let c=document.getElementById("user-"+ph); let b=document.getElementById("editBody"); b.innerHTML='<input id=eu_ph value="'+c.dataset.phone+'"><select id=eu_role><option value=tech>فني</option><option value=manager>مدير</option></select><input id=eu_pass type=password placeholder="باسورد جديد"><button class=btn-gold onclick="saveUser(\\''+ph+'\\')" style="width:100%">حفظ</button>'; document.getElementById("eu_role").value=c.dataset.role; document.getElementById("editModal").classList.add("show");}};
+window.setCardSize=function(sz){{document.documentElement.style.setProperty('--card-min',sz+'px'); localStorage.setItem('cardSize',sz); document.getElementById('curSize').textContent=sz; let sl=document.getElementById('sizeSlider'); if(sl) sl.value=sz; fetch('/api/set_config',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{key:'card_size',value:sz}})}});}};
+window.sysAction=async function(act){{if(!confirm('متأكد من '+act+'؟')) return; try{{let r=await fetch('/api/system_action',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{action:act}})}}); let j=await r.json(); if(j.ok){{alert('تم '+act); loadPage('home',true);}} else alert(j.msg);}}catch(e){{alert(e);}}}};
+window.locateMeAll=function(){{loadPage('map');}};
+(function(){{let saved=localStorage.getItem('cardSize')||'{card_size}'; document.documentElement.style.setProperty('--card-min',saved+'px');}})();
+window.openEditUser=ph=>{{let c=document.getElementById("user-"+ph); let b=document.getElementById("editBody"); b.innerHTML='<input id=eu_ph value="'+c.dataset.phone+'"><select id=eu_role><option value=tech>فني - تحكم محدود</option><option value=manager>مدير - تحكم كامل بالنظام</option></select><input id=eu_pass type=password placeholder="باسورد جديد (اتركه فاضي اذا ما بدك تغير)"><button class=btn-gold onclick="saveUser(\''+ph+'\')" style="width:100%;margin-top:6px">حفظ - المدير يتحكم بكلشي</button>'; document.getElementById("eu_role").value=c.dataset.role; document.getElementById("editModal").classList.add("show");}};
 window.saveUser=old=>{{let fd=new URLSearchParams({{old_phone:old,phone:document.getElementById("eu_ph").value,role:document.getElementById("eu_role").value,password:document.getElementById("eu_pass").value}}); fetch("/edit_user",{{method:"POST",body:fd}}).then(r=>r.json()).then(j=>{{if(j.ok){{closeEditModal(); loadPage("settings",true);}}}})}};
 document.getElementById("formPass").addEventListener("submit",e=>{{e.preventDefault(); fetch("/change_pass",{{method:"POST",body:new FormData(e.target)}}).then(r=>r.json()).then(j=>{{if(j.ok){{e.target.reset(); alert("تم");}}}})}});
-document.getElementById("formUser").addEventListener("submit",e=>{{e.preventDefault(); fetch("/add_user",{{method:"POST",body:new FormData(e.target)}}).then(r=>r.json()).then(j=>{{if(j.ok){{e.target.reset(); loadPage("settings",true);}}}})}});
+document.getElementById("formUser").addEventListener("submit",e=>{{e.preventDefault(); fetch("/add_user",{{method:"POST",body:new FormData(e.target)}}).then(r=>r.json()).then(j=>{{if(j.ok){{e.target.reset(); loadPage("settings",true);}} else alert(j.msg);}})}});
 </script>'''
+
         return "<div class=card>404</div>"
     except Exception as e:
         traceback.print_exc()
@@ -560,7 +667,7 @@ body.light .sidebar a{{color:#334155;background:#f1f5f9}}
 #overlay{{position:fixed;inset:0;background:#0005;z-index:1001;display:none}} #overlay.show{{display:block}}
 .main{{margin-top:58px;padding:6px;min-height:90vh}}
 .card{{background:{card_bg};color:{txt};padding:8px;border-radius:10px;margin-bottom:6px;border:1px solid {border}}}
-.card.small{{padding:7px}} .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px}}
+.card.small{{padding:7px}} .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min,160px),1fr));gap:6px}}
 .stat{{text-align:center;cursor:pointer}} .stat h4{{margin:2px 0;font-size:10px;color:#94a3b8}} .stat h2{{margin:2px 0;font-size:18px}} .ico{{font-size:16px}}
 .row{{display:flex;gap:5px;align-items:center;flex-wrap:wrap}}
 .btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:5px 9px;border:0;border-radius:7px;font-weight:700;font-size:11px;cursor:pointer}}
@@ -619,11 +726,13 @@ window.closeEditModal=()=>document.getElementById('editModal').classList.remove(
 document.getElementById('delYes').onclick=async()=>{{if(!window._delUrl)return; let b=document.getElementById('delYes'); b.textContent='...'; b.disabled=true; try{{let r=await fetch(window._delUrl); let j=await r.json(); if(j.ok){{let el=document.getElementById('tower-'+window._delId)||document.getElementById('dish-'+window._delId)||document.getElementById('sub-'+window._delId)||document.getElementById('led-'+window._delId)||document.getElementById('net-'+window._delId)||document.getElementById('user-'+window._delId); if(el)el.remove(); delete pageCache[cur]; closeDel();}}else alert(j.msg);}}catch(e){{alert(e);}} b.textContent='حذف'; b.disabled=false;}};
 window.toggleLangFast=async()=>{{try{{let r=await fetch('/toggle_lang'); let j=await r.json(); let lang=j.lang; document.documentElement.dir=lang==='ar'?'rtl':'ltr'; localStorage.setItem('lang',lang);
  document.querySelectorAll('[data-i18n]').forEach(el=>{{let k=el.dataset.i18n; if(TR[lang]&&TR[lang][k]){{let icon=el.textContent.trim().split(' ')[0]; el.textContent=icon+' '+TR[lang][k];}}}});
- loadPage(cur,true,false);}}catch(e){{console.log(e);}}}};
+ (function(){{let sz=localStorage.getItem('cardSize'); if(sz) document.documentElement.style.setProperty('--card-min',sz+'px');}})();
+loadPage(cur,true,false);}}catch(e){{console.log(e);}}}};
 window.toggleThemeFast=async()=>{{try{{let r=await fetch('/toggle_theme'); let j=await r.json(); let th=j.theme; document.body.className=th; if(th==='light'){{document.body.style.background='#eef2f7';}} else {{document.body.style.background='radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)';}} localStorage.setItem('theme',th);}}catch{{document.body.classList.toggle('light'); document.body.classList.toggle('dark');}}}};
 window.globalSearchTop=async q=>{{let box=document.getElementById('searchResults'); if(!q||q.length<2){{box.style.display='none'; return;}} try{{let r=await fetch('/api/search?q='+encodeURIComponent(q)); let d=await r.json(); if(!d.length){{box.style.display='none'; return;}} let h=''; d.forEach(x=>{{h+='<div onclick="loadPage(\\''+x.page+'\\');box.style.display=\\'none\\'" style="padding:7px 9px;cursor:pointer;border-bottom:1px solid #ffffff08"><b>'+x.title+'</b><br><small style="color:#888">'+x.sub+'</small></div>';}}); box.innerHTML=h; box.style.display='block';}}catch{{}}}};
 window.logoutFast=async()=>{{try{{await fetch('/api/logout',{{method:'POST'}});}}catch{{}} localStorage.clear(); location.replace('/login');}};
 window.addEventListener('popstate',e=>{{let v='home'; if(e.state&&e.state.page) v=e.state.page; else {{let p=new URLSearchParams(location.search); v=p.get('v')||'home';}} loadPage(v,false,false);}});
+(function(){{let sz=localStorage.getItem('cardSize'); if(sz) document.documentElement.style.setProperty('--card-min',sz+'px');}})();
 loadPage(cur,true,false);
 </script></body></html>"""
 if __name__=='__main__':
