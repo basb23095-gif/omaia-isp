@@ -1,3 +1,4 @@
+# FIXED VERSION 2026-05-13 - circular icons + glass blur + 2cols network + no javascript href + fast cache + no full reload
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -536,8 +537,52 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 .btn-circle.view{{background:rgba(59,130,246,0.15)}}
 .btn-circle, .btn-circle-del{{border-radius:50%!important;width:32px!important;height:32px!important;display:flex!important;align-items:center!important;justify-content:center!important;backdrop-filter:blur(10px)!important;-webkit-backdrop-filter:blur(10px)!important;border:1px solid rgba(255,255,255,0.15)!important}}
 
+/* === تأثير التمرير Hover Effects - المطلوب === */
+.sidebar a{{transition:all 0.3s ease!important;position:relative;overflow:hidden}}
+.sidebar a::before{{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,190,77,0.1),transparent);transform:translateX(-100%);transition:transform 0.6s ease}}
+.sidebar a:hover::before{{transform:translateX(100%)}}
+.sidebar a:hover{{background:rgba(255,255,255,0.08)!important;transform:translateX(-4px);border-color:rgba(255,190,77,0.3)!important}}
+.sidebar a:hover .menu-icon-circle{{transform:translateX(4px) scale(1.1) rotate(5deg);background:rgba(255,190,77,0.25)!important;box-shadow:0 0 15px rgba(255,190,77,0.4)}}
+.menu-icon-circle{{transition:all 0.3s ease!important}}
+
+/* === القائمة الرئيسية حركة ديناميكية سلسة وحواف دائرية زجاجية === */
+.sidebar{{background:rgba(15,20,36,0.75)!important;backdrop-filter:blur(20px) saturate(180%)!important;-webkit-backdrop-filter:blur(20px) saturate(180%)!important;border:1px solid rgba(255,255,255,0.1)!important;border-radius:20px!important;box-shadow:0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)!important;animation:sidebarFloat 6s ease-in-out infinite}}
+@keyframes sidebarFloat{{0%,100%{{transform:translateY(0)}} 50%{{transform:translateY(-2px)}}}}
+.sidebar a{{border-radius:14px!important;background:rgba(255,255,255,0.03)!important;border:1px solid transparent!important;backdrop-filter:blur(10px)!important}}
+
+/* === شريط التحميل الناعم في الأعلى === */
+#topLoader{{position:fixed;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#ffbe4d,#f59e0b,#ffbe4d);background-size:200% 100%;width:0;z-index:9999;transition:width 0.3s ease, opacity 0.3s ease;box-shadow:0 0 10px rgba(255,190,77,0.6);animation:loaderShimmer 1.5s linear infinite}}
+#topLoader.active{{width:70%!important;opacity:1}}
+#topLoader.done{{width:100%!important;opacity:0}}
+@keyframes loaderShimmer{{0%{{background-position:-200% 0}} 100%{{background-position:200% 0}} }}
+
+/* === Skeleton Loading === */
+.skeleton{{background:linear-gradient(90deg,rgba(30,36,51,0.8) 25%,rgba(42,52,71,0.9) 50%,rgba(30,36,51,0.8) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:12px;min-height:20px}}
+.skeleton-card{{height:80px;margin-bottom:10px}}
+.skeleton-text{{height:12px;margin:6px 0;border-radius:6px}}
+.skeleton-text.short{{width:60%}}
+@keyframes shimmer{{0%{{background-position:-200% 0}} 100%{{background-position:200% 0}} }}
+
+/* === الدعم الفني 3D صغير === */
+.support .support-btn, .support a{{width:38px!important;height:38px!important;border-radius:50%!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;font-size:18px!important;box-shadow:0 6px 16px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 1px rgba(255,255,255,0.4), inset 0 -1px 1px rgba(0,0,0,0.2)!important;transform:translateZ(0) perspective(100px) rotateX(5deg)!important;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1)!important;position:relative!important}}
+.support .support-btn::before, .support a::before{{content:'';position:absolute;inset:0;border-radius:50%;background:linear-gradient(180deg,rgba(255,255,255,0.3) 0%,transparent 50%);pointer-events:none}}
+.support a:hover{{transform:translateY(-3px) scale(1.1) perspective(100px) rotateX(0deg)!important;box-shadow:0 10px 24px rgba(0,0,0,0.4), 0 4px 8px rgba(0,0,0,0.3), inset 0 1px 2px rgba(255,255,255,0.5)!important}}
+.support a:active{{transform:translateY(-1px) scale(0.95) perspective(100px) rotateX(10deg)!important}}
+.support a[href*="whatsapp"]{{background:radial-gradient(circle at 30% 30%, #4ade80, #25D366)!important}}
+.support a[href*="instagram"]{{background:radial-gradient(circle at 30% 30%, #feda75, #d62976, #962fbf)!important}}
+
+/* === أيقونات الحذف والتعديل زجاج ضبابي === */
+.btn-circle{{backdrop-filter:blur(16px) saturate(180%)!important;-webkit-backdrop-filter:blur(16px) saturate(180%)!important;background:rgba(255,255,255,0.08)!important;border:1px solid rgba(255,255,255,0.15)!important;box-shadow:0 4px 16px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)!important}}
+.btn-circle.edit{{background:rgba(255,190,77,0.12)!important;border-color:rgba(255,190,77,0.25)!important}}
+.btn-circle.edit:hover{{background:rgba(255,190,77,0.2)!important;box-shadow:0 0 20px rgba(255,190,77,0.4), 0 6px 20px rgba(0,0,0,0.3)!important}}
+.btn-circle.del{{background:rgba(239,68,68,0.12)!important;border-color:rgba(239,68,68,0.25)!important}}
+.btn-circle.del:hover{{background:rgba(239,68,68,0.2)!important;box-shadow:0 0 20px rgba(239,68,68,0.4), 0 6px 20px rgba(0,0,0,0.3)!important}}
+.btn-circle.view{{background:rgba(6,182,212,0.12)!important;border-color:rgba(6,182,212,0.25)!important}}
+.btn-circle.view:hover{{background:rgba(6,182,212,0.2)!important;box-shadow:0 0 20px rgba(6,182,212,0.4), 0 6px 20px rgba(0,0,0,0.3)!important}}
+
 </style>
 <script src='https://unpkg.com/lucide@latest/dist/umd/lucide.min.js'></script></head><body>
+<div id=topLoader></div>
 <div class=card>
 <div style='text-align:center;font-weight:900;font-size:24px;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <form id=loginForm>
@@ -1360,8 +1405,23 @@ async function loadPage(v,force=false,push=true){{
   fetch('/api/page?v='+v,{{cache:'no-store'}}).then(r=>r.text()).then(h=>{{pageCache[v]=h;}});
   return;
  }}
- mn.innerHTML='<div class=card style="text-align:center;padding:12px;opacity:.5">...</div>';
- try{{let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); let h=await r.text(); pageCache[v]=h; mn.innerHTML=h; execScripts(); try{{lucide.createIcons();}}catch{{}}}}catch(e){{mn.innerHTML='<div class=card>خطأ</div>';}}
+ let loader=document.getElementById('topLoader');
+ if(loader){{loader.classList.add('active'); loader.style.width='30%';}}
+ mn.innerHTML='<div class=skeleton style="height:56px;margin-bottom:10px;border-radius:12px"></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div><div class=skeleton style="height:120px;margin-top:10px;border-radius:12px"></div>';
+ try{{
+  if(loader) loader.style.width='70%';
+  let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); 
+  let h=await r.text(); 
+  if(loader) loader.style.width='100%';
+  pageCache[v]=h; 
+  mn.innerHTML=h; execScripts(); 
+  try{{lucide.createIcons();}}catch{{}}
+  setTimeout(()=>{{if(loader){{loader.style.opacity='0'; setTimeout(()=>{{loader.style.width='0%'; loader.classList.remove('active'); loader.style.opacity='1';}},300);}}}},400);
+ }}catch(e){{
+  mn.innerHTML='<div class=card>خطأ - <button class=btn-gold onclick="loadPage(cur,true)">إعادة</button></div>';
+  if(loader){{loader.style.width='0%'; loader.classList.remove('active');}}
+ }}
+
 }}
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
 window.closeEditModal=()=>document.getElementById('editModal').classList.remove('show');
