@@ -594,48 +594,49 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 
 
 /* === المطلوب: قائمة زجاج ضبابي blur(20px) + حركة ضغطة active:scale(0.9) + أزرار زجاج ملون 0.15s === */
-.sidebar{
+.sidebar{{
   backdrop-filter:blur(20px)!important;
   -webkit-backdrop-filter:blur(20px)!important;
-}
-.sidebar a{
+}}
+.sidebar a{{
   transition:all 0.15s ease!important;
   backdrop-filter:blur(20px)!important;
-}
-.sidebar a:active{
+}}
+.sidebar a:active{{
   transform:scale(0.9)!important;
-}
-.btn-circle{
+}}
+.btn-circle{{
   backdrop-filter:blur(20px)!important;
   -webkit-backdrop-filter:blur(20px)!important;
   transition:all 0.15s ease!important;
   border:1px solid rgba(255,255,255,0.18)!important;
-}
-.btn-circle:active{
+}}
+.btn-circle:active{{
   transform:scale(0.9)!important;
-}
-.btn-circle.view{
+}}
+.btn-circle.view{{
   background:rgba(6,182,212,0.15)!important;
   color:#22d3ee!important;
   box-shadow:0 0 15px rgba(6,182,212,0.25), inset 0 1px 0 rgba(255,255,255,0.2)!important;
-}
-.btn-circle.edit{
+}}
+.btn-circle.edit{{
   background:rgba(245,158,11,0.15)!important;
   color:#ffbe4d!important;
   box-shadow:0 0 15px rgba(245,158,11,0.25), inset 0 1px 0 rgba(255,255,255,0.2)!important;
-}
-.btn-circle.del{
+}}
+.btn-circle.del{{
   background:rgba(239,68,68,0.15)!important;
   color:#ff6b6b!important;
   box-shadow:0 0 15px rgba(239,68,68,0.25), inset 0 1px 0 rgba(255,255,255,0.2)!important;
-}
-.btn-circle:hover{
+}}
+.btn-circle:hover{{
   transform:translateY(-1px) scale(1.05)!important;
-}
-.btn-gold:active, .mini-btn:active, .mini-btn-del:active{
+}}
+.btn-gold:active, .mini-btn:active, .mini-btn-del:active{{
   transform:scale(0.9)!important;
   transition:all 0.15s ease!important;
-}
+}}
+
 
 /* === أيقونات الحذف والتعديل زجاج ضبابي === */
 .btn-circle{{backdrop-filter:blur(16px) saturate(180%)!important;-webkit-backdrop-filter:blur(16px) saturate(180%)!important;background:rgba(255,255,255,0.08)!important;border:1px solid rgba(255,255,255,0.15)!important;box-shadow:0 4px 16px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)!important}}
@@ -979,7 +980,6 @@ let r=await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"ap
             part2 = """
 <script>
 window.DISH_CACHE={};
-function escHtml(s){return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 window.openInChrome=function(ip){
  if(!ip) return;
  let url=ip;
@@ -1460,6 +1460,7 @@ input,select{{padding:9px 11px;border-radius:8px;border:1px solid var(--border);
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
 let cur='{v}';
+function escHtml(s){{return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}}
 let pageCache={{}};
 function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o);}}
 async function loadPage(v,force=false,push=true){{
