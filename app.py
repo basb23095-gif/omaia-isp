@@ -116,18 +116,32 @@ def qexec(q,a=()):
             except: pass
         return False
 
+def _do_log(phone,action,detail,now):
+    try:
+        qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'sys',action,str(detail)[:500],now))
+    except Exception as e:
+        print(f"_do_log {e}")
+
 def add_log(phone,action,detail):
     try:
         now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'sys',action,detail,now))
-        with _clock: _cache.pop('counts',None)
-    except Exception as e:
-        print(f"log err {e}")
+        with _clock:
+            for k in ['counts','logs_preview','all_data']:
+                _cache.pop(k,None)
+        # سجل كل شي حتى Ping بس خفف التكرار
+        if action=='Ping':
+            with _clock:
+                last=_cache.get('last_ping_log')
+                if last and time.time()-last<30:
+                    return
+                _cache['last_ping_log']=time.time()
+        threading.Thread(target=_do_log, args=(phone,action,detail,now), daemon=True).start()
+    except: pass
 
 def get_counts():
     with _clock:
         c=_cache.get('counts')
-        if c and time.time()-c[1]<10: return c[0]
+        if c and time.time()-c[1]<60: return c[0]
     try:
         row=qone("SELECT (SELECT COUNT(*) FROM subs) as ns, (SELECT COUNT(*) FROM dish_ips) as nd, (SELECT COUNT(*) FROM towers) as nt, (SELECT COUNT(*) FROM ledger) as nl")
         if row:
@@ -301,7 +315,7 @@ def api_stats():
 def api_towers_list():
     with _clock:
         c=_cache.get('towers_list')
-        if c and time.time()-c[1]<15:
+        if c and time.time()-c[1]<60:
             return jsonify(ok=True,towers=c[0])
     towers=qall("SELECT id,name,area,lat,lng FROM towers ORDER BY name ASC")
     with _clock: _cache['towers_list']=(towers,time.time())
@@ -449,11 +463,11 @@ def dish_detail(id):
 @login_required
 def tower_detail(id):
     if id==0:
-        dishes=qall("SELECT * FROM dish_ips WHERE tower_id IS NULL ORDER BY dish_name ASC")
+        dishes=qall("SELECT * FROM dish_ips WHERE tower_id IS NULL ORDER BY dish_name ASC LIMIT 50")
         return jsonify(ok=True,tower=dict(id=0,name='بدون برج',area=''),dishes=dishes)
     t=qone("SELECT * FROM towers WHERE id=?",(id,))
     if not t: return jsonify(ok=False,msg='غير موجود'),404
-    dishes=qall("SELECT * FROM dish_ips WHERE tower_id=? ORDER BY dish_name ASC",(id,))
+    dishes=qall("SELECT * FROM dish_ips WHERE tower_id=? ORDER BY dish_name ASC LIMIT 100",(id,))
     return jsonify(ok=True,tower=t,dishes=dishes)
 
 @app.route('/')
@@ -492,6 +506,25 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 .btn-circle.edit:hover{{box-shadow:0 0 15px rgba(245,158,11,0.4)}}
 .btn-circle.view{{background:rgba(6,182,212,0.2);color:#fff}}
 .btn-circle.view:hover{{box-shadow:0 0 15px rgba(6,182,212,0.4)}}
+
+
+/* === حركة ديناميكية سلسة للقائمة الرئيسية === */
+.sidebar{{animation:sidebarEnter .45s cubic-bezier(0.34,1.56,0.64,1);border-radius:16px}}
+@keyframes sidebarEnter{{0%{{transform:translateX(calc(100% + 40px)) scale(.96);opacity:0}} 100%{{transform:translateX(0) scale(1);opacity:1}}}}
+.sidebar a{{border-radius:12px;transform-origin:right center;transition:all .22s cubic-bezier(0.4,0,0.2,1)}}
+.sidebar a:hover{{transform:translateX(-4px) scale(1.02)}}
+.sidebar a.active{{animation:activePop .3s cubic-bezier(0.34,1.56,0.64,1)}}
+@keyframes activePop{{0%{{transform:scale(.96)}} 50%{{transform:scale(1.03)}} 100%{{transform:scale(1)}}}}
+.main{{border-radius:16px}}
+/* 3D للدعم الفني */
+.support-btn{{width:36px;height:36px;border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.25), inset 0 1px 1px rgba(255,255,255,0.3);transform:translateZ(0);transition:all .22s cubic-bezier(0.34,1.56,0.64,1)}}
+.support-btn:hover{{transform:translateY(-2px) scale(1.1);box-shadow:0 8px 20px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.4)}}
+.support-btn:active{{transform:translateY(0) scale(.95)}}
+/* ايقونات Actions مثل الصورة - توهج */
+.btn-circle.del{{background:radial-gradient(circle at 30% 30%, #ff6b6b, #ef4444);box-shadow:0 0 20px rgba(239,68,68,0.5), 0 4px 12px rgba(239,68,68,0.3)}}
+.btn-circle.edit{{background:radial-gradient(circle at 30% 30%, #ffcc70, #f59e0b);box-shadow:0 0 20px rgba(245,158,11,0.5), 0 4px 12px rgba(245,158,11,0.3)}}
+.btn-circle.view{{background:radial-gradient(circle at 30% 30%, #22d3ee, #06b6d4);box-shadow:0 0 20px rgba(6,182,212,0.5), 0 4px 12px rgba(6,182,212,0.3)}}
+.btn-circle{{border:1px solid rgba(255,255,255,0.2)}}
 
 </style>
 <script src='https://unpkg.com/lucide@latest/dist/umd/lucide.min.js'></script></head><body>
@@ -1069,11 +1102,11 @@ window.doSinglePing=async function(){let ip=document.getElementById('pingIp').va
 window.doClientPing=async function(){let ip=document.getElementById('pingIp').value.trim(); if(!ip)return; let out=document.getElementById('pingResult'); out.textContent='يفحص '+ip+'...'; try{let ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),2000); let start=Date.now(); await fetch('http://'+ip,{mode:'no-cors',signal:ctrl.signal}); let ms=Date.now()-start; out.textContent=ip+' ✓ '+ms+'ms - انقر لفتح في كروم'; out.onclick=()=>openInChrome(); out.style.cursor='pointer';}catch{out.textContent=ip+' لا يرد';}};
 </script>"""
         if v=='logs':
-            rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
+            rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 50")
             rows="".join([f"<tr><td>{esc(r.get('time',''))}</td><td><span class=badge>{esc(r.get('action',''))}</span></td><td>{esc(r.get('user_phone',''))}</td><td>{esc(r.get('detail',''))}</td></tr>" for r in rs]) or "<tr><td colspan=4>لا يوجد سجل</td></tr>"
             return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل - {len(rs)}</b><div class=row><a href="/api/export/logs" class=btn-gold style="text-decoration:none;padding:4px 8px">تصدير</a><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs=async()=>{{if(!confirm("مسح؟")) return; await fetch("/api/clear_logs",{{method:"POST"}}); loadPage("logs",true);}};</script>"""
         if v=='subs':
-            rs=qall("SELECT * FROM subs ORDER BY name ASC")
+            rs=qall("SELECT * FROM subs ORDER BY name ASC LIMIT 50")
             rows="".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span style='cursor:pointer;color:var(--accent)' onclick=\"openInChrome('{esc(r.get('phone') or '')}')\">{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><div style='display:flex;gap:4px'><button class=mini-btn onclick=\"editSub({r.get('id')})\">✏</button><button class=mini-btn-del onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑</button></div></td></tr>" for r in rs])
             return f"""<div class=card><div class=row style="justify-content:space-between"><b>👥 المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ إضافة</button></div><form id=fSub class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=phone placeholder="رقم / IP / دومين" style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم / IP</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
 <script>
@@ -1097,7 +1130,7 @@ loadPage("subs",true);
 }};
 </script>"""
         if v=='ledger':
-            rs=qall("SELECT * FROM ledger ORDER BY id DESC")
+            rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 50")
             rows="".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span class=ip style='cursor:pointer' onclick=\"openInChrome('{esc(r.get('note') or '')}')\">{r.get('amount')}</span></td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><div style='display:flex;gap:4px'><button class=mini-btn onclick=\"editLed({r.get('id')})\">✏</button><button class=mini-btn-del onclick=\"openDeleteModal('/del_ledger/{r.get('id')}',{r.get('id')},'حساب')\">🗑</button></div></td></tr>" for r in rs])
             return f"""<div class=card><div class=row style="justify-content:space-between"><b>📒 الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div><form id=fLed class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1"><input name=note placeholder="ملاحظة / دومين" style="flex:1"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
 <script>
@@ -1121,7 +1154,7 @@ loadPage("ledger",true);
 }};
 </script>"""
         if v=='network':
-            dishes=qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
+            dishes=qall("SELECT * FROM dish_ips ORDER BY dish_name ASC LIMIT 100")
             rows="".join([f"<tr id=net-{d.get('id')} data-ip='{esc(d.get('ip') or '')}'><td>{esc(d.get('dish_name') or '')}</td><td><span class=ip style='cursor:pointer' onclick=\"window.open('http://{esc(d.get('ip') or '')}','_blank')\">{esc(d.get('ip') or '')}</span></td><td class=net-out>...</td><td><a href=\"javascript:openInChrome('{esc(d.get('ip') or '')}')\">🌐</a> <button onclick='checkOne({d.get('id')})'>📶</button></td></tr>" for d in dishes])
             return f"""<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة - الضغط على IP يفتح في كروم</b><button class=btn-gold onclick="checkAll()">فحص الكل</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>IP / دومين</th><th>حالة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div><script>
 window.openInChrome=function(ip){{if(!ip) return; let url=ip; if(!url.startsWith('http')) url='http://'+url; window.open(url,'_blank');}};
@@ -1305,7 +1338,7 @@ async function loadPage(v,force=false,push=true){{
  if(push&&cur!==v){{try{{history.pushState({{page:v}},'', '/dash?v='+v)}}catch(e){{}}}}
  cur=v; toggleSb(false); document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active')); let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
  let mn=document.getElementById('mn');
- mn.innerHTML='<div class=card style="text-align:center;padding:20px">⚡ تحميل...</div>';
+ mn.innerHTML='<div class=card style="text-align:center;padding:12px;opacity:.5">...</div>';
  try{{let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); let h=await r.text(); mn.innerHTML=h; execScripts(); try{{lucide.createIcons();}}catch{{}}}}catch(e){{mn.innerHTML='<div class=card>خطأ</div>';}}
 }}
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
