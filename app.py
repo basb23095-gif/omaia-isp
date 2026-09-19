@@ -38,7 +38,7 @@ def init_pool():
     with _plock:
         if _pg_pool: return
         try:
-            _pg_pool=pg_pool.ThreadedConnectionPool(2,10,dsn=DATABASE_URL,sslmode='require',connect_timeout=2)
+            _pg_pool=pg_pool.ThreadedConnectionPool(3,20,dsn=DATABASE_URL,sslmode='require',connect_timeout=5)
         except:
             _pg_pool=None; USE_PG=False
 init_pool()
@@ -127,13 +127,13 @@ def add_log(phone,action,detail):
 def get_counts():
     with _clock:
         c=_cache.get('counts')
-        if c and time.time()-c[1]<5: return c[0]
+        if c and time.time()-c[1]<10: return c[0]
     try:
-        ns=(qone("SELECT COUNT(*) as c FROM subs") or {}).get('c',0)
-        nd=(qone("SELECT COUNT(*) as c FROM dish_ips") or {}).get('c',0)
-        nt=(qone("SELECT COUNT(*) as c FROM towers") or {}).get('c',0)
-        nl=(qone("SELECT COUNT(*) as c FROM ledger") or {}).get('c',0)
-        d=(ns,nd,nt,nl)
+        row=qone("SELECT (SELECT COUNT(*) FROM subs) as ns, (SELECT COUNT(*) FROM dish_ips) as nd, (SELECT COUNT(*) FROM towers) as nt, (SELECT COUNT(*) FROM ledger) as nl")
+        if row:
+            d=(row.get('ns',0), row.get('nd',0), row.get('nt',0), row.get('nl',0))
+        else:
+            d=(0,0,0,0)
         with _clock: _cache['counts']=(d,time.time())
         return d
     except: return (0,0,0,0)
@@ -199,6 +199,8 @@ def role_required_manager(f):
         if not is_manager(): return jsonify(ok=False,msg='ممنوع'),403
         return f(*a,**kw)
     return w
+import concurrent.futures as _cf
+
 def is_valid_host(h):
     h=(h or '').strip()
     if not h: return False
@@ -226,25 +228,25 @@ def ping(): return jsonify(ok=True,use_pg=USE_PG)
 def api_ping():
     ip=request.args.get('ip','').strip()
     if not is_valid_ip(ip): return jsonify(ok=False,out='IP غير صالح')
-    for port in [80,443,8080,8291,22,8728]:
+    # فحص سريع متوازي - 80 أولا
+    def try_port(p):
         s=None
         try:
-            s=socket.socket(); s.settimeout(0.3)
-            if s.connect_ex((ip,port))==0:
-                s.close()
-                add_log(session.get('phone'),'Ping',f'{ip}:{port} مفتوح')
-                return jsonify(ok=True,out=f'{ip}:{port} ✓')
-            s.close()
-        except:
+            s=socket.socket(); s.settimeout(0.25)
+            if s.connect_ex((ip,p))==0:
+                return p
+        except: pass
+        finally:
             try: s.close()
             except: pass
+        return None
     try:
-        cmd=['ping','-c','1','-W','1',ip] if platform.system().lower()!='windows' else ['ping','-n','1','-w','800',ip]
-        out=subprocess.check_output(cmd,timeout=1,stderr=subprocess.STDOUT).decode(errors='ignore')
-        if 'ttl=' in out.lower():
-            m=re.search(r'time[=<]\s*(\d+\.?\d*)',out,re.I); ms=m.group(1) if m else ''
-            add_log(session.get('phone'),'Ping',f'{ip} {ms}ms')
-            return jsonify(ok=True,out=f'{ip} {ms}ms ✓')
+        with _cf.ThreadPoolExecutor(max_workers=3) as ex:
+            futs=[ex.submit(try_port, p) for p in [80,443,8080]]
+            for f in _cf.as_completed(futs, timeout=0.8):
+                r=f.result()
+                if r:
+                    return jsonify(ok=True,out=f'{ip}:{r} ✓')
     except: pass
     return jsonify(ok=False,out=f'{ip} لا يرد')
 
@@ -297,7 +299,12 @@ def api_stats():
 @app.route('/api/towers_list')
 @login_required
 def api_towers_list():
+    with _clock:
+        c=_cache.get('towers_list')
+        if c and time.time()-c[1]<15:
+            return jsonify(ok=True,towers=c[0])
     towers=qall("SELECT id,name,area,lat,lng FROM towers ORDER BY name ASC")
+    with _clock: _cache['towers_list']=(towers,time.time())
     return jsonify(ok=True,towers=towers)
 
 @app.route('/toggle_lang')
@@ -527,7 +534,9 @@ def at():
     try:
         d=request.json if request.is_json else request.form; la=float(d.get('lat') or 35.1318); ln=float(d.get('lng') or 36.7578)
         ok=qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)",(d.get('name','كرت'),d.get('area',''),la,ln,datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        if ok: add_log(session.get('phone'),'إضافة برج',d.get('name',''))
+        if ok:
+            add_log(session.get('phone'),'إضافة برج',d.get('name',''))
+            with _clock: _cache.pop('towers_list',None)
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False,msg=str(e)),500
 
@@ -675,7 +684,7 @@ def page_content(v):
 }})();
 </script>"""
         if v=='towers':
-            rs=qall("SELECT t.id,t.name,t.area,t.lat,t.lng,(SELECT COUNT(*) FROM dish_ips WHERE tower_id=t.id) as cnt FROM towers t ORDER BY t.name ASC")
+            rs=qall("SELECT t.id,t.name,t.area,t.lat,t.lng, COUNT(d.id) as cnt FROM towers t LEFT JOIN dish_ips d ON d.tower_id=t.id GROUP BY t.id,t.name,t.area,t.lat,t.lng ORDER BY t.name ASC")
             cards=""
             for t in rs:
                 tid=t.get('id'); tname=esc(t.get('name') or f'برج {tid}'); tarea=esc(t.get('area') or ''); lat=t.get('lat') or 35.1318; lng=t.get('lng') or 36.7578; cnt=t.get('cnt') or 0
