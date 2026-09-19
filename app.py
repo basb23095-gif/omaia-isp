@@ -529,9 +529,12 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 
 .menu-icon-circle{{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:all .3s ease}}
 .sidebar a:hover .menu-icon-circle{{background:rgba(255,190,77,0.2);transform:scale(1.1) rotate(5deg)}}
-.btn-circle{{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.18);transition:all .22s cubic-bezier(0.34,1.56,0.64,1)}}
-.btn-circle:hover{{transform:scale(1.12) translateY(-1px)}}
-.mini-btn, .mini-btn-del{{border-radius:50%!important;width:32px!important;height:32px!important;display:flex!important;align-items:center!important;justify-content:center!important;backdrop-filter:blur(10px)!important;-webkit-backdrop-filter:blur(10px)!important;border:1px solid rgba(255,255,255,0.15)!important}}
+.btn-circle{{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.18);transition:all .22s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2)}}
+.btn-circle:hover{{transform:scale(1.12) translateY(-1px);box-shadow:0 8px 20px rgba(0,0,0,0.25)}}
+.btn-circle.edit{{background:rgba(255,190,77,0.15)}}
+.btn-circle.del{{background:rgba(239,68,68,0.15)}}
+.btn-circle.view{{background:rgba(59,130,246,0.15)}}
+.btn-circle, .btn-circle-del{{border-radius:50%!important;width:32px!important;height:32px!important;display:flex!important;align-items:center!important;justify-content:center!important;backdrop-filter:blur(10px)!important;-webkit-backdrop-filter:blur(10px)!important;border:1px solid rgba(255,255,255,0.15)!important}}
 
 </style>
 <script src='https://unpkg.com/lucide@latest/dist/umd/lucide.min.js'></script></head><body>
@@ -784,14 +787,14 @@ def page_content(v):
             cards=""
             for t in rs:
                 tid=t.get('id'); tname=esc(t.get('name') or f'برج {tid}'); tarea=esc(t.get('area') or ''); lat=t.get('lat') or 35.1318; lng=t.get('lng') or 36.7578; cnt=t.get('cnt') or 0
-                cards+=f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:var(--icon-size,44px);height:var(--icon-size,44px);background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">{tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tarea} <span style="font-size:10px;opacity:.7">{lat:.4f},{lng:.4f}</span></div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:10px"><button class=mini-btn onclick="openEditTowerPage({tid})">✏ تعديل</button><button class=mini-btn-del onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')">🗑</button></div></div>'
+                cards+=f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:var(--icon-size,44px);height:var(--icon-size,44px);background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">{tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tarea} <span style="font-size:10px;opacity:.7">{lat:.4f},{lng:.4f}</span></div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:10px"><button class=\"btn-circle edit\" onclick="openEditTowerPage({tid})" title="تعديل">✏</button><button class=\"btn-circle del\" onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')">🗑</button></div></div>'
             return f"""<div style="max-width:1100px;margin:0 auto"><div class=card row style="justify-content:space-between"><b>🗼 الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid>{cards}</div></div><script>
 window.openNewTowerPage=function(){{
 let b=document.getElementById("editBody"); b.innerHTML='<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%">حفظ</button>'; document.getElementById("editModalTitle").textContent="إضافة برج"; document.getElementById("editModal").classList.add("show");
 }};
 window.saveNewTowerPage=async function(){{
 let d={{name:document.getElementById("nt_name").value,area:document.getElementById("nt_area").value,lat:document.getElementById("nt_lat").value,lng:document.getElementById("nt_lng").value}};
-if(!d.name) return; let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); let grid=document.getElementById("towersGrid"); if(grid){{let div=document.createElement("div"); div.className="card tower-card"; div.innerHTML="<b>"+d.name+"</b> تمت الإضافة"; grid.prepend(div);}} }}
+if(!d.name) return; let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); let grid=document.getElementById("towersGrid"); if(grid){{let div=document.createElement("div"); div.className="card tower-card"; div.id="tower-"+(j.id||Date.now()); div.dataset.name=d.name; div.dataset.area=d.area; div.dataset.lat=d.lat; div.dataset.lng=d.lng; div.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">'+d.name+'</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">'+d.area+'</div></div></div><span class=badge>0 IP</span></div><div style="display:flex;gap:8px;margin-top:10px"><button class="btn-circle edit" onclick="openEditTowerPage('+(j.id||0)+')" title="تعديل">✏</button><button class="btn-circle del" onclick="openDeleteModal(\'/del_tower/'+(j.id||0)+'\','+(j.id||0)+',\''+d.name+'\')" title="حذف">🗑</button></div>'; grid.prepend(div);}} }}
 }};
 window.openEditTowerPage=async function(id){{
 let card=document.getElementById("tower-"+id);
@@ -810,7 +813,7 @@ document.getElementById("editModalTitle").textContent="تعديل برج"; docum
 }};
 window.saveTowerPage=async function(id){{
 let d={{name:document.getElementById("et_name").value,area:document.getElementById("et_area").value,lat:document.getElementById("et_lat").value,lng:document.getElementById("et_lng").value}};
-let r=await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); let card=document.getElementById("tower-"+id); if(card){card.dataset.name=d.name; card.dataset.area=d.area; let b=card.querySelector("b"); if(b) b.textContent=d.name;}}} else alert("خطأ");
+let r=await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); let card=document.getElementById("tower-"+id); if(card){{card.dataset.name=d.name; card.dataset.area=d.area; card.dataset.lat=d.lat; card.dataset.lng=d.lng; let b=card.querySelector("b"); if(b) b.textContent=d.name;}}}} else alert("خطأ");
 }};
 </script>"""
 
@@ -831,8 +834,8 @@ let r=await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"ap
       </div>
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-      <button class=mini-btn onclick="event.stopPropagation();openEditTowerPage({tid})" title="تعديل">✏</button>
-      <button class=mini-btn-del onclick="event.stopPropagation();openDeleteModal('/del_tower/{tid}',{tid},'{tname}')" title="حذف">🗑</button>
+      <button class=\"btn-circle edit\" onclick="event.stopPropagation();openEditTowerPage({tid})" title="تعديل">✏</button>
+      <button class=\"btn-circle del\" onclick="event.stopPropagation();openDeleteModal('/del_tower/{tid}',{tid},'{tname}')" title="حذف">🗑</button>
       <div id="arrow-{tid}" style="transition:transform .25s;margin-left:4px">▼</div>
     </div>
   </div>
@@ -929,8 +932,8 @@ window.renderDishesBatch=function(tid,start){
    </div>
    <div style="display:flex;gap:8px">
      <button class="btn-circle view" onclick="openInChrome('${escHtml(ip)}')" title="عرض">👁</button>
-     <button class="btn-circle edit" onclick="openEditDishAcc(${d.id})" title="تعديل">✏</button>
-     <button class="btn-circle del" onclick="openDeleteModal('/del_dish/${d.id}',${d.id},'${escHtml(ip)}')" title="حذف">🗑</button>
+     <button class=\"btn-circle edit\" onclick="openEditDishAcc(${d.id})" title="تعديل">✏</button>
+     <button class=\"btn-circle del\" onclick="openDeleteModal('/del_dish/${d.id}',${d.id},'${escHtml(ip)}')" title="حذف">🗑</button>
    </div>`;
   list.appendChild(row);
  }
@@ -1114,11 +1117,11 @@ window.doClientPing=async function(){let ip=document.getElementById('pingIp').va
             return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل - {len(rs)}</b><div class=row><a href="/api/export/logs" class=btn-gold style="text-decoration:none;padding:4px 8px">تصدير</a><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs=async()=>{{if(!confirm("مسح؟")) return; await fetch("/api/clear_logs",{{method:"POST"}}); loadPage("logs",true);}};</script>"""
         if v=='subs':
             rs=qall("SELECT * FROM subs ORDER BY name ASC LIMIT 50")
-            rows="".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span style='cursor:pointer;color:var(--accent)' onclick=\"openInChrome('{esc(r.get('phone') or '')}')\">{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><div style='display:flex;gap:4px'><button class=mini-btn onclick=\"editSub({r.get('id')})\">✏</button><button class=mini-btn-del onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑</button></div></td></tr>" for r in rs])
+            rows="".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span style='cursor:pointer;color:var(--accent)' onclick=\"openInChrome('{esc(r.get('phone') or '')}')\">{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><div style='display:flex;gap:4px'><button class=\"btn-circle edit\" onclick=\"editSub({r.get('id')})\" title=\"تعديل\">✏</button><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑</button></div></td></tr>" for r in rs])
             return f"""<div class=card><div class=row style="justify-content:space-between"><b>👥 المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ إضافة</button></div><form id=fSub class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=phone placeholder="رقم / IP / دومين" style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم / IP</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
 <script>
 window.openInChrome=function(ip){{if(!ip) return; let url=ip; if(!url.startsWith('http')) url='http://'+url; window.open(url,'_blank');}};
-document.getElementById("fSub").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_sub",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok) loadPage("subs",true);}});
+document.getElementById("fSub").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_sub",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok){{e.target.reset(); e.target.style.display="none"; let tb=document.querySelector("tbody"); if(tb){{let name=fd.get("name"); let phone=fd.get("phone"); let note=fd.get("note"); let tr=document.createElement("tr"); tr.innerHTML='<td>'+name+'</td><td>'+phone+'</td><td>'+note+'</td><td><div style="display:flex;gap:6px"><button class="btn-circle edit">✏</button><button class="btn-circle del">🗑</button></div></td>'; tb.prepend(tr);}}}}}});
 window.editSub=function(id){{
 let row=document.getElementById("sub-"+id);
 let name=row.children[0].textContent;
@@ -1132,17 +1135,17 @@ document.getElementById("editModal").classList.add("show");
 window.saveSub=async function(id){{
 let d={{name:document.getElementById("es_name").value,phone:document.getElementById("es_phone").value,note:document.getElementById("es_note").value}};
 await fetch("/edit_sub/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
+let row=document.getElementById("sub-"+id); if(row){{row.children[0].textContent=d.name; row.children[1].textContent=d.phone; row.children[2].textContent=d.note;}}
 closeEditModal();
-loadPage("subs",true);
 }};
 </script>"""
         if v=='ledger':
             rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 50")
-            rows="".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span class=ip style='cursor:pointer' onclick=\"openInChrome('{esc(r.get('note') or '')}')\">{r.get('amount')}</span></td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><div style='display:flex;gap:4px'><button class=mini-btn onclick=\"editLed({r.get('id')})\">✏</button><button class=mini-btn-del onclick=\"openDeleteModal('/del_ledger/{r.get('id')}',{r.get('id')},'حساب')\">🗑</button></div></td></tr>" for r in rs])
+            rows="".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span class=ip style='cursor:pointer' onclick=\"openInChrome('{esc(r.get('note') or '')}')\">{r.get('amount')}</span></td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><div style='display:flex;gap:4px'><button class=\"btn-circle edit\" onclick=\"editLed({r.get('id')})\" title=\"تعديل\">✏</button><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_ledger/{r.get('id')}',{r.get('id')},'حساب')\">🗑</button></div></td></tr>" for r in rs])
             return f"""<div class=card><div class=row style="justify-content:space-between"><b>📒 الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div><form id=fLed class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1"><input name=note placeholder="ملاحظة / دومين" style="flex:1"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
 <script>
 window.openInChrome=function(ip){{if(!ip) return; let url=ip; if(!url.startsWith('http')) url='http://'+url; window.open(url,'_blank');}};
-document.getElementById("fLed").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_ledger",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok) loadPage("ledger",true);}});
+document.getElementById("fLed").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_ledger",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok){{e.target.reset(); e.target.style.display="none"; let tb=document.querySelector("tbody"); if(tb){{let name=fd.get("name"); let amount=fd.get("amount"); let note=fd.get("note"); let tr=document.createElement("tr"); tr.innerHTML='<td>'+name+'</td><td>'+amount+'</td><td>'+note+'</td><td>USD</td><td><div style="display:flex;gap:6px"><button class="btn-circle edit">✏</button><button class="btn-circle del">🗑</button></div></td>'; tb.prepend(tr);}}}}}});
 window.editLed=function(id){{
 let row=document.getElementById("led-"+id);
 let name=row.children[0].textContent;
@@ -1156,23 +1159,29 @@ document.getElementById("editModal").classList.add("show");
 window.saveLed=async function(id){{
 let d={{name:document.getElementById("el_name").value,amount:document.getElementById("el_amt").value,note:document.getElementById("el_note").value}};
 await fetch("/edit_ledger/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
+let row=document.getElementById("led-"+id); if(row){{row.children[0].textContent=d.name; row.children[1].textContent=d.amount; row.children[2].textContent=d.note;}}
 closeEditModal();
-loadPage("ledger",true);
 }};
 </script>"""
         if v=='network':
             dishes=qall("SELECT * FROM dish_ips ORDER BY dish_name ASC LIMIT 100")
-            rows="".join([f"<tr id=net-{d.get('id')} data-ip='{esc(d.get('ip') or '')}'><td>{esc(d.get('dish_name') or '')}</td><td><span class=ip style='cursor:pointer' onclick=\"window.open('http://{esc(d.get('ip') or '')}','_blank')\">{esc(d.get('ip') or '')}</span></td><td class=net-out>...</td><td><a href=\"javascript:openInChrome('{esc(d.get('ip') or '')}')\">🌐</a> <button onclick='checkOne({d.get('id')})'>📶</button></td></tr>" for d in dishes])
-            return f"""<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة - الضغط على IP يفتح في كروم</b><button class=btn-gold onclick="checkAll()">فحص الكل</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>IP / دومين</th><th>حالة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div><script>
+            cards=""
+            for d in dishes:
+                did=d.get('id')
+                dname=esc(d.get('dish_name') or '')
+                dip=esc(d.get('ip') or '')
+                dloc=esc(d.get('location') or '')
+                cards+=f'''<div class="card ip-card" id="net-{did}" data-ip="{dip}"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">{dname}</b><span class="badge" style="font-size:9px">{dloc}</span></div><div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="ip" data-url="http://{dip}" onclick="window.open(this.dataset.url,'_blank')" style="cursor:pointer">{dip}</span><span class="net-out" style="font-size:10px;color:#94a3b8">...</span></div><div style="display:flex;gap:6px;margin-top:8px"><button class="btn-circle view" onclick="openInChrome('{dip}')">👁</button><button class=\"btn-circle edit\" onclick="checkOne({did})">📶</button></div></div>'''
+            return f"""<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة - سطرين بالشاشة</b><button class=btn-gold onclick="checkAll()">فحص الكل</button></div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px">{cards}</div></div><script>
 window.openInChrome=function(ip){{if(!ip) return; let url=ip; if(!url.startsWith('http')) url='http://'+url; window.open(url,'_blank');}};
-window.checkOne=async id=>{{let c=document.getElementById("net-"+id); let out=c.querySelector(".net-out"); out.textContent="..."; try{{let r=await fetch("/api/ping?ip="+c.dataset.ip); let j=await r.json(); out.textContent=j.out; out.style.cursor='pointer'; out.onclick=()=>openInChrome(c.dataset.ip);}}catch{{out.textContent="خطأ";}}}};
+window.checkOne=async id=>{{let c=document.getElementById("net-"+id); let out=c.querySelector(".net-out"); out.textContent="..."; try{{let r=await fetch("/api/ping?ip="+c.dataset.ip); let j=await r.json(); out.textContent=j.out;}}catch{{out.textContent="خطأ";}}}};
 window.checkAll=async()=>{{for(let c of document.querySelectorAll("[id^=net-]")){{checkOne(c.id.split("-")[1]); await new Promise(r=>setTimeout(r,80));}}}};
 </script>"""
         if v=='settings':
             us=qall("SELECT * FROM users ORDER BY phone ASC")
             cfg_rows=qall("SELECT * FROM system_config")
             cfg={r['key']:r['value'] for r in cfg_rows} if cfg_rows else {}
-            cards="".join([f"<div class='card' id=user-{esc(u.get('phone') or '')} data-phone='{esc(u.get('phone') or '')}' data-role='{esc(u.get('role') or '')}'><div style='text-align:center'><b>{esc(u.get('username') or u.get('phone') or '')}</b><br><span class=ip style='cursor:pointer' onclick=\"window.open('http://{esc(u.get('phone') or '')}','_blank')\">{esc(u.get('phone') or '')}</span><br><span class=badge>{esc(u.get('role') or '')}</span><div style='display:flex;gap:6px;justify-content:center;margin-top:8px'><button class=mini-btn onclick=\"openEditUser('{esc(u.get('phone') or '')}')\">✏</button><button class=mini-btn-del onclick=\"openDeleteModal('/del_user/{esc(u.get('phone') or '')}','{esc(u.get('phone') or '')}','يوزر')\">🗑</button></div></div></div>" for u in us])
+            cards="".join([f"<div class='card' id=user-{esc(u.get('phone') or '')} data-phone='{esc(u.get('phone') or '')}' data-role='{esc(u.get('role') or '')}'><div style='text-align:center'><b>{esc(u.get('username') or u.get('phone') or '')}</b><br><span class=ip style='cursor:pointer' onclick=\"window.open('http://{esc(u.get('phone') or '')}','_blank')\">{esc(u.get('phone') or '')}</span><br><span class=badge>{esc(u.get('role') or '')}</span><div style='display:flex;gap:6px;justify-content:center;margin-top:8px'><button class=\"btn-circle edit\" onclick=\"openEditUser('{esc(u.get('phone') or '')}')\">✏</button><button class=\"btn-circle edit\"-del onclick=\"openDeleteModal('/del_user/{esc(u.get('phone') or '')}','{esc(u.get('phone') or '')}','يوزر')\">🗑</button></div></div></div>" for u in us])
             return f"""
 <div style="max-width:1100px;margin:0 auto">
 <div class=grid-small>
@@ -1288,7 +1297,7 @@ body{{background:var(--bg);color:var(--text);overflow-x:hidden;transition:backgr
 .main{{margin-top:62px;padding:10px;min-height:90vh}}
 .row{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}}
 .btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:7px 12px;border:0;border-radius:8px;font-weight:700;font-size:11px;cursor:pointer}}
-.mini-btn{{background:var(--border);color:var(--text);border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}} .mini-btn-del{{background:#ef4444;color:#fff;border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}}
+.btn-circle{{background:var(--border);color:var(--text);border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}} .btn-circle-del{{background:#ef4444;color:#fff;border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}}
 .ip{{background:#000;color:var(--accent);padding:2px 6px;border-radius:5px;font-family:monospace;font-size:10px;cursor:pointer}} .badge{{background:var(--accent);color:#111;padding:2px 6px;border-radius:5px;font-size:10px;font-weight:700}}
 .pingBox{{margin-top:8px;background:#000a;color:#22c55e;border:1px solid var(--border);border-radius:10px;padding:10px;font-family:monospace;min-height:36px;white-space:pre-wrap;font-size:11px;cursor:pointer}}
 table{{width:100%;border-collapse:collapse}} th{{background:var(--border);padding:8px;font-size:11px;text-align:right;position:sticky;top:0}} td{{padding:8px;border-bottom:1px solid var(--border)}}
@@ -1340,13 +1349,19 @@ input,select{{padding:9px 11px;border-radius:8px;border:1px solid var(--border);
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
 let cur='{v}';
+let pageCache={{}};
 function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o);}}
 async function loadPage(v,force=false,push=true){{
  if(push&&cur!==v){{try{{history.pushState({{page:v}},'', '/dash?v='+v)}}catch(e){{}}}}
  cur=v; toggleSb(false); document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active')); let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
  let mn=document.getElementById('mn');
+ if(!force && pageCache[v]){{
+  mn.innerHTML=pageCache[v]; execScripts(); try{{lucide.createIcons();}}catch{{}}
+  fetch('/api/page?v='+v,{{cache:'no-store'}}).then(r=>r.text()).then(h=>{{pageCache[v]=h;}});
+  return;
+ }}
  mn.innerHTML='<div class=card style="text-align:center;padding:12px;opacity:.5">...</div>';
- try{{let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); let h=await r.text(); mn.innerHTML=h; execScripts(); try{{lucide.createIcons();}}catch{{}}}}catch(e){{mn.innerHTML='<div class=card>خطأ</div>';}}
+ try{{let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); let h=await r.text(); pageCache[v]=h; mn.innerHTML=h; execScripts(); try{{lucide.createIcons();}}catch{{}}}}catch(e){{mn.innerHTML='<div class=card>خطأ</div>';}}
 }}
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
 window.closeEditModal=()=>document.getElementById('editModal').classList.remove('show');
