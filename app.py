@@ -12,7 +12,7 @@ import sqlite3
 from collections import defaultdict
 
 app=Flask(__name__)
-app.secret_key=os.environ.get("SECRET_KEY","omia-v12-final")
+app.secret_key=os.environ.get("SECRET_KEY","omia-v13-accordion")
 app.config['PERMANENT_SESSION_LIFETIME']=datetime.timedelta(minutes=60)
 
 DATABASE_URL=os.environ.get("DATABASE_URL","").strip().replace("postgres://","postgresql://",1)
@@ -315,6 +315,21 @@ def add_dish_to_tower():
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False,msg=str(e)),500
 
+@app.route('/api/dish_detail/<int:id>')
+@login_required
+def dish_detail(id):
+    d=qone("SELECT * FROM dish_ips WHERE id=?",(id,))
+    if not d: return jsonify(ok=False,msg='غير موجود'),404
+    return jsonify(ok=True,dish=d)
+
+@app.route('/api/tower_detail/<int:id>')
+@login_required
+def tower_detail(id):
+    t=qone("SELECT * FROM towers WHERE id=?",(id,))
+    if not t: return jsonify(ok=False,msg='غير موجود'),404
+    dishes=qall("SELECT * FROM dish_ips WHERE tower_id=? ORDER BY dish_name ASC",(id,))
+    return jsonify(ok=True,tower=t,dishes=dishes)
+
 @app.route('/')
 def ix(): return redirect('/dash') if session.get('phone') else redirect('/login')
 
@@ -336,12 +351,6 @@ input{{width:100%;padding:11px;margin:6px 0;background:#0f1424;border:1px solid 
 <button class=btn id=loginBtn>دخول</button>
 <div id=msg style='text-align:center;color:#ff6b6b;font-size:11px;min-height:14px;margin-top:6px'></div>
 </form>
-<div style='margin-top:10px;border-top:1px dashed #ffffff15;padding-top:8px;text-align:center'>
-<div style='display:flex;gap:8px;justify-content:center;margin-top:6px'>
-<a href='https://wa.me/{SUPPORT_WA}' target=_blank style='width:36px;height:36px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none'>💬</a>
-<a href='https://instagram.com/{SUPPORT_INSTA}' target=_blank style='width:36px;height:36px;background:linear-gradient(45deg,#feda75,#d62976);border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none'>📷</a>
-</div>
-</div>
 </div>
 <script>
 const u=document.getElementById('userin'),p=document.getElementById('password'),r=document.getElementById('remember');
@@ -537,14 +546,6 @@ def cp():
     if ok: add_log_async(session.get('phone'),'تغيير باسورد','')
     return jsonify(ok=ok)
 
-@app.route('/api/tower_detail/<int:id>')
-@login_required
-def tower_detail(id):
-    t=qone("SELECT * FROM towers WHERE id=?",(id,))
-    if not t: return jsonify(ok=False,msg='غير موجود'),404
-    dishes=qall("SELECT * FROM dish_ips WHERE tower_id=? ORDER BY dish_name ASC",(id,))
-    return jsonify(ok=True,tower=t,dishes=dishes)
-
 def page_content(v):
     try:
         lang=session.get('lang','ar')
@@ -552,7 +553,7 @@ def page_content(v):
         if v=='home':
             ns,nd,nt,nl=get_counts()
             logs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
-            lh="".join([f"<tr><td>{esc(l.get('time',''))}</td><td><span class=badge>{esc(l.get('action',''))}</span></td><td>{esc(l.get('user_phone',''))}</td><td>{esc(str(l.get('detail',''))[:60])}</td></tr>" for l in logs]) or "<tr><td colspan=4>فاضي - السجل شغال</td></tr>"
+            lh="".join([f"<tr><td>{esc(l.get('time',''))}</td><td><span class=badge>{esc(l.get('action',''))}</span></td><td>{esc(l.get('user_phone',''))}</td><td>{esc(str(l.get('detail',''))[:60])}</td></tr>" for l in logs]) or "<tr><td colspan=4>فاضي</td></tr>"
             return f'''
 <div style="max-width:1100px;margin:0 auto">
 <div class=grid-small>
@@ -561,12 +562,8 @@ def page_content(v):
 <div class="card small stat" onclick="loadPage('towers')"><div class=ico>🗼</div><h4>{L("أبراج","Towers")}</h4><h2>{nt}</h2></div>
 <div class="card small stat" onclick="loadPage('ledger')"><div class=ico>📒</div><h4>{L("حسابات","Acc")}</h4><h2>{nl}</h2></div>
 </div>
-<div class=card style="margin-top:10px"><div style="display:flex;justify-content:space-between"><b>📜 السجل - شغال</b><div class=row><button class=btn-gold onclick="loadPage('logs')" style="padding:4px 8px">الكل</button><button class=btn-gold onclick="fetch('/api/clear_logs',{{method:'POST'}}).then(()=>loadPage('home',true))" style="padding:4px 8px;background:#ef4444;color:#fff">🧹</button></div></div>
+<div class=card style="margin-top:10px"><div style="display:flex;justify-content:space-between"><b>📜 السجل</b><button class=btn-gold onclick="loadPage('logs')">الكل</button></div>
 <table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>{lh}</tbody></table>
-</div>
-<div style="display:flex;gap:10px;justify-content:center;margin-top:12px">
-<a href="https://wa.me/{SUPPORT_WA}" target="_blank" style="width:44px;height:44px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none">💬</a>
-<a href="https://instagram.com/{SUPPORT_INSTA}" target="_blank" style="width:44px;height:44px;background:linear-gradient(45deg,#feda75,#d62976);border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none">📷</a>
 </div>
 </div>'''
         if v=='towers':
@@ -576,82 +573,178 @@ def page_content(v):
                 tid=t.get('id')
                 dishes=qall("SELECT * FROM dish_ips WHERE tower_id=? ORDER BY dish_name ASC",(tid,))
                 count=len(dishes)
-                ip_list="".join([f'<div class="ip-row"><span class=ip style="font-size:9px">{esc(d.get("ip") or "")}</span><span style="font-size:9px">{esc(d.get("dish_name") or "")}</span><button onclick="event.stopPropagation();delDishFast({d.get("id")},{tid})" style="background:none;border:0;color:#ef4444;cursor:pointer;font-size:10px">✕</button></div>' for d in dishes[:5]])
-                more=f'<small style="color:#888">+{count-5} أكثر</small>' if count>5 else ''
-                if count==0: ip_list='<small style="color:#666">فاضي - اضغط للدخول</small>'
-                cards+=f'''
-<div class="card tower-card" id="tower-{tid}" data-name="{esc(t.get("name") or "")}" data-area="{esc(t.get("area") or "")}" data-lat="{t.get("lat")}" data-lng="{t.get("lng")}" onclick="openTowerDetail({tid})" style="cursor:pointer">
-<div style="display:flex;justify-content:space-between;align-items:center"><b>{esc(t.get("name") or "")}</b><span class=badge>{count} IP</span></div>
-<div style="font-size:10px;color:#888;margin:4px 0">📍 {esc(t.get("area") or "")} | {t.get("lat")},{t.get("lng")}</div>
-<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">{ip_list}{more}</div>
-<div style="display:flex;gap:4px;margin-top:8px" onclick="event.stopPropagation()">
-<button class=mini-btn onclick="openTowerDetail({tid})">📂</button>
-<button class=mini-btn onclick="openEditTower({tid})">✏️</button>
-<button class=mini-btn-del onclick="askDel('/del_tower/{tid}',{tid})">🗑️</button>
-</div>
-</div>'''
-            return f'''
-<div style="max-width:1100px;margin:0 auto">
-<div class=card row style="justify-content:space-between"><b>🗼 الأبراج - {len(rs)} - ترتيب أبجدي</b><div class=row><input id=towerSearch placeholder="بحث..." oninput="filterTowers(this.value)" style="padding:5px"><button class=btn-gold onclick="openNewTower()">+ كرت</button></div></div>
-<div class=grid-small id=towersGrid>{cards}</div>
-</div>
-<div id=towerDetailModal style="position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:2000"><div id=towerDetailBox style="background:#1e2433;width:95%;max-width:500px;max-height:90vh;overflow:auto;border-radius:12px;padding:12px"></div></div>
-<script>
-window.filterTowers=function(q){{let cards=document.querySelectorAll('.tower-card'); q=q.toLowerCase(); cards.forEach(c=>{{let n=c.dataset.name.toLowerCase(); let a=c.dataset.area.toLowerCase(); c.style.display=(n.includes(q)||a.includes(q))?'block':'none';}});}};
-window.openTowerDetail=async function(id){{
- let modal=document.getElementById('towerDetailModal'); let box=document.getElementById('towerDetailBox'); box.innerHTML='...'; modal.style.display='flex';
- try{{let r=await fetch('/api/tower_detail/'+id); let j=await r.json(); if(!j.ok){{box.innerHTML='خطأ'; return;}}
- let t=j.tower; let dishes=j.dishes;
- let html='<div style="display:flex;justify-content:space-between"><b>🗼 '+t.name+'</b><button onclick="document.getElementById(\\'towerDetailModal\\').style.display=\\'none\\'" style="background:none;border:0;color:#fff;font-size:18px">✕</button></div>';
- html+='<div style="font-size:11px;color:#888">📍 '+t.area+' | '+t.lat+','+t.lng+'</div>';
- html+='<div style="margin-top:10px"><b>📡 IP داخل البرج - '+dishes.length+'</b><div style="max-height:300px;overflow:auto;margin-top:6px;display:flex;flex-direction:column;gap:4px">';
- dishes.forEach(d=>{{html+='<div class=card style="padding:6px;display:flex;justify-content:space-between;align-items:center"><div><span class=ip>'+d.ip+'</span> <span style="font-size:11px">'+(d.dish_name||'')+'</span><br><small style="font-size:9px;color:#888">'+(d.location||'')+'</small></div><div><a href="http://'+d.ip+'" target="_blank" style="text-decoration:none">🌐</a> <button onclick="delDishFast('+d.id+','+id+')" style="background:none;border:0;color:#ef4444">🗑️</button></div></div>';}});
- html+='</div></div>';
- html+='<div class=row style="margin-top:10px"><input id=detailIp placeholder="IP" style="flex:1"><input id=detailName placeholder="اسم" style="flex:1"><button class=btn-gold onclick="addDishToTowerDetail('+id+')">+ إضافة</button></div>';
- html+='<div style="margin-top:10px" class=row><button class=btn-gold onclick="openEditTower('+id+')">✏️ تعديل البرج</button><button class=btn-gold onclick="if(confirm(\\'مسح؟\\')){{fetch(\\'/del_tower/'+id+'\\').then(()=>{{document.getElementById(\\'towerDetailModal\\').style.display=\\'none\\'; loadPage(\\'towers\\',true);}});}}" style="background:#ef4444">🗑️ حذف البرج</button></div>';
- box.innerHTML=html;
- }}catch(e){{box.innerHTML='خطأ '+e;}}
-}};
-window.addDishToTowerDetail=async function(tid){{let ip=document.getElementById('detailIp').value.trim(); let nm=document.getElementById('detailName').value.trim(); if(!ip)return; let r=await fetch('/api/add_dish_to_tower',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ip:ip,dish_name:nm,tower_id:tid}})}}); let j=await r.json(); if(j.ok){{openTowerDetail(tid); loadPage('towers',true);}}}};
-window.delDishFast=async function(did,tid){{await fetch('/del_dish/'+did); let el=document.querySelector('#tower-'+tid); if(el){{let badge=el.querySelector('.badge'); if(badge){{let c=parseInt(badge.textContent)||0; badge.textContent=(c-1)+' IP';}}}} openTowerDetail(tid);}};
-window.openNewTower=function(){{let b=document.getElementById("editBody"); b.innerHTML='<input id=nt_name placeholder="اسم"><input id=nt_area placeholder="منطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTower()" style="width:100%">حفظ</button>'; document.getElementById("editModal").classList.add("show");}};
-window.saveNewTower=async function(){{let d={{name:document.getElementById("nt_name").value,area:document.getElementById("nt_area").value,lat:document.getElementById("nt_lat").value,lng:document.getElementById("nt_lng").value}}; let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); let grid=document.getElementById('towersGrid'); let newCard=document.createElement('div'); newCard.className='card tower-card'; newCard.innerHTML='<b>'+d.name+'</b>'; grid.prepend(newCard); loadPage('towers',true);}}}};
-window.openEditTower=function(id){{let c=document.getElementById("tower-"+id); let b=document.getElementById("editBody"); b.innerHTML='<input id=et_name value="'+c.dataset.name+'"><input id=et_area value="'+c.dataset.area+'"><div class=row><input id=et_lat value="'+c.dataset.lat+'"><input id=et_lng value="'+c.dataset.lng+'"></div><button class=btn-gold onclick="saveTower('+id+')" style="width:100%">حفظ</button>'; document.getElementById("editModal").classList.add("show");}};
-window.saveTower=async function(id){{let d={{name:document.getElementById("et_name").value,area:document.getElementById("et_area").value,lat:document.getElementById("et_lat").value,lng:document.getElementById("et_lng").value}}; await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); closeEditModal(); let c=document.getElementById("tower-"+id); if(c){{c.dataset.name=d.name; c.dataset.area=d.area; c.dataset.lat=d.lat; c.dataset.lng=d.lng; c.querySelector('b').textContent=d.name;}} }};
-document.getElementById('towerDetailModal').addEventListener('click',e=>{{if(e.target.id=='towerDetailModal') e.target.style.display='none';}});
-</script>'''
+                cards+=f'<div class="card" id="tower-{tid}" data-name="{esc(t.get("name") or "")}" data-area="{esc(t.get("area") or "")}" data-lat="{t.get("lat")}" data-lng="{t.get("lng")}"><div style="display:flex;justify-content:space-between"><b>{esc(t.get("name") or "")}</b><span class=badge>{count} IP</span></div><div style="font-size:10px;color:#888">📍 {esc(t.get("area") or "")}</div><div style="display:flex;gap:4px;margin-top:8px"><button class=mini-btn onclick="openEditTowerPage({tid})">✏️</button><button class=mini-btn-del onclick="askDel(\'/del_tower/{tid}\',{tid})">🗑️</button></div></div>'
+            return f'<div style="max-width:1100px;margin:0 auto"><div class=card row style="justify-content:space-between"><b>🗼 الأبراج - {len(rs)}</b><button class=btn-gold onclick="openNewTowerPage()">+ كرت</button></div><div class=grid-small>{cards}</div></div><script>window.openNewTowerPage=function(){{let b=document.getElementById("editBody"); b.innerHTML=\'<input id=nt_name placeholder="اسم"><input id=nt_area placeholder="منطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%">حفظ</button>\'; document.getElementById("editModal").classList.add("show");}};window.saveNewTowerPage=async function(){{let d={{name:document.getElementById("nt_name").value,area:document.getElementById("nt_area").value,lat:document.getElementById("nt_lat").value,lng:document.getElementById("nt_lng").value}}; let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); loadPage("towers",true);}}}};window.openEditTowerPage=function(id){{let c=document.getElementById("tower-"+id); let b=document.getElementById("editBody"); b.innerHTML=\'<input id=et_name value="\'+c.dataset.name+\'"><input id=et_area value="\'+c.dataset.area+\'"><div class=row><input id=et_lat value="\'+c.dataset.lat+\'"><input id=et_lng value="\'+c.dataset.lng+\'"></div><button class=btn-gold onclick="saveTowerPage(\'+id+\')" style="width:100%">حفظ</button>\'; document.getElementById("editModal").classList.add("show");}};window.saveTowerPage=async function(id){{let d={{name:document.getElementById("et_name").value,area:document.getElementById("et_area").value,lat:document.getElementById("et_lat").value,lng:document.getElementById("et_lng").value}}; await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); closeEditModal(); loadPage("towers",true);}};</script>'
+
         if v=='dishes':
-            rs=qall("SELECT * FROM dish_ips ORDER BY location ASC, dish_name ASC")
-            groups=defaultdict(list)
-            for r in rs:
-                key=(r.get('location') or '').strip() or 'بدون منطقة'
-                groups[key].append(r)
-            sorted_groups=sorted(groups.items(), key=lambda x: x[0])
-            html_groups=""
-            for area, items in sorted_groups:
-                items=sorted(items, key=lambda x: (x.get('dish_name') or ''))
-                inner=""
-                for it in items:
-                    ip=esc(it.get("ip") or "")
-                    nm=esc(it.get("dish_name") or "")
-                    did=it.get("id")
-                    inner+=f'<div class="ip-row" style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px;background:#ffffff06;border-radius:6px;margin:2px 0"><div><span class=ip>{ip}</span> <span style="font-size:11px">{nm}</span></div><div style="display:flex;gap:4px"><a href="http://{ip}" target="_blank" style="text-decoration:none">🌐</a><button onclick="quickPing(\'{ip}\')" style="background:none;border:0;cursor:pointer">📶</button><button onclick="editDish({did})" style="background:none;border:0;cursor:pointer">✏️</button><button onclick="delDishFast2({did})" style="background:none;border:0;color:#ef4444;cursor:pointer">🗑️</button></div></div>'
-                ea=esc(area)
-                html_groups+=f'<div class="card region-card" id="region-{ea}"><div style="display:flex;justify-content:space-between"><b>📍 {ea}</b><span class=badge>{len(items)}</span></div><div style="margin-top:6px">{inner}</div><div class=row style="margin-top:6px"><input id="addip-{ea}" placeholder="IP" style="flex:1;padding:4px"><input id="addname-{ea}" placeholder="اسم" style="flex:1;padding:4px"><button class=btn-gold onclick="addToArea(\'{ea}\')">+</button></div></div>'
+            towers=qall("SELECT * FROM towers ORDER BY name ASC")
+            all_dishes=qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
+            dishes_by_tower=defaultdict(list)
+            no_tower=[]
+            for d in all_dishes:
+                tid=d.get('tower_id')
+                if tid:
+                    dishes_by_tower[tid].append(d)
+                else:
+                    no_tower.append(d)
+
+            accordion_html=""
+            for t in towers:
+                tid=t.get('id')
+                tname=esc(t.get('name') or f'برج {tid}')
+                tarea=esc(t.get('area') or '')
+                tlat=t.get('lat') or 35.1318
+                tlng=t.get('lng') or 36.7578
+                dishes=dishes_by_tower.get(tid, [])
+                dishes=sorted(dishes, key=lambda x: (x.get('dish_name') or ''))
+                count=len(dishes)
+
+                if count>0:
+                    inner_cards=""
+                    for d in dishes:
+                        did=d.get('id')
+                        dip=esc(d.get('ip') or '')
+                        dname=esc(d.get('dish_name') or 'صحن')
+                        dloc=esc(d.get('location') or '')
+                        inner_cards+=f'<div class="dish-card" id="dish-{did}"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="display:flex;gap:6px;align-items:center"><span class=ip>{dip}</span><b style="font-size:12px">{dname}</b></div><div style="font-size:10px;color:#888;margin-top:3px">📍 {dloc}</div></div><div style="display:flex;gap:6px"><a href="http://{dip}" target="_blank" style="width:28px;height:28px;background:#ffffff10;border-radius:6px;display:flex;align-items:center;justify-content:center;text-decoration:none">🌐</a><button onclick="quickPingAcc(\'{dip}\')" style="width:28px;height:28px;background:#ffffff10;border:0;border-radius:6px;cursor:pointer">📶</button><button onclick="openEditDishAcc({did})" style="width:28px;height:28px;background:#ffffff10;border:0;border-radius:6px;cursor:pointer">✏️</button><button onclick="delDishAcc({did},{tid})" style="width:28px;height:28px;background:#ef444422;border:0;border-radius:6px;cursor:pointer;color:#ef4444">🗑️</button></div></div></div>'
+                else:
+                    inner_cards='<div style="text-align:center;padding:20px;color:#666"><div style="font-size:24px">📡</div><div style="font-size:11px;margin-top:6px">لا يوجد صحون</div></div>'
+
+                accordion_html+=f'<div class="card tower-accordion" id="tower-acc-{tid}" data-name="{tname.lower()}" data-area="{tarea.lower()}"><div class="tower-accordion-header" onclick="toggleAccordion({tid})"><div style="display:flex;align-items:center;gap:12px;flex:1"><div style="width:44px;height:44px;background:linear-gradient(135deg,#ffbe4d,#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div style="flex:1"><div style="display:flex;align-items:center;gap:8px"><b style="font-size:14px">{tname}</b><span class=badge style="background:#22c55e;color:#fff">{count} IP</span></div><div style="font-size:11px;color:#888;margin-top:2px">📍 {tarea} | 📌 {tlat:.4f},{tlng:.4f}</div></div></div><div style="display:flex;gap:8px"><button onclick="event.stopPropagation(); openEditTowerAcc({tid})" style="width:32px;height:32px;background:#ffffff10;border:0;border-radius:8px;cursor:pointer">✏️</button><div class="accordion-arrow" id="arrow-{tid}" style="width:32px;height:32px;background:#ffffff08;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:transform .35s">▼</div></div></div><div class="tower-accordion-body" id="tower-body-{tid}" style="display:none"><div style="padding:12px;border-top:1px solid #ffffff08"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin-bottom:12px">{inner_cards}</div><button class="btn-gold" onclick="openAddDishModal({tid},\'{tname}\')" style="width:100%;padding:10px;border-radius:10px">+ إضافة صحن/IP لهذا البرج - {tname}</button></div></div></div>'
+
+            if no_tower:
+                inner_no=""
+                for d in no_tower:
+                    did=d.get('id')
+                    dip=esc(d.get('ip') or '')
+                    dname=esc(d.get('dish_name') or 'صحن')
+                    dloc=esc(d.get('location') or '')
+                    inner_no+=f'<div class="dish-card" id="dish-{did}"><div style="display:flex;justify-content:space-between"><div><span class=ip>{dip}</span> <b>{dname}</b><div style="font-size:10px;color:#888">📍 {dloc}</div></div><div style="display:flex;gap:6px"><a href="http://{dip}" target="_blank" style="width:28px;height:28px;background:#ffffff10;border-radius:6px;display:flex;align-items:center;justify-content:center;text-decoration:none">🌐</a><button onclick="openEditDishAcc({did})" style="width:28px;height:28px;background:#ffffff10;border:0;border-radius:6px">✏️</button><button onclick="delDishAcc({did},0)" style="width:28px;height:28px;background:#ef444422;border:0;border-radius:6px;color:#ef4444">🗑️</button></div></div></div>'
+                accordion_html+=f'<div class="card tower-accordion" id="tower-acc-0" data-name="بدون برج" style="border:1px dashed #ef444488"><div class="tower-accordion-header" onclick="toggleAccordion(0)"><div style="display:flex;gap:12px"><div style="width:44px;height:44px;background:#ef4444;border-radius:10px;display:flex;align-items:center;justify-content:center">⚠️</div><div><b>بدون برج</b> <span class=badge style="background:#ef4444">{len(no_tower)} IP</span><div style="font-size:11px;color:#888">غير مربوط</div></div></div><div id="arrow-0" style="width:32px;height:32px;background:#ffffff08;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:transform .35s">▼</div></div><div class="tower-accordion-body" id="tower-body-0" style="display:none"><div style="padding:12px"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">{inner_no}</div></div></div></div>'
+
             return f'''
 <div style="max-width:1100px;margin:0 auto">
-<div class=card row style="justify-content:space-between"><b>📡 الصحون - مجمعة حسب المنطقة - {len(rs)} - IP يظهر</b><div class=row><input id=dishSearch placeholder="بحث..." oninput="filterDishes(this.value)" style="padding:5px"><button class=btn-gold onclick="document.getElementById('newDishForm').style.display=document.getElementById('newDishForm').style.display=='none'?'flex':'none'">+</button></div></div>
-<div id=newDishForm class=row style="display:none;gap:4px;margin-bottom:8px"><input id=nd_name placeholder="اسم" style="flex:1;padding:5px"><input id=nd_ip placeholder="IP" style="flex:1;padding:5px"><input id=nd_loc placeholder="منطقة" style="flex:1;padding:5px"><button class=btn-gold onclick="addDishGlobal()">+</button></div>
-<div class=grid-small id=dishesGrid>{html_groups}</div>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;background:linear-gradient(135deg,#1e2433,#2a344f);border:1px solid #ffbe4d33">
+<div><b style="font-size:16px">📡 الصحون - Accordion Grid فخم</b><div style="font-size:11px;color:#888;margin-top:4px">Parent-Child via Tower ID | كل برج كرت عريض مستقل قابل للطي</div></div>
+<div class=row><input id=dishTowerSearch placeholder="🔍 بحث برج..." oninput="filterTowerAccordion(this.value)" style="padding:8px 12px;border-radius:8px;min-width:200px"><button class=btn-gold onclick="openNewTowerAcc()" style="padding:8px 14px">🗼 + برج جديد</button></div>
 </div>
+<div id=accordionContainer style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+{accordion_html if accordion_html else '<div class=card style="text-align:center;padding:30px">لا يوجد أبراج</div>'}
+</div>
+<div style="margin-top:16px;display:flex;gap:8px;justify-content:center">
+<div class=card style="padding:8px 12px;font-size:11px;text-align:center"><div>🗼</div>{len(towers)} برج</div>
+<div class=card style="padding:8px 12px;font-size:11px;text-align:center"><div>📡</div>{len(all_dishes)} صحن</div>
+<div class=card style="padding:8px 12px;font-size:11px;text-align:center"><div>✅</div>{len(all_dishes)-len(no_tower)} مربوط</div>
+</div>
+</div>
+
+<div id=addDishTowerModal style="position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:2500;backdrop-filter:blur(4px)">
+<div style="background:#1e2433;width:95%;max-width:420px;border-radius:16px;padding:20px;border:1px solid #ffbe4d33">
+<div style="display:flex;justify-content:space-between;margin-bottom:16px"><b id=addDishModalTitle>+ إضافة صحن</b><button onclick="closeAddDishModal()" style="width:32px;height:32px;background:#ffffff10;border:0;border-radius:8px;cursor:pointer;color:#fff">✕</button></div>
+<div style="display:flex;flex-direction:column;gap:12px">
+<div><label style="font-size:11px;color:#888">اسم الصحن</label><input id=modalDishName placeholder="اسم الصحن" style="width:100%;padding:10px;margin-top:4px"></div>
+<div><label style="font-size:11px;color:#888">IP</label><input id=modalDishIp placeholder="192.168.1.10" style="width:100%;padding:10px;margin-top:4px;font-family:monospace"></div>
+<div><label style="font-size:11px;color:#888">موقع</label><input id=modalDishLoc placeholder="موقع" style="width:100%;padding:10px;margin-top:4px"></div>
+<input type=hidden id=modalDishTowerId>
+<div style="background:#ffbe4d11;border:1px solid #ffbe4d22;border-radius:8px;padding:8px;font-size:10px;color:#ffbe4d">📌 سيتم حفظه تلقائياً تحت البرج - Parent-Child</div>
+<div class=row style="gap:8px;margin-top:8px"><button onclick="closeAddDishModal()" style="flex:1;padding:10px;border-radius:8px;background:transparent;border:1px solid #ffffff15;color:#fff;cursor:pointer">إلغاء</button><button onclick="saveDishToTower()" class=btn-gold style="flex:1;padding:10px;border-radius:8px">💾 حفظ</button></div>
+</div>
+</div>
+</div>
+
+<style>
+.tower-accordion{{border-radius:14px;overflow:hidden;transition:all .35s;border:1px solid #ffffff10}}
+.tower-accordion:hover{{transform:translateY(-2px);box-shadow:0 12px 30px #0003;border-color:#ffbe4d33}}
+.tower-accordion.open{{border-color:#ffbe4d55;box-shadow:0 8px 25px #ffbe4d11}}
+.tower-accordion-header{{padding:14px 16px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;transition:.25s;user-select:none}}
+.tower-accordion-header:hover{{background:#ffffff05}}
+.tower-accordion.open .tower-accordion-header{{background:#ffbe4d08}}
+.tower-accordion-body{{overflow:hidden;background:#0f1424}}
+.dish-card{{background:#ffffff06;border:1px solid #ffffff08;border-radius:10px;padding:10px;transition:.25s}}
+.dish-card:hover{{background:#ffffff10;border-color:#ffbe4d22}}
+</style>
+
 <script>
-window.filterDishes=function(q){{q=q.toLowerCase(); document.querySelectorAll('.region-card').forEach(c=>{{let txt=c.textContent.toLowerCase(); c.style.display=txt.includes(q)?'block':'none';}});}};
-window.addDishGlobal=async function(){{let n=document.getElementById("nd_name").value,ip=document.getElementById("nd_ip").value,loc=document.getElementById("nd_loc").value; if(!ip)return; let r=await fetch("/add_dish",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{dish_name:n,ip:ip,location:loc}})}}); let j=await r.json(); if(j.ok){{let grid=document.getElementById('dishesGrid'); let el=document.createElement('div'); el.className='ip-row'; el.innerHTML='<span class=ip>'+ip+'</span> '+n; grid.prepend(el); loadPage('dishes',true);}}}};
-window.addToArea=async function(area){{let ip=document.getElementById("addip-"+area).value.trim(); let nm=document.getElementById("addname-"+area).value.trim(); if(!ip)return; let r=await fetch("/add_dish",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{dish_name:nm,ip:ip,location:area}})}}); let j=await r.json(); if(j.ok){{let region=document.getElementById('region-'+area); if(region){{let div=document.createElement('div'); div.className='ip-row'; div.innerHTML='<span class=ip>'+ip+'</span> '+nm; region.querySelector('div').appendChild(div);}} loadPage('dishes',true);}}}};
-window.delDishFast2=async function(id){{if(!confirm('مسح؟')) return; await fetch('/del_dish/'+id); loadPage('dishes',true);}};
-window.editDish=function(id){{let b=document.getElementById("editBody"); b.innerHTML='<input id=ed_ip placeholder="IP"><input id=ed_name placeholder="اسم"><input id=ed_loc placeholder="منطقة"><button class=btn-gold onclick="saveDish('+id+')" style="width:100%">حفظ</button>'; document.getElementById("editModal").classList.add("show");}};
-window.saveDish=async function(id){{let d={{ip:document.getElementById("ed_ip").value,dish_name:document.getElementById("ed_name").value,location:document.getElementById("ed_loc").value}}; let r=await fetch("/edit_dish/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); closeEditModal(); if(j.ok) loadPage('dishes',true);}};
-window.quickPing=function(ip){{loadPage('ping'); setTimeout(()=>{{let el=document.getElementById("pingIp"); if(el){{el.value=ip; doSinglePing();}}}},300);}};
+let openAccordions=new Set();
+window.toggleAccordion=function(tid){{
+ let body=document.getElementById('tower-body-'+tid);
+ let card=document.getElementById('tower-acc-'+tid);
+ let arrow=document.getElementById('arrow-'+tid);
+ if(!body) return;
+ if(body.style.display==='none' || body.style.display===''){{
+  body.style.display='block';
+  body.style.animation='fadeIn .35s ease';
+  if(card) card.classList.add('open');
+  if(arrow) arrow.style.transform='rotate(180deg)';
+  openAccordions.add(tid);
+ }}else{{
+  body.style.display='none';
+  if(card) card.classList.remove('open');
+  if(arrow) arrow.style.transform='rotate(0deg)';
+  openAccordions.delete(tid);
+ }}
+}};
+window.filterTowerAccordion=function(q){{
+ q=q.toLowerCase();
+ document.querySelectorAll('.tower-accordion').forEach(card=>{{
+  let name=(card.dataset.name||'').toLowerCase();
+  let match=name.includes(q) || q==='';
+  card.style.display=match?'block':'none';
+  if(q && match){{
+   let tid=card.id.replace('tower-acc-','');
+   let body=document.getElementById('tower-body-'+tid);
+   if(body && body.style.display==='none') toggleAccordion(parseInt(tid));
+  }}
+ }});
+}};
+window.openAddDishModal=function(towerId,towerName){{
+ document.getElementById('addDishTowerModal').style.display='flex';
+ document.getElementById('modalDishTowerId').value=towerId;
+ document.getElementById('addDishModalTitle').textContent='+ إضافة صحن لبرج '+towerName;
+ document.getElementById('modalDishName').value='';
+ document.getElementById('modalDishIp').value='';
+ document.getElementById('modalDishLoc').value='';
+}};
+window.closeAddDishModal=function(){{document.getElementById('addDishTowerModal').style.display='none';}};
+window.saveDishToTower=async function(){{
+ let name=document.getElementById('modalDishName').value.trim();
+ let ip=document.getElementById('modalDishIp').value.trim();
+ let loc=document.getElementById('modalDishLoc').value.trim();
+ let towerId=document.getElementById('modalDishTowerId').value;
+ if(!ip){{alert('IP مطلوب'); return;}}
+ if(!name) name='صحن '+ip;
+ try{{
+  let r=await fetch('/api/add_dish_to_tower',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{ip:ip,dish_name:name,location:loc,tower_id:towerId}})}});
+  let j=await r.json();
+  if(j.ok){{closeAddDishModal(); loadPage('dishes',true);}}else{{alert(j.msg);}}
+ }}catch(e){{alert(e);}}
+}};
+window.delDishAcc=async function(did,tid){{
+ if(!confirm('مسح؟')) return;
+ let el=document.getElementById('dish-'+did);
+ if(el){{el.style.opacity='0'; el.style.transform='scale(.9)';}}
+ await fetch('/del_dish/'+did);
+ if(el) setTimeout(()=>el.remove(),200);
+}};
+window.openEditDishAcc=async function(did){{
+ let r=await fetch('/api/dish_detail/'+did); let j=await r.json(); if(!j.ok) return;
+ let d=j.dish;
+ let b=document.getElementById("editBody");
+ b.innerHTML='<div style="display:flex;flex-direction:column;gap:10px"><input id=ed_name value="'+(d.dish_name||'')+'" style="padding:10px"><input id=ed_ip value="'+(d.ip||'')+'" style="padding:10px"><input id=ed_loc value="'+(d.location||'')+'" style="padding:10px"><button class=btn-gold onclick="saveDishAcc('+did+')" style="width:100%;padding:10px">حفظ</button></div>';
+ document.getElementById("editModal").classList.add("show");
+}};
+window.saveDishAcc=async function(id){{
+ let d={{dish_name:document.getElementById("ed_name").value,ip:document.getElementById("ed_ip").value,location:document.getElementById("ed_loc").value}};
+ await fetch("/edit_dish/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
+ closeEditModal(); loadPage('dishes',true);
+}};
+window.quickPingAcc=function(ip){{loadPage('ping'); setTimeout(()=>{{let el=document.getElementById("pingIp"); if(el){{el.value=ip; doSinglePing();}}}},300);}};
+window.openNewTowerAcc=function(){{let b=document.getElementById("editBody"); b.innerHTML='<input id=nt_name placeholder="اسم البرج المخصص" style="padding:10px"><input id=nt_area placeholder="المنطقة" style="padding:10px"><div class=row><input id=nt_lat value="35.1318" style="flex:1;padding:10px"><input id=nt_lng value="36.7578" style="flex:1;padding:10px"></div><button class=btn-gold onclick="saveNewTowerAcc()" style="width:100%;padding:10px">حفظ برج جديد</button>'; document.getElementById("editModal").classList.add("show");}};
+window.saveNewTowerAcc=async function(){{let d={{name:document.getElementById("nt_name").value,area:document.getElementById("nt_area").value,lat:document.getElementById("nt_lat").value,lng:document.getElementById("nt_lng").value}}; if(!d.name) return; let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); loadPage('dishes',true);}}}};
+window.openEditTowerAcc=async function(tid){{let r=await fetch('/api/tower_detail/'+tid); let j=await r.json(); if(!j.ok) return; let t=j.tower; let b=document.getElementById("editBody"); b.innerHTML='<input id=et_name value="'+(t.name||'')+'" style="padding:10px"><input id=et_area value="'+(t.area||'')+'" style="padding:10px"><div class=row><input id=et_lat value="'+(t.lat||'')+'" style="flex:1;padding:10px"><input id=et_lng value="'+(t.lng||'')+'" style="flex:1;padding:10px"></div><button class=btn-gold onclick="saveTowerAcc('+tid+')" style="width:100%;padding:10px">حفظ</button>'; document.getElementById("editModal").classList.add("show");}};
+window.saveTowerAcc=async function(tid){{let d={{name:document.getElementById("et_name").value,area:document.getElementById("et_area").value,lat:document.getElementById("et_lat").value,lng:document.getElementById("et_lng").value}}; let r=await fetch("/edit_tower/"+tid,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); loadPage('dishes',true);}}}};
+document.getElementById('addDishTowerModal').addEventListener('click',e=>{{if(e.target.id==='addDishTowerModal') closeAddDishModal();}});
+setTimeout(()=>{{let cards=document.querySelectorAll('.tower-accordion'); if(cards.length===1){{let tid=cards[0].id.replace('tower-acc-',''); toggleAccordion(parseInt(tid));}}}},500);
 </script>'''
         if v=='map':
             towers=qall("SELECT * FROM towers ORDER BY name ASC")
@@ -659,7 +752,6 @@ window.quickPing=function(ip){{loadPage('ping'); setTimeout(()=>{{let el=documen
             return f'''
 <div class=card><div class=row style="gap:6px"><input id=mapSearch placeholder="🔍 بحث برج..." style="flex:1;padding:6px" oninput="doMapSearch()"><button class=btn-gold onclick="doMapSearch()">بحث</button><button class=btn-gold onclick="locateMe()" style="background:#22c55e">📍 موقعي</button><span id=searchCount style="font-size:10px"></span><span id=coordDisplay style="font-size:10px;background:#000;color:#ffbe4d;padding:2px 6px;border-radius:4px"></span></div>
 <div id=map style="height:70vh;border-radius:10px;margin-top:8px"></div>
-<div style="font-size:10px;color:#888;margin-top:4px">💡 اسحب الماركر لتغيير الإحداثيات - الإحداثيات تظهر بالبحث</div>
 </div>
 <script>
 let _towers={tj}; let _markers=[]; window._map=null;
@@ -669,14 +761,13 @@ window.doMapSearch=function(){{
  let f=_towers.filter(t=>t.name.toLowerCase().includes(q)||t.area.toLowerCase().includes(q));
  cnt.textContent=f.length+" نتيجة";
  _markers.forEach((m,i)=>{{let show=_towers[i].name.toLowerCase().includes(q)||_towers[i].area.toLowerCase().includes(q); m.setOpacity(show?1:0.2); if(show) m.openPopup();}});
- if(f[0]&&window._map){{window._map.flyTo([f[0].lat,f[0].lng],16); document.getElementById('coordDisplay').textContent=f[0].lat.toFixed(5)+','+f[0].lng.toFixed(5);}}
+ if(f[0]&&window._map){{window._map.flyTo([f[0].lat,f[0].lng],16);}}
 }};
 window.locateMe=function(){{
  if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>{{
   let lat=p.coords.latitude, lng=p.coords.longitude;
   window._map.flyTo([lat,lng],16);
   L.marker([lat,lng]).addTo(window._map).bindPopup("📍 موقعك<br>"+lat.toFixed(5)+","+lng.toFixed(5)).openPopup();
-  document.getElementById('coordDisplay').textContent=lat.toFixed(5)+","+lng.toFixed(5);
  }});
 }};
 setTimeout(()=>{{
@@ -684,100 +775,57 @@ setTimeout(()=>{{
  let osm=L.tileLayer("https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",{{maxZoom:19}}).addTo(window._map);
  let sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}",{{maxZoom:19}}).addTo(window._map);
  L.control.layers({{"عادية":osm,"قمر":sat}}).addTo(window._map);
- window._map.on('click',e=>{{document.getElementById('coordDisplay').textContent=e.latlng.lat.toFixed(5)+","+e.latlng.lng.toFixed(5);}});
  _towers.forEach(t=>{{
-  let m=L.marker([t.lat,t.lng],{{draggable:true}}).addTo(window._map)
-   .bindPopup("<b>"+t.name+"</b><br>📍 "+t.area+"<br>📌 "+t.lat.toFixed(5)+","+t.lng.toFixed(5)+"<br><a href='https://www.google.com/maps?q="+t.lat+","+t.lng+"' target=_blank>🗺 جوجل</a> | <button onclick=\\"navigator.clipboard.writeText('"+t.lat+","+t.lng+"')\\">📋 نسخ</button>");
+  let m=L.marker([t.lat,t.lng],{{draggable:true}}).addTo(window._map).bindPopup("<b>"+t.name+"</b><br>📍 "+t.area);
   _markers.push(m);
-  m.on("dragend",e=>{{
-   let ll=e.target.getLatLng();
-   document.getElementById('coordDisplay').textContent=ll.lat.toFixed(5)+","+ll.lng.toFixed(5);
-   fetch("/api/update_tower_pos",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{id:t.id,lat:ll.lat,lng:ll.lng}})}});
-   m.setPopupContent("<b>"+t.name+"</b><br>📌 "+ll.lat.toFixed(5)+","+ll.lng.toFixed(5));
-  }});
-  m.on("click",e=>{{document.getElementById('coordDisplay').textContent=t.lat.toFixed(5)+","+t.lng.toFixed(5);}});
+  m.on("dragend",e=>{{let ll=e.target.getLatLng(); fetch("/api/update_tower_pos",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{id:t.id,lat:ll.lat,lng:ll.lng}})}});}});
  }});
 }},300);
 </script>'''
         if v=='ping':
             return '''
-<div class=card><h3 style="margin:0">📶 بنج</h3><div class=row style="gap:6px;margin-top:8px"><input id=pingIp placeholder="192.168.1.1" style="flex:1;padding:6px"><button class=btn-gold onclick="doSinglePing()">سيرفر</button><button class=btn-gold onclick="doClientPing()" style="background:#0ea5e9">جهازي</button><button class=btn-gold onclick="openInChrome()">🌐</button></div><div id=pingResult class=pingBox>جاهز</div></div>
+<div class=card><h3>📶 بنج</h3><div class=row style="gap:6px;margin-top:8px"><input id=pingIp placeholder="192.168.1.1" style="flex:1;padding:6px"><button class=btn-gold onclick="doSinglePing()">سيرفر</button><button class=btn-gold onclick="doClientPing()" style="background:#0ea5e9">جهازي</button><button class=btn-gold onclick="openInChrome()">🌐</button></div><div id=pingResult class=pingBox>جاهز</div></div>
 <script>
 window.openInChrome=function(){let ip=document.getElementById('pingIp').value.trim(); if(ip) window.open('http://'+ip,'_blank');};
 window.doSinglePing=async function(){let ip=document.getElementById('pingIp').value.trim(); if(!ip)return; let out=document.getElementById('pingResult'); out.textContent='يفحص '+ip+'...'; try{let r=await fetch('/api/ping?ip='+encodeURIComponent(ip)); let j=await r.json(); out.textContent='سيرفر: '+j.out;}catch(e){out.textContent='خطأ';}};
-window.doClientPing=async function(){let ip=document.getElementById('pingIp').value.trim(); if(!ip)return; let out=document.getElementById('pingResult'); out.textContent='جهازك يفحص '+ip+'...'; try{let ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),2000); let start=Date.now(); await fetch('http://'+ip,{mode:'no-cors',signal:ctrl.signal}); let ms=Date.now()-start; out.textContent='جهازك: '+ip+' ✓ '+ms+'ms';}catch(e){out.textContent='جهازك: '+ip+' لا يرد - جرب سيرفر';}};
+window.doClientPing=async function(){let ip=document.getElementById('pingIp').value.trim(); if(!ip)return; let out=document.getElementById('pingResult'); out.textContent='جهازك يفحص '+ip+'...'; try{let ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),2000); let start=Date.now(); await fetch('http://'+ip,{mode:'no-cors',signal:ctrl.signal}); let ms=Date.now()-start; out.textContent='جهازك: '+ip+' ✓ '+ms+'ms';}catch(e){out.textContent='جهازك: '+ip+' لا يرد';}};
 </script>'''
         if v=='logs':
             rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
-            rows="".join([f"<tr><td>{esc(r.get('time',''))}</td><td><span class=badge>{esc(r.get('action',''))}</span></td><td>{esc(r.get('user_phone',''))}</td><td>{esc(r.get('detail',''))}</td></tr>" for r in rs]) or "<tr><td colspan=4>فاضي - السجل شغال</td></tr>"
-            return f'<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل - {len(rs)} - شغال</b><div class=row><a href="/api/export/logs" class=btn-gold style="text-decoration:none;padding:4px 8px">📤</a><button class=btn-gold onclick="if(confirm(\'مسح؟\'))fetch(\'/api/clear_logs\',{method:\'POST\'}).then(()=>loadPage(\'logs\',true))" style="background:#ef4444">🧹</button></div></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div>'
+            rows="".join([f"<tr><td>{esc(r.get('time',''))}</td><td><span class=badge>{esc(r.get('action',''))}</span></td><td>{esc(r.get('user_phone',''))}</td><td>{esc(r.get('detail',''))}</td></tr>" for r in rs]) or "<tr><td colspan=4>فاضي</td></tr>"
+            return f'<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل - {len(rs)}</b><div class=row><a href="/api/export/logs" class=btn-gold style="text-decoration:none;padding:4px 8px">📤</a><button class=btn-gold onclick="fetch(\'/api/clear_logs\',{method:\'POST\'}).then(()=>loadPage(\'logs\',true))" style="background:#ef4444">🧹</button></div></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div>'
         if v=='subs':
             rs=qall("SELECT * FROM subs ORDER BY name ASC")
-            rows="".join([f"<tr id=sub-{r.get('id')} data-name='{esc(r.get('name') or '')}' data-phone='{esc(r.get('phone') or '')}' data-note='{esc(r.get('note') or '')}'><td>{esc(r.get('name') or '')}</td><td>{esc(r.get('phone') or '')}</td><td>{esc(r.get('note') or '')}</td><td><div style='display:flex;gap:4px'><button onclick=\"openEditSub({r.get('id')})\">✏️</button><button onclick=\"delSubFast({r.get('id')})\" style='color:#ef4444'>🗑️</button></div></td></tr>" for r in rs])
-            return f'''
-<div class=card><div class=row style="justify-content:space-between"><b>👥 مشتركين - جدول - {len(rs)} - ترتيب أبجدي</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+</button></div>
-<form id=fSub class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1;padding:5px"><input name=phone placeholder="رقم" style="flex:1;padding:5px"><input name=note placeholder="ملاحظة" style="flex:1;padding:5px"><button class=btn-gold>+</button></form>
-<table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم</th><th>ملاحظة</th><th></th></tr></thead><tbody id=subsBody>{rows}</tbody></table>
-</div>
-<script>
-document.getElementById("fSub").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_sub",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok){{let name=fd.get('name'); let phone=fd.get('phone'); let note=fd.get('note'); let tbody=document.getElementById('subsBody'); let tr=document.createElement('tr'); tr.innerHTML='<td>'+name+'</td><td>'+phone+'</td><td>'+note+'</td><td>تم</td>'; tbody.prepend(tr); e.target.reset();}}}});
-window.openEditSub=id=>{{let c=document.getElementById("sub-"+id); let b=document.getElementById("editBody"); b.innerHTML='<input id=esn value="'+c.dataset.name+'"><input id=esp value="'+c.dataset.phone+'"><input id=esno value="'+c.dataset.note+'"><button class=btn-gold onclick="saveSub('+id+')" style="width:100%">حفظ</button>'; document.getElementById("editModal").classList.add("show");}};
-window.saveSub=async id=>{{let d={{name:document.getElementById("esn").value,phone:document.getElementById("esp").value,note:document.getElementById("esno").value}}; await fetch("/edit_sub/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); closeEditModal(); let c=document.getElementById("sub-"+id); if(c){{c.dataset.name=d.name; c.dataset.phone=d.phone; c.dataset.note=d.note; c.cells[0].textContent=d.name; c.cells[1].textContent=d.phone; c.cells[2].textContent=d.note;}}}};
-window.delSubFast=async function(id){{if(!confirm('مسح؟')) return; let el=document.getElementById('sub-'+id); if(el){{el.style.opacity='0'; el.style.transform='scale(.9)';}} await fetch('/del_sub/'+id); if(el) el.remove();}};
-</script>'''
+            rows="".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{esc(r.get('phone') or '')}</td><td>{esc(r.get('note') or '')}</td><td><button onclick=\"delSubFast({r.get('id')})\">🗑️</button></td></tr>" for r in rs])
+            return f'<div class=card><div class=row style="justify-content:space-between"><b>👥 مشتركين - {len(rs)}</b><button class=btn-gold onclick="document.getElementById(\'fSub\').style.display=\'flex\'">+</button></div><form id=fSub class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1;padding:5px"><input name=phone placeholder="رقم" style="flex:1;padding:5px"><input name=note placeholder="ملاحظة" style="flex:1;padding:5px"><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم</th><th>ملاحظة</th><th></th></tr></thead><tbody id=subsBody>{rows}</tbody></table></div><script>document.getElementById("fSub").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_sub",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok) loadPage("subs",true);}});window.delSubFast=async id=>{{if(!confirm("مسح؟")) return; await fetch("/del_sub/"+id); loadPage("subs",true);}};</script>'
         if v=='ledger':
             rs=qall("SELECT * FROM ledger ORDER BY name ASC")
-            rows="".join([f"<tr id=led-{r.get('id')} data-name='{esc(r.get('name') or '')}' data-amount='{r.get('amount')}'><td>{esc(r.get('name') or '')}</td><td><span class=ip>{r.get('amount')}</span></td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><div style='display:flex;gap:4px'><button onclick=\"openEditLed({r.get('id')})\">✏️</button><button onclick=\"delLedFast({r.get('id')})\" style='color:#ef4444'>🗑️</button></div></td></tr>" for r in rs])
-            return f'''
-<div class=card><div class=row style="justify-content:space-between"><b>📒 حسابات - جدول - {len(rs)}</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+</button></div>
-<form id=fLed class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1;padding:5px"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1;padding:5px"><input name=note placeholder="ملاحظة" style="flex:1;padding:5px"><select name=currency style="padding:5px"><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form>
-<table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody id=ledgerBody>{rows}</tbody></table>
-</div>
-<script>
-document.getElementById("fLed").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_ledger",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok){{let tbody=document.getElementById('ledgerBody'); let tr=document.createElement('tr'); tr.innerHTML='<td>'+fd.get('name')+'</td><td>'+fd.get('amount')+'</td><td>'+fd.get('note')+'</td><td>'+fd.get('currency')+'</td>'; tbody.prepend(tr); e.target.reset();}}}});
-window.openEditLed=id=>{{let c=document.getElementById("led-"+id); let b=document.getElementById("editBody"); b.innerHTML='<input id=eln value="'+c.dataset.name+'"><input id=ela value="'+c.dataset.amount+'"><button class=btn-gold onclick="saveLed('+id+')" style="width:100%">حفظ</button>'; document.getElementById("editModal").classList.add("show");}};
-window.saveLed=async id=>{{let d={{name:document.getElementById("eln").value,amount:document.getElementById("ela").value}}; await fetch("/edit_ledger/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); closeEditModal(); let c=document.getElementById("led-"+id); if(c){{c.dataset.name=d.name; c.dataset.amount=d.amount; c.cells[0].textContent=d.name; c.cells[1].textContent=d.amount;}}}};
-window.delLedFast=async function(id){{if(!confirm('مسح؟')) return; let el=document.getElementById('led-'+id); if(el) el.style.opacity='0'; await fetch('/del_ledger/'+id); if(el) el.remove();}};
-</script>'''
+            rows="".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span class=ip>{r.get('amount')}</span></td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><button onclick=\"delLedFast({r.get('id')})\">🗑️</button></td></tr>" for r in rs])
+            return f'<div class=card><div class=row style="justify-content:space-between"><b>📒 حسابات - {len(rs)}</b><button class=btn-gold onclick="document.getElementById(\'fLed\').style.display=\'flex\'">+</button></div><form id=fLed class=row style="display:none;gap:4px;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1;padding:5px"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1;padding:5px"><input name=note placeholder="ملاحظة" style="flex:1;padding:5px"><select name=currency style="padding:5px"><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody id=ledgerBody>{rows}</tbody></table></div><script>document.getElementById("fLed").addEventListener("submit",async e=>{{e.preventDefault(); let fd=new FormData(e.target); let r=await fetch("/add_ledger",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok) loadPage("ledger",true);}});window.delLedFast=async id=>{{if(!confirm("مسح؟")) return; await fetch("/del_ledger/"+id); loadPage("ledger",true);}};</script>'
         if v=='network':
             dishes=qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
             rows="".join([f"<tr id=net-{d.get('id')} data-ip='{esc(d.get('ip') or '')}'><td>{esc(d.get('dish_name') or '')}</td><td><span class=ip>{esc(d.get('ip') or '')}</span></td><td class=net-out>...</td><td><div style='display:flex;gap:4px'><a href='http://{esc(d.get('ip') or '')}' target=_blank>🌐</a><button onclick='checkOne({d.get('id')})'>📶</button></div></td></tr>" for d in dishes])
-            return f'<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة - IP يظهر</b><button class=btn-gold onclick="checkAll()">فحص الكل</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>IP</th><th>حالة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div><script>window.checkOne=async id=>{{let c=document.getElementById("net-"+id); let out=c.querySelector(".net-out"); out.textContent="..."; try{{let r=await fetch("/api/ping?ip="+c.dataset.ip); let j=await r.json(); out.textContent=j.out; out.style.color=j.ok?"#22c55e":"#ef4444";}}catch{{out.textContent="خطأ";}}}};window.checkAll=async()=>{{for(let c of document.querySelectorAll("[id^=net-]")){{await checkOne(c.id.split("-")[1]); await new Promise(r=>setTimeout(r,80));}}}};</script>'
+            return f'<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة</b><button class=btn-gold onclick="checkAll()">فحص الكل</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>IP</th><th>حالة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div><script>window.checkOne=async id=>{{let c=document.getElementById("net-"+id); let out=c.querySelector(".net-out"); out.textContent="..."; try{{let r=await fetch("/api/ping?ip="+c.dataset.ip); let j=await r.json(); out.textContent=j.out; out.style.color=j.ok?"#22c55e":"#ef4444";}}catch{{out.textContent="خطأ";}}}};window.checkAll=async()=>{{for(let c of document.querySelectorAll("[id^=net-]")){{await checkOne(c.id.split("-")[1]); await new Promise(r=>setTimeout(r,80));}}}};</script>'
         if v=='settings':
             us=qall("SELECT * FROM users ORDER BY phone ASC")
             cfg_rows=qall("SELECT * FROM system_config")
             cfg={r['key']:r['value'] for r in cfg_rows} if cfg_rows else {}
             card_size=cfg.get('card_size','160')
-            is_mgr=is_manager()
-            cards="".join([f"<div class='card user-card' id=user-{esc(u.get('phone') or '')} data-phone='{esc(u.get('phone') or '')}' data-role='{esc(u.get('role') or '')}'><div style='text-align:center'><b>{esc(u.get('username') or u.get('phone') or '')}</b><br><span class=ip>{esc(u.get('phone') or '')}</span><br><span class=badge>{esc(u.get('role') or '')}</span><div style='display:flex;gap:6px;justify-content:center;margin-top:8px'><button onclick=\"openEditUser('{esc(u.get('phone') or '')}')\">✏️</button><button onclick=\"delUserFast('{esc(u.get('phone') or '')}')\" style='color:#ef4444'>🗑️</button></div></div></div>" for u in us])
-            manager_panel=""
-            if is_mgr:
-                manager_panel=f'''
-<div class="card" style="border:2px solid #ffbe4d;background:linear-gradient(135deg,#1e2433,#2a344f);margin-bottom:12px;animation:slideIn .4s ease">
-<b>🎛️ تحكم المدير</b>
-<div style="margin-top:10px"><b>📐 حجم الكروت</b>
-<div class=row style="margin-top:6px"><button class=btn-gold onclick="setCardSize(120)">🔍</button><button class=btn-gold onclick="setCardSize(160)">📄</button><button class=btn-gold onclick="setCardSize(220)">📦</button><button class=btn-gold onclick="setCardSize(300)">🗼</button><span id=curSize>{card_size}px</span></div>
-<input type=range id=sizeSlider min=100 max=400 value={card_size} oninput="setCardSize(this.value)" style="width:100%;margin-top:6px">
-</div>
-</div>
-'''
+            cards="".join([f"<div class='card' id=user-{esc(u.get('phone') or '')} data-phone='{esc(u.get('phone') or '')}' data-role='{esc(u.get('role') or '')}'><div style='text-align:center'><b>{esc(u.get('username') or u.get('phone') or '')}</b><br><span class=ip>{esc(u.get('phone') or '')}</span><br><span class=badge>{esc(u.get('role') or '')}</span><div style='display:flex;gap:6px;justify-content:center;margin-top:8px'><button onclick=\"openEditUser('{esc(u.get('phone') or '')}')\">✏️</button><button onclick=\"delUserFast('{esc(u.get('phone') or '')}')\" style='color:#ef4444'>🗑️</button></div></div></div>" for u in us])
             return f'''
 <div style="max-width:1100px;margin:0 auto">
-{manager_panel}
 <div class=grid-small>
 <div class=card><h4>🔑 باسوردي</h4><form id=formPass class=row><input name=newpass type=password placeholder="جديدة" required style="flex:1;padding:5px"><button class=btn-gold>💾</button></form></div>
 <div class=card><h4>👤 يوزر</h4><form id=formUser class=row style="flex-wrap:wrap;gap:4px"><input name=user_field placeholder="يوزر" required style="flex:1;padding:5px"><input name=password type=password placeholder="باس" required style="flex:1;padding:5px"><select name=role style="padding:5px"><option value=tech>فني</option><option value=manager>مدير</option></select><button class=btn-gold>➕</button></form></div>
-<div class=card><h4>🎨 المظهر - هنا فقط</h4><div class=row><button class=btn-gold onclick="toggleLangFast()">🌐</button><button class=btn-gold onclick="toggleThemeFast()">🌓</button></div><div style="font-size:10px;color:#888;margin-top:6px">ليل/نهار هنا فقط</div></div>
+<div class=card><h4>🎨 المظهر</h4><div class=row><button class=btn-gold onclick="toggleLangFast()">🌐</button><button class=btn-gold onclick="toggleThemeFast()">🌓</button></div></div>
 </div>
-<div style="margin-top:12px"><b>👥 يوزرات - تعديل شغال - {len(us)}</b><div class=user-grid style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:8px">{cards}</div></div>
+<div style="margin-top:12px"><b>👥 يوزرات - {len(us)}</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:8px">{cards}</div></div>
 </div>
 <script>
-window.setCardSize=function(sz){{document.documentElement.style.setProperty('--card-min',sz+'px'); localStorage.setItem('cardSize',sz); let el=document.getElementById('curSize'); if(el) el.textContent=sz+'px'; let sl=document.getElementById('sizeSlider'); if(sl) sl.value=sz; fetch('/api/set_config',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{key:'card_size',value:sz}})}});}};
-(function(){{let saved=localStorage.getItem('cardSize')||'{card_size}'; document.documentElement.style.setProperty('--card-min',saved+'px');}})();
-window.openEditUser=function(ph){{let c=document.getElementById("user-"+ph); if(!c){{alert('يوزر غير موجود'); return;}} let b=document.getElementById("editBody"); b.innerHTML='<input id=eu_ph value="'+c.dataset.phone+'"><select id=eu_role><option value=tech>فني</option><option value=manager>مدير</option></select><input id=eu_pass type=password placeholder="باس جديد"><button class=btn-gold onclick="saveUser(\\''+ph+'\\')" style="width:100%">💾 حفظ</button>'; document.getElementById("eu_role").value=c.dataset.role; document.getElementById("editModal").classList.add("show");}};
+window.openEditUser=function(ph){{let c=document.getElementById("user-"+ph); if(!c) return; let b=document.getElementById("editBody"); b.innerHTML='<input id=eu_ph value="'+c.dataset.phone+'"><select id=eu_role><option value=tech>فني</option><option value=manager>مدير</option></select><input id=eu_pass type=password placeholder="باس جديد"><button class=btn-gold onclick="saveUser(\\''+ph+'\\')" style="width:100%">حفظ</button>'; document.getElementById("eu_role").value=c.dataset.role; document.getElementById("editModal").classList.add("show");}};
 window.saveUser=async function(old){{let fd=new URLSearchParams({{old_phone:old,phone:document.getElementById("eu_ph").value,role:document.getElementById("eu_role").value,password:document.getElementById("eu_pass").value}}); let r=await fetch("/edit_user",{{method:"POST",body:fd}}); let j=await r.json(); if(j.ok){{closeEditModal(); loadPage('settings',true);}} else alert(j.msg);}};
-window.delUserFast=async function(ph){{if(!confirm('مسح '+ph+'؟')) return; let el=document.getElementById('user-'+ph); if(el){{el.style.opacity='0'; el.style.transform='scale(.9)';}} let r=await fetch('/del_user/'+ph); let j=await r.json(); if(j.ok){{if(el) el.remove();}} else {{alert(j.msg); if(el){{el.style.opacity='1'; el.style.transform='scale(1)';}}}}}};
-document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault(); let r=await fetch("/change_pass",{{method:"POST",body:new FormData(e.target)}}); let j=await r.json(); if(j.ok){{e.target.reset();}}}});
+window.delUserFast=async function(ph){{if(!confirm('مسح '+ph+'؟')) return; let r=await fetch('/del_user/'+ph); let j=await r.json(); if(j.ok) loadPage('settings',true); else alert(j.msg);}};
+document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault(); let r=await fetch("/change_pass",{{method:"POST",body:new FormData(e.target)}}); let j=await r.json(); if(j.ok) e.target.reset();}});
 document.getElementById("formUser").addEventListener("submit",async e=>{{e.preventDefault(); let r=await fetch("/add_user",{{method:"POST",body:new FormData(e.target)}}); let j=await r.json(); if(j.ok){{e.target.reset(); loadPage('settings',true);}} else alert(j.msg);}});
 </script>'''
         return "<div class=card>404</div>"
@@ -803,8 +851,6 @@ body{{margin:0;background:{bg};color:{txt};overflow-x:hidden;transition:backgrou
 .card:hover{{transform:translateY(-3px) scale(1.01);box-shadow:0 12px 30px #0003;border-color:#ffbe4d44}}
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min),1fr));gap:8px}}
 .tower-card{{cursor:pointer;position:relative;overflow:hidden}}
-.tower-card::before{{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#ffbe4d,#ffb020);transform:scaleX(0);transition:transform var(--anim) ease}}
-.tower-card:hover::before{{transform:scaleX(1)}}
 .ip-row{{transition:all .2s ease}} .ip-row:hover{{background:#ffffff10!important;transform:translateX(3px)}}
 .top{{position:fixed;top:0;left:0;right:0;height:52px;background:#0f172ae0;backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid #ffffff12;transition:all var(--anim) ease}}
 body.light .top{{background:#ffffffee;color:#0f172a}}
@@ -845,8 +891,8 @@ input,select{{padding:7px 9px;border-radius:8px;border:1px solid {border};backgr
 <a href="javascript:loadPage('logs')" id=nav-logs>📜</a>
 <a href="javascript:loadPage('settings')" id=nav-settings>⚙️</a>
 <div style='padding:10px 12px;margin-top:8px;border-top:1px dashed #ffffff10;display:flex;gap:10px;justify-content:center'>
-<a href="https://wa.me/{SUPPORT_WA}" target="_blank" style="width:36px;height:36px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;transition:.2s">💬</a>
-<a href="https://instagram.com/{SUPPORT_INSTA}" target="_blank" style="width:36px;height:36px;background:linear-gradient(45deg,#feda75,#d62976);border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;transition:.2s">📷</a>
+<a href="https://wa.me/{SUPPORT_WA}" target="_blank" style="width:36px;height:36px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none">💬</a>
+<a href="https://instagram.com/{SUPPORT_INSTA}" target="_blank" style="width:36px;height:36px;background:linear-gradient(45deg,#feda75,#d62976);border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none">📷</a>
 </div>
 <a href="javascript:logoutFast()" style='margin-top:8px;background:#ef444418'>🚪</a>
 </div>
@@ -871,7 +917,7 @@ function execScripts(){{document.getElementById('mn').querySelectorAll('script')
 function askDel(url,id){{window._delUrl=url; window._delId=id; document.getElementById('delModal').classList.add('show');}}
 function closeDel(){{document.getElementById('delModal').classList.remove('show');}}
 window.closeEditModal=()=>document.getElementById('editModal').classList.remove('show');
-document.getElementById('delYes').onclick=async()=>{{if(!window._delUrl)return; let b=document.getElementById('delYes'); b.textContent='...'; b.disabled=true; let el=document.getElementById('tower-'+window._delId)||document.getElementById('dish-'+window._delId)||document.getElementById('sub-'+window._delId)||document.getElementById('led-'+window._delId)||document.getElementById('net-'+window._delId)||document.getElementById('user-'+window._delId); if(el){{el.style.transform='scale(.9)'; el.style.opacity='0';}} try{{let r=await fetch(window._delUrl); let j=await r.json(); if(j.ok){{if(el) setTimeout(()=>el.remove(),250); delete pageCache[cur]; closeDel();}} else {{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(j.msg);}}}}catch(e){{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(e);}} b.textContent='حذف'; b.disabled=false;}};
+document.getElementById('delYes').onclick=async()=>{{if(!window._delUrl)return; let b=document.getElementById('delYes'); b.textContent='...'; b.disabled=true; let el=document.getElementById('tower-'+window._delId)||document.getElementById('dish-'+window._delId)||document.getElementById('sub-'+window._delId)||document.getElementById('led-'+window._delId)||document.getElementById('net-'+window._delId)||document.getElementById('user-'+window._delId)||document.getElementById('tower-acc-'+window._delId); if(el){{el.style.transform='scale(.9)'; el.style.opacity='0';}} try{{let r=await fetch(window._delUrl); let j=await r.json(); if(j.ok){{if(el) setTimeout(()=>el.remove(),250); delete pageCache[cur]; closeDel();}} else {{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(j.msg);}}}}catch(e){{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(e);}} b.textContent='حذف'; b.disabled=false;}};
 window.toggleLangFast=async()=>{{try{{let r=await fetch('/toggle_lang'); let j=await r.json(); localStorage.setItem('lang',j.lang); loadPage(cur,true,false);}}catch(e){{}}}};
 window.toggleThemeFast=async()=>{{try{{let r=await fetch('/toggle_theme'); let j=await r.json(); document.body.className=j.theme; localStorage.setItem('theme',j.theme);}}catch{{document.body.classList.toggle('light'); document.body.classList.toggle('dark');}}}};
 window.globalSearchTop=async q=>{{let box=document.getElementById('searchResults'); if(!q||q.length<2){{box.style.display='none'; return;}} try{{let r=await fetch('/api/search?q='+encodeURIComponent(q)); let d=await r.json(); if(!d.length){{box.style.display='none'; return;}} let h=''; d.forEach(x=>{{h+='<div onclick="loadPage(\\''+x.page+'\\');box.style.display=\\'none\\'" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #ffffff08;transition:.2s"><b>'+x.title+'</b><br><small style="color:#888">'+x.sub+'</small></div>';}}); box.innerHTML=h; box.style.display='block';}}catch{{}}}};
