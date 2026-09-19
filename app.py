@@ -125,18 +125,18 @@ def _do_log(phone,action,detail,now):
 def add_log(phone,action,detail):
     try:
         now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'sys',action,str(detail)[:500],now))
+        except:
+            try:
+                threading.Thread(target=_do_log, args=(phone,action,detail,now), daemon=True).start()
+            except:
+                pass
         with _clock:
-            for k in ['counts','logs_preview','all_data']:
+            for k in ['counts','logs_preview','all_data','towers_list']:
                 _cache.pop(k,None)
-        # سجل كل شي حتى Ping بس خفف التكرار
-        if action=='Ping':
-            with _clock:
-                last=_cache.get('last_ping_log')
-                if last and time.time()-last<30:
-                    return
-                _cache['last_ping_log']=time.time()
-        threading.Thread(target=_do_log, args=(phone,action,detail,now), daemon=True).start()
-    except: pass
+    except:
+        pass
 
 def get_counts():
     with _clock:
@@ -526,6 +526,13 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 .btn-circle.view{{background:radial-gradient(circle at 30% 30%, #22d3ee, #06b6d4);box-shadow:0 0 20px rgba(6,182,212,0.5), 0 4px 12px rgba(6,182,212,0.3)}}
 .btn-circle{{border:1px solid rgba(255,255,255,0.2)}}
 
+
+.menu-icon-circle{{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:all .3s ease}}
+.sidebar a:hover .menu-icon-circle{{background:rgba(255,190,77,0.2);transform:scale(1.1) rotate(5deg)}}
+.btn-circle{{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.18);transition:all .22s cubic-bezier(0.34,1.56,0.64,1)}}
+.btn-circle:hover{{transform:scale(1.12) translateY(-1px)}}
+.mini-btn, .mini-btn-del{{border-radius:50%!important;width:32px!important;height:32px!important;display:flex!important;align-items:center!important;justify-content:center!important;backdrop-filter:blur(10px)!important;-webkit-backdrop-filter:blur(10px)!important;border:1px solid rgba(255,255,255,0.15)!important}}
+
 </style>
 <script src='https://unpkg.com/lucide@latest/dist/umd/lucide.min.js'></script></head><body>
 <div class=card>
@@ -784,7 +791,7 @@ let b=document.getElementById("editBody"); b.innerHTML='<input id=nt_name placeh
 }};
 window.saveNewTowerPage=async function(){{
 let d={{name:document.getElementById("nt_name").value,area:document.getElementById("nt_area").value,lat:document.getElementById("nt_lat").value,lng:document.getElementById("nt_lng").value}};
-if(!d.name) return; let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); loadPage("towers",true);}}
+if(!d.name) return; let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); let grid=document.getElementById("towersGrid"); if(grid){{let div=document.createElement("div"); div.className="card tower-card"; div.innerHTML="<b>"+d.name+"</b> تمت الإضافة"; grid.prepend(div);}} }}
 }};
 window.openEditTowerPage=async function(id){{
 let card=document.getElementById("tower-"+id);
@@ -803,7 +810,7 @@ document.getElementById("editModalTitle").textContent="تعديل برج"; docum
 }};
 window.saveTowerPage=async function(id){{
 let d={{name:document.getElementById("et_name").value,area:document.getElementById("et_area").value,lat:document.getElementById("et_lat").value,lng:document.getElementById("et_lng").value}};
-let r=await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); loadPage("towers",true);}} else alert("خطأ");
+let r=await fetch("/edit_tower/"+id,{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}}); let j=await r.json(); if(j.ok){{closeEditModal(); let card=document.getElementById("tower-"+id); if(card){card.dataset.name=d.name; card.dataset.area=d.area; let b=card.querySelector("b"); if(b) b.textContent=d.name;}}} else alert("خطأ");
 }};
 </script>"""
 
@@ -1250,95 +1257,68 @@ def layout(c,v='home'):
     }[lang if lang in ['ar','en'] else 'ar']
     return f"""<html dir={'rtl' if lang=='ar' else 'ltr'}><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
-
 <style>
 :root{{--card-min:{cfg.get('card_size','160')}px; --icon-size:{cfg.get('icon_size','44')}px; --tower-bg:{cfg.get('tower_bg','#1e2433')}; --dish-bg:{cfg.get('dish_bg','#ffffff06')}; --accent:{cfg.get('accent_color','#ffbe4d')}; --card-bg-dark:#1e2433f2; --card-bg-light:#ffffff; --text-dark:#ffffff; --text-light:#0f172a; --border-dark:#ffffff14; --border-light:#e2e8f0}}
 *{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
 body.dark{{--bg:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%); --card-bg:var(--card-bg-dark); --text:var(--text-dark); --border:var(--border-dark)}} 
 body.light{{--bg:#eef2f7; --card-bg:var(--card-bg-light); --text:var(--text-light); --border:var(--border-light); --tower-bg:#ffffff; --dish-bg:#f8fafc}}
 body{{background:var(--bg);color:var(--text);overflow-x:hidden;transition:background .2s,color .2s}}
-#topLoader{{position:fixed;top:0;left:0;height:3px;width:0%;background:linear-gradient(90deg,var(--accent),#ffb020);z-index:9999;box-shadow:0 0 10px var(--accent);transition:width .3s ease, opacity .3s ease;opacity:0}}
-#topLoader.active{{opacity:1}}
-.card{{background:var(--card-bg);color:var(--text);padding:10px;border-radius:16px;margin-bottom:8px;border:1px solid var(--border);transition:transform.28s cubic-bezier(0.4,0,0.2,1), box-shadow.28s ease, border-color.2s ease, background.2s ease; will-change:transform;backdrop-filter:blur(10px)}}
+.card{{background:var(--card-bg);color:var(--text);padding:10px;border-radius:12px;margin-bottom:8px;border:1px solid var(--border);transition:transform.28s cubic-bezier(0.4,0,0.2,1), box-shadow.28s ease, border-color.2s ease, background.2s ease; will-change:transform}}
 .card:hover{{transform:translateY(-2px);box-shadow:0 10px 30px rgba(0,0,0,0.18), 0 4px 12px rgba(255,190,77,0.12)}}
-.tower-accordion{{border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);transition:transform.25s ease, box-shadow.25s ease}}
+.tower-accordion{{border-radius:12px;overflow:hidden;border:1px solid #ffffff10;transition:transform.25s ease, box-shadow.25s ease}}
 .tower-accordion:hover{{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,0,0,0.12)}}
 .tower-accordion-body{{max-height:0;overflow:hidden;opacity:0;transition:max-height.35s cubic-bezier(0.4,0,0.2,1), opacity.28s ease;background:#0f1424}}
 .tower-accordion-body.open{{max-height:4000px;opacity:1}}
-#mn{{animation:pageEnter .38s cubic-bezier(0.4,0,0.2,1)}}
+#mn{{animation:pageEnter.38s cubic-bezier(0.4,0,0.2,1)}}
 @keyframes pageEnter{{from{{opacity:0;transform:translateY(8px) scale(0.98)}} to{{opacity:1;transform:translateY(0) scale(1)}}}}
 .dish-row{{transition:transform.22s ease, box-shadow.22s ease, border-color.2s ease!important}}
 .dish-row:hover{{transform:translateY(-1.5px)!important;box-shadow:0 6px 18px rgba(0,0,0,0.12)!important;border-color:var(--accent)!important}}
 .btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:7px 12px;border:0;border-radius:8px;font-weight:700;font-size:11px;cursor:pointer;transition:transform.18s ease, box-shadow.18s ease}}
 .btn-gold:hover{{transform:translateY(-1px);box-shadow:0 4px 12px rgba(255,190,77,0.3)}}
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min),1fr));gap:8px}}
-.top{{position:fixed;top:0;left:0;right:0;height:56px;background:rgba(30,36,51,0.8);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid var(--border)}}
-.sidebar{{position:fixed;top:12px;right:12px;bottom:12px;width:320px;background:rgba(30,36,51,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);z-index:1002;padding-top:20px;padding-bottom:40px;transform:translateX(110%);transition:transform .4s cubic-bezier(0.34,1.56,0.64,1), background .3s ease;border-radius:16px;border:1px solid rgba(255,255,255,0.12);box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}}
-body.light .sidebar{{background:rgba(255,255,255,0.85);border:1px solid rgba(0,0,0,0.08)}}
-.sidebar.active{{transform:none;animation:sidebarEnter .5s cubic-bezier(0.34,1.56,0.64,1)}}
-@keyframes sidebarEnter{{0%{{transform:translateX(110%) scale(.94);opacity:0}} 100%{{transform:translateX(0) scale(1);opacity:1}}}}
-.sidebar a{{display:flex;align-items:center;gap:12px;padding:14px 16px;margin:6px 12px;color:var(--text);text-decoration:none;border-radius:12px;background:rgba(255,255,255,0.04);font-size:15px;font-weight:600;position:relative;overflow:hidden;transition:all 0.3s ease;backdrop-filter:blur(8px)}}
-.sidebar a i, .sidebar a span{{transition:transform 0.3s ease;display:inline-block}}
-.sidebar a:hover{{background:rgba(255,190,77,0.14);transform:translateX(-2px);box-shadow:0 4px 12px rgba(255,190,77,0.15)}}
-.sidebar a:hover i, .sidebar a:hover span:first-of-type{{transform:translateX(4px)}}
-.sidebar a::after{{content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--accent),#ffb020);transform:translateX(-105%);transition:transform .38s cubic-bezier(0.4,0,0.2,1);z-index:-1;border-radius:inherit}}
+.top{{position:fixed;top:0;left:0;right:0;height:56px;background:var(--card-bg);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid var(--border)}}
+.sidebar{{position:fixed;top:0;right:0;width:320px;height:100vh;height:100dvh;background:var(--card-bg);z-index:1002;padding-top:60px;padding-bottom:40px;transform:translateX(110%);transition:transform .25s ease;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;border-left:1px solid var(--border)}}
+.sidebar.active{{transform:none}}
+.sidebar a{{display:flex;align-items:center;gap:12px;padding:14px 16px;margin:6px 12px;color:var(--text);text-decoration:none;border-radius:10px;background:var(--border);font-size:15px;font-weight:600;position:relative;overflow:hidden;transition:transform.28s cubic-bezier(0.4,0,0.2,1), background.3s ease}}
+.sidebar a::after{{content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--accent),#ffb020);transform:translateX(-105%);transition:transform.38s cubic-bezier(0.4,0,0.2,1);z-index:-1;border-radius:inherit}}
 .sidebar a.active::after{{transform:translateX(0)}}
-.sidebar a.active{{color:#111;box-shadow:0 4px 14px rgba(255,190,77,0.25);transform:translateX(2px);background:rgba(255,190,77,0.15);border-right:3px solid var(--accent)}}
+.sidebar a.active{{color:#111;box-shadow:0 4px 14px rgba(255,190,77,0.25);transform:translateX(2px)}}
 .sidebar::-webkit-scrollbar{{width:6px}} .sidebar::-webkit-scrollbar-thumb{{background:var(--accent);border-radius:10px}}
-#overlay{{position:fixed;inset:0;background:#0006;backdrop-filter:blur(4px);z-index:1001;display:none}} #overlay.show{{display:block}}
-.main{{margin-top:62px;padding:10px;min-height:90vh;border-radius:16px}}
+#overlay{{position:fixed;inset:0;background:#0006;z-index:1001;display:none}} #overlay.show{{display:block}}
+.main{{margin-top:62px;padding:10px;min-height:90vh}}
 .row{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}}
-.mini-btn{{background:var(--border);color:var(--text);border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer;transition:all .2s ease}} .mini-btn:hover{{transform:translateY(-1px)}}
-.mini-btn-del{{background:#ef4444;color:#fff;border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer;transition:all .2s ease}} .mini-btn-del:hover{{transform:translateY(-1px);box-shadow:0 4px 10px rgba(239,68,68,0.3)}}
+.btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:7px 12px;border:0;border-radius:8px;font-weight:700;font-size:11px;cursor:pointer}}
+.mini-btn{{background:var(--border);color:var(--text);border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}} .mini-btn-del{{background:#ef4444;color:#fff;border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}}
 .ip{{background:#000;color:var(--accent);padding:2px 6px;border-radius:5px;font-family:monospace;font-size:10px;cursor:pointer}} .badge{{background:var(--accent);color:#111;padding:2px 6px;border-radius:5px;font-size:10px;font-weight:700}}
 .pingBox{{margin-top:8px;background:#000a;color:#22c55e;border:1px solid var(--border);border-radius:10px;padding:10px;font-family:monospace;min-height:36px;white-space:pre-wrap;font-size:11px;cursor:pointer}}
 table{{width:100%;border-collapse:collapse}} th{{background:var(--border);padding:8px;font-size:11px;text-align:right;position:sticky;top:0}} td{{padding:8px;border-bottom:1px solid var(--border)}}
-#editModal{{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}} #editModal.show{{opacity:1;pointer-events:auto}} #editBox{{background:var(--card-bg);color:var(--text);padding:18px;border-radius:16px;width:92%;max-width:420px;transform:scale(.95);transition:.2s;border:1px solid var(--border);backdrop-filter:blur(16px)}} #editModal.show #editBox{{transform:scale(1)}}
-input,select{{padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--border);color:var(--text);font-size:12px;transition:border-color .2s ease}} input:focus{{border-color:var(--accent);outline:none}}
-.wa-float{{position:fixed;bottom:18px;left:18px;width:56px;height:56px;background:#25D366;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;z-index:999;font-size:26px;box-shadow:0 6px 20px #25D36666;transition:transform .2s ease}} .wa-float:hover{{transform:scale(1.08)}}
-.stat{{text-align:center;cursor:pointer;border-radius:12px}} .ico{{font-size:20px}}
-.btn-circle{{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .22s cubic-bezier(0.34,1.56,0.64,1);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}}
-.btn-circle:hover{{transform:scale(1.12) translateY(-1px)}}
-.btn-circle.del{{background:radial-gradient(circle at 30% 30%, rgba(255,107,107,0.9), rgba(239,68,68,0.7));box-shadow:0 0 18px rgba(239,68,68,0.45), 0 4px 12px rgba(239,68,68,0.25), inset 0 1px 0 rgba(255,255,255,0.2);color:#fff}}
-.btn-circle.edit{{background:radial-gradient(circle at 30% 30%, rgba(255,204,112,0.9), rgba(245,158,11,0.7));box-shadow:0 0 18px rgba(245,158,11,0.45), 0 4px 12px rgba(245,158,11,0.25), inset 0 1px 0 rgba(255,255,255,0.2);color:#fff}}
-.btn-circle.view{{background:radial-gradient(circle at 30% 30%, rgba(34,211,238,0.9), rgba(6,182,212,0.7));box-shadow:0 0 18px rgba(6,182,212,0.45), 0 4px 12px rgba(6,182,212,0.25), inset 0 1px 0 rgba(255,255,255,0.2);color:#fff}}
-.ip-card{{background:rgba(255,255,255,0.06);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.10);border-radius:16px;padding:14px;transition:all .25s cubic-bezier(0.4,0,0.2,1)}}
-.ip-card:hover{{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,0.2)}}
-.support-row{{display:flex;gap:10px;justify-content:center;margin-top:10px}}
-.support-btn{{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:18px;transition:all .22s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 4px 12px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.25);transform:translateZ(0);border:1px solid rgba(255,255,255,0.15);backdrop-filter:blur(8px)}}
-.support-btn:hover{{transform:translateY(-3px) scale(1.1);box-shadow:0 8px 22px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.35)}}
-.support-btn:active{{transform:translateY(-1px) scale(.96)}}
-.support-btn.wa{{background:radial-gradient(circle at 30% 30%, #4ade80, #25D366)}}
-.support-btn.ig{{background:radial-gradient(circle at 30% 30%, #feda75, #d62976)}}
-.support-btn.lo{{background:radial-gradient(circle at 30% 30%, rgba(239,68,68,0.9), rgba(239,68,68,0.6))}}
-.skeleton{{background:linear-gradient(90deg, var(--border) 25%, rgba(255,255,255,0.12) 50%, var(--border) 75%);background-size:200% 100%;animation:shimmer 1.3s infinite linear;border-radius:8px;min-height:14px}}
-.skeleton-card{{height:80px;margin-bottom:8px;border-radius:16px}}
-@keyframes shimmer{{0%{{background-position:-200% 0}} 100%{{background-position:200% 0}}}}
-</style>
-</head><body class="{'dark' if is_dark else 'light'}">
-<div id="topLoader"></div>
+#editModal{{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}} #editModal.show{{opacity:1;pointer-events:auto}} #editBox{{background:var(--card-bg);color:var(--text);padding:18px;border-radius:14px;width:92%;max-width:420px;transform:scale(.95);transition:.2s;border:1px solid var(--border)}} #editModal.show #editBox{{transform:scale(1)}}
+input,select{{padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--border);color:var(--text);font-size:12px}} input:focus{{border-color:var(--accent);outline:none}}
+.wa-float{{position:fixed;bottom:18px;left:18px;width:58px;height:58px;background:#25D366;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;z-index:999;font-size:28px;box-shadow:0 6px 20px #25D36666}}
+.stat{{text-align:center;cursor:pointer}} .ico{{font-size:20px}}
+</style></head><body class="{'dark' if is_dark else 'light'}">
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
 <div style='padding:0 16px 14px;border-bottom:1px solid var(--border)'><b style="font-size:16px">OMAIA <span style='color:var(--accent)'>ISP</span></b><br><small style="font-size:11px;opacity:.7">{esc(cur_user.get('username') or '')} • {esc(cur_user.get('role') or '')}</small></div>
-<a href="javascript:loadPage('home')" id=nav-home>🏠 <span>{tr['home']}</span></a>
-<a href="javascript:loadPage('towers')" id=nav-towers>🗼 <span>{tr['towers']}</span></a>
-<a href="javascript:loadPage('dishes')" id=nav-dishes>📡 <span>{tr['dishes']}</span></a>
-<a href="javascript:loadPage('map')" id=nav-map>🗺 <span>{tr['map']}</span></a>
-<a href="javascript:loadPage('ping')" id=nav-ping>📶 <span>{tr['ping']}</span></a>
-<a href="javascript:loadPage('network')" id=nav-network>📊 <span>{tr['network']}</span></a>
-<a href="javascript:loadPage('subs')" id=nav-subs>👥 <span>{tr['subs']}</span></a>
-<a href="javascript:loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
-<a href="javascript:loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
-<a href="javascript:loadPage('settings')" id=nav-settings>⚙ <span>{tr['settings']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home><span class="menu-icon-circle">🏠</span> <span>{tr['home']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers><span class="menu-icon-circle">🗼</span> <span>{tr['towers']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('dishes')" id=nav-dishes><span class="menu-icon-circle">📡</span> <span>{tr['dishes']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('map')" id=nav-map><span class="menu-icon-circle">🗺</span> <span>{tr['map']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ping')" id=nav-ping><span class="menu-icon-circle">📶</span> <span>{tr['ping']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('network')" id=nav-network><span class="menu-icon-circle">📊</span> <span>{tr['network']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('subs')" id=nav-subs><span class="menu-icon-circle">👥</span> <span>{tr['subs']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger><span class="menu-icon-circle">📒</span> <span>{tr['ledger']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs><span class="menu-icon-circle">📜</span> <span>{tr['logs']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings><span class="menu-icon-circle">⚙</span> <span>{tr['settings']}</span></a>
 <div style='padding:14px 16px;margin-top:12px;border-top:1px dashed var(--border)'>
 <div style='font-size:12px;font-weight:700;margin-bottom:10px'>💬 {tr['support']}</div>
-<div style='display:flex;gap:12px'>
-<a href="{SUPPORT_WA_LINK}" target="_blank" style="flex:1;background:#25D366;color:#fff;padding:12px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;font-size:22px;font-weight:700">💬</a>
-<a href="{SUPPORT_INSTA_LINK}" target="_blank" style="flex:1;background:linear-gradient(45deg,#feda75,#d62976);color:#fff;padding:12px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;font-size:22px;font-weight:700">📷</a>
+<div style='display:flex;gap:8px;justify-content:center;align-items:center'>
+<a href="{SUPPORT_WA_LINK}" target="_blank" title="واتساب" style="width:32px;height:32px;background:#25D366;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:14px;box-shadow:0 2px 8px rgba(37,211,102,0.4);border:1px solid rgba(255,255,255,0.2)">W</a>
+<a href="{SUPPORT_INSTA_LINK}" target="_blank" title="انستغرام" style="width:32px;height:32px;background:linear-gradient(45deg,#feda75,#d62976);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:14px;box-shadow:0 2px 8px rgba(214,41,118,0.4);border:1px solid rgba(255,255,255,0.2)">I</a>
 </div>
 <div style='font-size:11px;opacity:.7;margin-top:10px;text-align:center'>+{SUPPORT_WA}<br>{SUPPORT_INSTA}</div>
 </div>
-<a href="javascript:logoutFast()" style='margin:12px;background:#ef444422;display:flex;gap:12px;border:1px solid #ef444444'>🚪 <span>{tr['logout']}</span></a>
+<a href="#" onclick="event.preventDefault(); logoutFast()" style='margin:12px;background:#ef444422;display:flex;gap:12px;border:1px solid #ef444444'>🚪 <span>{tr['logout']}</span></a>
 </div>
 
 <div class=top>
@@ -1365,21 +1345,8 @@ async function loadPage(v,force=false,push=true){{
  if(push&&cur!==v){{try{{history.pushState({{page:v}},'', '/dash?v='+v)}}catch(e){{}}}}
  cur=v; toggleSb(false); document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active')); let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
  let mn=document.getElementById('mn');
- let loader=document.getElementById('topLoader');
- if(loader){{loader.classList.add('active'); loader.style.width='30%';}}
- mn.innerHTML='<div class=skeleton style="height:56px;margin-bottom:10px;border-radius:12px"></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div><div class=skeleton style="height:120px;margin-top:10px;border-radius:12px"></div>';
- try{{
-  if(loader) loader.style.width='70%';
-  let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); 
-  let h=await r.text(); 
-  if(loader) loader.style.width='100%';
-  mn.innerHTML=h; execScripts(); 
-  try{{lucide.createIcons();}}catch{{}}
-  setTimeout(()=>{{if(loader){{loader.style.opacity='0'; setTimeout(()=>{{loader.style.width='0%'; loader.classList.remove('active'); loader.style.opacity='1';}},300);}}}},400);
- }}catch(e){{
-  mn.innerHTML='<div class=card>خطأ - <button class=btn-gold onclick="loadPage(cur,true)">إعادة</button></div>';
-  if(loader){{loader.style.width='0%'; loader.classList.remove('active');}}
- }}
+ mn.innerHTML='<div class=card style="text-align:center;padding:12px;opacity:.5">...</div>';
+ try{{let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); let h=await r.text(); mn.innerHTML=h; execScripts(); try{{lucide.createIcons();}}catch{{}}}}catch(e){{mn.innerHTML='<div class=card>خطأ</div>';}}
 }}
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
 window.closeEditModal=()=>document.getElementById('editModal').classList.remove('show');
