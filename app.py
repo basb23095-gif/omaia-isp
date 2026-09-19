@@ -117,27 +117,48 @@ def qexec(q,a=()):
             except: pass
         return False
 
-def _do_log(phone,action,detail,now):
+def _do_log(phone,action,target,detail,username,now):
     try:
-        qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'sys',action,str(detail)[:500],now))
-    except Exception as e:
-        print(f"_do_log {e}")
+        qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",(phone or 'sys',username or phone or 'sys',action,str(target)[:300],str(detail)[:500],now))
+    except:
+        try:
+            qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'sys',action,str(detail or target)[:500],now))
+        except Exception as e:
+            print(f"_do_log {e}")
 
-def add_log(phone,action,detail):
+def add_log(phone,action,target='',detail='',username=''):
+    # add_log(phone, action, target, detail, username) - يحفظ كلشي: مين دخل، مين ضاف، مين حذف
     try:
         now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        try:
-            qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",(phone or 'sys',action,str(detail)[:500],now))
-        except:
+        # محاولة جلب اسم المستخدم من السيشن اذا لم يمرر
+        if not username:
             try:
-                threading.Thread(target=_do_log, args=(phone,action,detail,now), daemon=True).start()
+                username = session.get('username') or session.get('phone') or phone or 'sys'
             except:
-                pass
+                username = phone or 'sys'
+        # للتوافق مع الكود القديم add_log(phone,action,detail) حيث target كان هو التفصيل
+        if detail=='' and target!='' and (' ' in target or len(target)>30 or target.startswith('ID') or '@' in target or '.' in target):
+            # اذا الاستدعاء القديم كان add_log(phone,action,detail) ف target يحمل التفصيل
+            # نحافظ عليه كـ detail ونترك target فاضي اذا لم يحدد
+            pass
+        
+        # حاول الادخال بالجدول الجديد
+        ok = qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
+                   (phone or 'sys', username, action, str(target)[:300], str(detail)[:500], now))
+        if not ok:
+            # fallback للجدول القديم
+            qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",
+                  (phone or 'sys', action, str((detail or target))[:500], now))
+        
         with _clock:
-            for k in ['counts','logs_preview','all_data','towers_list']:
+            for k in ['counts','logs_preview','all_data','towers_list','logs']:
                 _cache.pop(k,None)
-    except:
-        pass
+    except Exception as e:
+        print(f"add_log err {e}")
+        try:
+            threading.Thread(target=_do_log, args=(phone,action,target,detail,username,now), daemon=True).start()
+        except:
+            pass
 
 def get_counts():
     with _clock:
@@ -160,13 +181,13 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,amount REAL,note TEXT,currency TEXT)",
         "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT,tower_id INTEGER)",
         "CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL,created_at TEXT)",
-        "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,action TEXT,detail TEXT,time TEXT)",
+        "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,username TEXT,action TEXT,target TEXT,detail TEXT,time TEXT)",
         "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS system_config(key TEXT PRIMARY KEY,value TEXT)"
     ]
     if USE_PG: ss=[s.replace("INTEGER PRIMARY KEY AUTOINCREMENT","SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
-    for al in ["ALTER TABLE dish_ips ADD COLUMN tower_id INTEGER","ALTER TABLE towers ADD COLUMN created_at TEXT"]:
+    for al in ["ALTER TABLE dish_ips ADD COLUMN tower_id INTEGER","ALTER TABLE towers ADD COLUMN created_at TEXT","ALTER TABLE logs ADD COLUMN username TEXT","ALTER TABLE logs ADD COLUMN target TEXT"]:
         try: qexec(al)
         except: pass
     idx=[
@@ -326,7 +347,7 @@ def api_towers_list():
 @login_required
 def toggle_lang():
     cur=session.get('lang','ar'); session['lang']='en' if cur=='ar' else 'ar'
-    add_log(session.get('phone'),'تغيير لغة',session['lang'])
+    add_log(session.get('phone'),'تغيير لغة',session['lang'],'تغيير اللغة إلى '+session['lang'])
     return jsonify(ok=True,lang=session['lang'])
 
 @app.route('/toggle_theme')
@@ -373,7 +394,7 @@ def api_login_public():
                 _cache['user_cache'][cache_key]=(u, time.time())
         if u and check_password_hash(u['password'],pw):
             session.clear(); session['phone']=u['phone']; session['username']=u.get('username') or u['phone']; session['role']=u.get('role') or 'tech'; session.permanent=True
-            add_log(u['phone'],'دخول',uin)
+            add_log(u['phone'],'دخول',uin,f'دخول المستخدم {uin}',u.get('username') or uin)
             return jsonify(ok=True)
         return jsonify(ok=False,msg='خطأ'),401
     except Exception as e: return jsonify(ok=False,msg=str(e)),500
@@ -381,7 +402,7 @@ def api_login_public():
 @app.route('/api/export/<tbl>')
 @login_required
 def api_export(tbl):
-    add_log(session.get('phone'),'تصدير',tbl)
+    add_log(session.get('phone'),'تصدير',tbl,f'تصدير جدول {tbl}')
     output=io.StringIO(); output.write('\ufeff'); w=csv.writer(output)
     if tbl=='dishes':
         rows=qall("SELECT * FROM dish_ips ORDER BY location ASC, dish_name ASC"); w.writerow(['ID','اسم','IP','موقع','tower_id'])
@@ -390,8 +411,8 @@ def api_export(tbl):
         rows=qall("SELECT * FROM towers ORDER BY name ASC"); w.writerow(['ID','اسم','منطقة','lat','lng'])
         for r in rows: w.writerow([r.get('id',''),r.get('name',''),r.get('area',''),r.get('lat',''),r.get('lng','')]); fname='towers.csv'
     else:
-        rows=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 2000"); w.writerow(['ID','يوزر','عمل','تفصيل','وقت'])
-        for r in rows: w.writerow([r.get('id',''),r.get('user_phone',''),r.get('action',''),r.get('detail',''),r.get('time','')]); fname='logs.csv'
+        rows=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 2000"); w.writerow(['ID','وقت','المستخدم','اسم المستخدم','عمل','الهدف','تفصيل'])
+        for r in rows: w.writerow([r.get('id',''),r.get('time',''),r.get('user_phone',''),r.get('username',''),r.get('action',''),r.get('target',''),r.get('detail','')]); fname='logs.csv'
     return Response(output.getvalue(),mimetype='text/csv; charset=utf-8',headers={'Content-Disposition':f'attachment; filename={fname}'})
 
 
@@ -419,7 +440,7 @@ def bulk_delete():
             with _clock:
                 for k in ['counts','towers_list','logs_preview','all_data']:
                     _cache.pop(k,None)
-            add_log(session.get('phone'), f'حذف جماعي {tbl}', f"{len(clean)} سطر")
+            add_log(session.get('phone'), f'حذف جماعي {tbl}', f"{tbl}", f"{len(clean)} سطر تم حذفها")
         return jsonify(ok=ok, deleted=len(clean))
     except Exception as e:
         traceback.print_exc()
@@ -436,7 +457,7 @@ def update_tower_pos():
     try:
         d=request.json if request.is_json else request.form; tid=int(d.get('id')); lat=float(d.get('lat')); lng=float(d.get('lng'))
         qexec("UPDATE towers SET lat=?,lng=? WHERE id=?",(lat,lng,tid))
-        add_log(session.get('phone'),'تعديل موقع برج',f"ID {tid}")
+        add_log(session.get('phone'),'تعديل موقع برج',f"ID {tid}",f"تعديل موقع البرج {tid} إلى {lat},{lng}")
         return jsonify(ok=True)
     except Exception as e: return jsonify(ok=False,msg=str(e)),400
 
@@ -448,7 +469,7 @@ def add_dish_to_tower():
         if not is_valid_ip(ip): return jsonify(ok=False,msg='IP غير صالح'),400
         if USE_PG: ok=qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location, tower_id=EXCLUDED.tower_id",(ip,loc,name,int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None))
         else: ok=qexec("INSERT OR REPLACE INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)",(ip,loc,name,int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None))
-        if ok: add_log(session.get('phone'),'إضافة صحن للبرج',f"{name} {ip}")
+        if ok: add_log(session.get('phone'),'إضافة صحن للبرج',f"{name}",f"IP: {ip} | الموقع: {loc} | برج: {tid}")
         with _clock: _cache.pop('counts',None)
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False,msg=str(e)),500
@@ -546,7 +567,7 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 .menu-icon-circle{{transition:all 0.3s ease!important}}
 
 /* === القائمة الرئيسية حركة ديناميكية سلسة وحواف دائرية زجاجية === */
-.sidebar{{background:rgba(15,20,36,0.75)!important;backdrop-filter:blur(20px) saturate(180%)!important;-webkit-backdrop-filter:blur(20px) saturate(180%)!important;border:1px solid rgba(255,255,255,0.1)!important;border-radius:20px!important;box-shadow:0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)!important;animation:sidebarFloat 6s ease-in-out infinite}}
+.sidebar{{background:rgba(15,20,36,0.75)!important;backdrop-filter:blur(20px)!important;-webkit-backdrop-filter:blur(20px)!important;border:1px solid rgba(255,255,255,0.1)!important;border-radius:20px!important;box-shadow:0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)!important;animation:sidebarFloat 6s ease-in-out infinite}}
 @keyframes sidebarFloat{{0%,100%{{transform:translateY(0)}} 50%{{transform:translateY(-2px)}}}}
 .sidebar a{{border-radius:14px!important;background:rgba(255,255,255,0.03)!important;border:1px solid transparent!important;backdrop-filter:blur(10px)!important}}
 
@@ -570,6 +591,51 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 .support a:active{{transform:translateY(-1px) scale(0.95) perspective(100px) rotateX(10deg)!important}}
 .support a[href*="whatsapp"]{{background:radial-gradient(circle at 30% 30%, #4ade80, #25D366)!important}}
 .support a[href*="instagram"]{{background:radial-gradient(circle at 30% 30%, #feda75, #d62976, #962fbf)!important}}
+
+
+/* === المطلوب: قائمة زجاج ضبابي blur(20px) + حركة ضغطة active:scale(0.9) + أزرار زجاج ملون 0.15s === */
+.sidebar{
+  backdrop-filter:blur(20px)!important;
+  -webkit-backdrop-filter:blur(20px)!important;
+}
+.sidebar a{
+  transition:all 0.15s ease!important;
+  backdrop-filter:blur(20px)!important;
+}
+.sidebar a:active{
+  transform:scale(0.9)!important;
+}
+.btn-circle{
+  backdrop-filter:blur(20px)!important;
+  -webkit-backdrop-filter:blur(20px)!important;
+  transition:all 0.15s ease!important;
+  border:1px solid rgba(255,255,255,0.18)!important;
+}
+.btn-circle:active{
+  transform:scale(0.9)!important;
+}
+.btn-circle.view{
+  background:rgba(6,182,212,0.15)!important;
+  color:#22d3ee!important;
+  box-shadow:0 0 15px rgba(6,182,212,0.25), inset 0 1px 0 rgba(255,255,255,0.2)!important;
+}
+.btn-circle.edit{
+  background:rgba(245,158,11,0.15)!important;
+  color:#ffbe4d!important;
+  box-shadow:0 0 15px rgba(245,158,11,0.25), inset 0 1px 0 rgba(255,255,255,0.2)!important;
+}
+.btn-circle.del{
+  background:rgba(239,68,68,0.15)!important;
+  color:#ff6b6b!important;
+  box-shadow:0 0 15px rgba(239,68,68,0.25), inset 0 1px 0 rgba(255,255,255,0.2)!important;
+}
+.btn-circle:hover{
+  transform:translateY(-1px) scale(1.05)!important;
+}
+.btn-gold:active, .mini-btn:active, .mini-btn-del:active{
+  transform:scale(0.9)!important;
+  transition:all 0.15s ease!important;
+}
 
 /* === أيقونات الحذف والتعديل زجاج ضبابي === */
 .btn-circle{{backdrop-filter:blur(16px) saturate(180%)!important;-webkit-backdrop-filter:blur(16px) saturate(180%)!important;background:rgba(255,255,255,0.08)!important;border:1px solid rgba(255,255,255,0.15)!important;box-shadow:0 4px 16px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2)!important}}
@@ -648,7 +714,7 @@ def ad():
         if not is_valid_ip(ip): return jsonify(ok=False,msg='IP غير صالح'),400
         if USE_PG: ok=qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location, tower_id=EXCLUDED.tower_id",(ip,loc,name,int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None))
         else: ok=qexec("INSERT OR REPLACE INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)",(ip,loc,name,int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None))
-        if ok: add_log(session.get('phone'),'إضافة صحن',f"{name} {ip}")
+        if ok: add_log(session.get('phone'),'إضافة صحن',f"{name}",f"IP: {ip} | موقع: {loc}")
         with _clock: _cache.pop('counts',None)
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False,msg=str(e)),500
@@ -659,7 +725,7 @@ def ed(i):
     if not is_manager(): return jsonify(ok=False,msg='ممنوع'),403
     d=request.json if request.is_json else request.form
     ok=qexec("UPDATE dish_ips SET dish_name=?,ip=?,location=?,tower_id=? WHERE id=?",(d.get('dish_name',''),d.get('ip',''),d.get('location',''),d.get('tower_id') or None,i))
-    if ok: add_log(session.get('phone'),'تعديل صحن',f"ID {i}")
+    if ok: add_log(session.get('phone'),'تعديل صحن',f"صحن {i}",f"ID {i}")
     return jsonify(ok=ok)
 
 @app.route('/del_dish/<int:i>')
@@ -669,7 +735,7 @@ def dd(i):
     info=qone("SELECT * FROM dish_ips WHERE id=?",(i,)); ok=qexec("DELETE FROM dish_ips WHERE id=?",(i,))
     if ok:
         with _clock: _cache.pop('counts',None)
-        add_log(session.get('phone'),'حذف صحن',f"{info.get('dish_name','')} {info.get('ip','')}" if info else f"ID {i}")
+        add_log(session.get('phone'),'حذف صحن',info.get('dish_name','') if info else f"صحن {i}",f"{info.get('dish_name','')} {info.get('ip','')}" if info else f"ID {i}")
     return jsonify(ok=ok)
 
 @app.route('/add_tower',methods=['POST'])
@@ -679,7 +745,7 @@ def at():
         d=request.json if request.is_json else request.form; la=float(d.get('lat') or 35.1318); ln=float(d.get('lng') or 36.7578)
         ok=qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)",(d.get('name','كرت'),d.get('area',''),la,ln,datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         if ok:
-            add_log(session.get('phone'),'إضافة برج',d.get('name',''))
+            add_log(session.get('phone'),'إضافة برج',d.get('name',''),f"منطقة: {d.get('area','')} | {la},{ln}")
             with _clock: _cache.pop('towers_list',None)
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False,msg=str(e)),500
@@ -689,7 +755,7 @@ def at():
 def dt(i):
     if not is_manager(): return jsonify(ok=False,msg='ممنوع'),403
     qexec("UPDATE dish_ips SET tower_id=NULL WHERE tower_id=?",(i,)); ok=qexec("DELETE FROM towers WHERE id=?",(i,))
-    if ok: add_log(session.get('phone'),'حذف برج',f"ID {i}")
+    if ok: add_log(session.get('phone'),'حذف برج',f"برج {i}",f"ID {i}")
     return jsonify(ok=ok)
 
 @app.route('/edit_tower/<int:i>',methods=['POST'])
@@ -698,14 +764,14 @@ def et(i):
     if not is_manager(): return jsonify(ok=False,msg='ممنوع'),403
     d=request.json if request.is_json else request.form; la=float(d.get('lat') or 35.1318); ln=float(d.get('lng') or 36.7578)
     ok=qexec("UPDATE towers SET name=?,area=?,lat=?,lng=? WHERE id=?",(d.get('name',''),d.get('area',''),la,ln,i))
-    if ok: add_log(session.get('phone'),'تعديل برج',f"ID {i}")
+    if ok: add_log(session.get('phone'),'تعديل برج',f"برج {i}",f"ID {i} تم تعديله")
     return jsonify(ok=ok)
 
 @app.route('/add_sub',methods=['POST'])
 @login_required
 def asub():
     d=request.json if request.is_json else request.form; ok=qexec("INSERT INTO subs(name,phone,note) VALUES(?,?,?)",(d.get('name',''),d.get('phone',''),d.get('note','')))
-    if ok: add_log(session.get('phone'),'إضافة مشترك',d.get('name',''))
+    if ok: add_log(session.get('phone'),'إضافة مشترك',d.get('name',''),f"هاتف: {d.get('phone','')} | {d.get('note','')}")
     return jsonify(ok=ok)
 
 @app.route('/del_sub/<int:i>')
@@ -713,7 +779,7 @@ def asub():
 def dsub(i):
     if not is_manager(): return jsonify(ok=False),403
     ok=qexec("DELETE FROM subs WHERE id=?",(i,))
-    if ok: add_log(session.get('phone'),'حذف مشترك',f"ID {i}")
+    if ok: add_log(session.get('phone'),'حذف مشترك',f"مشترك {i}",f"ID {i}")
     return jsonify(ok=ok)
 
 @app.route('/edit_sub/<int:i>',methods=['POST'])
@@ -721,7 +787,7 @@ def dsub(i):
 def esub(i):
     if not is_manager(): return jsonify(ok=False),403
     d=request.json if request.is_json else request.form; ok=qexec("UPDATE subs SET name=?,phone=?,note=? WHERE id=?",(d.get('name',''),d.get('phone',''),d.get('note',''),i))
-    if ok: add_log(session.get('phone'),'تعديل مشترك',f"ID {i}")
+    if ok: add_log(session.get('phone'),'تعديل مشترك',f"مشترك {i}",f"ID {i} تم تعديله")
     return jsonify(ok=ok)
 
 @app.route('/add_ledger',methods=['POST'])
@@ -731,7 +797,7 @@ def al():
     try: amt=float(d.get('amount') or 0)
     except: amt=0
     ok=qexec("INSERT INTO ledger(name,amount,note,currency) VALUES(?,?,?,?)",(d.get('name',''),amt,d.get('note',''),d.get('currency','USD')))
-    if ok: add_log(session.get('phone'),'إضافة حساب',f"{d.get('name','')} {amt}")
+    if ok: add_log(session.get('phone'),'إضافة حساب',d.get('name',''),f"مبلغ: {amt} {d.get('currency','')} | {d.get('note','')}")
     return jsonify(ok=ok)
 
 @app.route('/del_ledger/<int:i>')
@@ -739,7 +805,7 @@ def al():
 def dll(i):
     if not is_manager(): return jsonify(ok=False),403
     ok=qexec("DELETE FROM ledger WHERE id=?",(i,))
-    if ok: add_log(session.get('phone'),'حذف حساب',f"ID {i}")
+    if ok: add_log(session.get('phone'),'حذف حساب',f"حساب {i}",f"ID {i}")
     return jsonify(ok=ok)
 
 @app.route('/edit_ledger/<int:i>',methods=['POST'])
@@ -750,7 +816,7 @@ def el(i):
     try: amt=float(d.get('amount') or 0)
     except: amt=0
     ok=qexec("UPDATE ledger SET name=?,amount=?,note=?,currency=? WHERE id=?",(d.get('name',''),amt,d.get('note',''),d.get('currency','USD'),i))
-    if ok: add_log(session.get('phone'),'تعديل حساب',f"ID {i}")
+    if ok: add_log(session.get('phone'),'تعديل حساب',f"حساب {i}",f"ID {i} تم تعديله")
     return jsonify(ok=ok)
 
 @app.route('/add_user',methods=['POST'])
@@ -761,7 +827,7 @@ def au():
     if not ph: return jsonify(ok=False,msg='رقم مطلوب'),400
     if qone("SELECT * FROM users WHERE phone=?",(ph,)): return jsonify(ok=False,msg='موجود'),400
     ok=qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",(ph,generate_password_hash(request.form.get('password','1234'), method='pbkdf2:sha256:150000'),request.form.get('role','tech'),ph))
-    if ok: add_log(session.get('phone'),'إضافة يوزر',ph)
+    if ok: add_log(session.get('phone'),'إضافة يوزر',ph,f"إضافة مستخدم جديد {ph}")
     return jsonify(ok=ok)
 
 @app.route('/edit_user',methods=['POST'])
@@ -774,7 +840,7 @@ def eu():
     if new_pass: ok=qexec("UPDATE users SET phone=?,username=?,role=?,password=? WHERE phone=?",(new_ph,new_ph,new_role,generate_password_hash(new_pass, method='pbkdf2:sha256:150000'),old))
     else: ok=qexec("UPDATE users SET phone=?,username=?,role=? WHERE phone=?",(new_ph,new_ph,new_role,old))
     if session.get('phone')==old: session['phone']=new_ph; session['role']=new_role
-    if ok: add_log(session.get('phone'),'تعديل يوزر',old+"->"+new_ph)
+    if ok: add_log(session.get('phone'),'تعديل يوزر',new_ph,f"{old} -> {new_ph}")
     return jsonify(ok=ok)
 
 @app.route('/del_user/<ph>')
@@ -783,7 +849,7 @@ def eu():
 def du(ph):
     if ph=='05344851045': return jsonify(ok=False,msg='ممنوع'),400
     ok=qexec("DELETE FROM users WHERE phone=?",(ph,))
-    if ok: add_log(session.get('phone'),'حذف يوزر',ph)
+    if ok: add_log(session.get('phone'),'حذف يوزر',ph,f"حذف المستخدم {ph}")
     return jsonify(ok=ok)
 
 @app.route('/change_pass',methods=['POST'])
@@ -792,7 +858,7 @@ def cp():
     d=request.json if request.is_json else request.form; np=(d.get('newpass') or '').strip()
     if not np: return jsonify(ok=False,msg='فارغة'),400
     ok=qexec("UPDATE users SET password=? WHERE phone=?",(generate_password_hash(np, method='pbkdf2:sha256:150000'),session.get('phone')))
-    if ok: add_log(session.get('phone'),'تغيير باسورد','')
+    if ok: add_log(session.get('phone'),'تغيير باسورد',session.get('phone') or '','تم تغيير كلمة المرور')
     return jsonify(ok=ok)
 
 def page_content(v):
@@ -1157,9 +1223,9 @@ window.doSinglePing=async function(){let ip=document.getElementById('pingIp').va
 window.doClientPing=async function(){let ip=document.getElementById('pingIp').value.trim(); if(!ip)return; let out=document.getElementById('pingResult'); out.textContent='يفحص '+ip+'...'; try{let ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),2000); let start=Date.now(); await fetch('http://'+ip,{mode:'no-cors',signal:ctrl.signal}); let ms=Date.now()-start; out.textContent=ip+' ✓ '+ms+'ms - انقر لفتح في كروم'; out.onclick=()=>openInChrome(); out.style.cursor='pointer';}catch{out.textContent=ip+' لا يرد';}};
 </script>"""
         if v=='logs':
-            rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 50")
-            rows="".join([f"<tr><td>{esc(r.get('time',''))}</td><td><span class=badge>{esc(r.get('action',''))}</span></td><td>{esc(r.get('user_phone',''))}</td><td>{esc(r.get('detail',''))}</td></tr>" for r in rs]) or "<tr><td colspan=4>لا يوجد سجل</td></tr>"
-            return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل - {len(rs)}</b><div class=row><a href="/api/export/logs" class=btn-gold style="text-decoration:none;padding:4px 8px">تصدير</a><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs=async()=>{{if(!confirm("مسح؟")) return; await fetch("/api/clear_logs",{{method:"POST"}}); loadPage("logs",true);}};</script>"""
+            rs=qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
+            rows="".join([f"<tr><td>{esc(r.get('time',''))}</td><td><b style='color:var(--accent)'>{esc(r.get('username') or r.get('user_phone',''))}</b><br><small style='opacity:.6'>{esc(r.get('user_phone',''))}</small></td><td><span class=badge>{esc(r.get('action',''))}</span></td><td><b>{esc(r.get('target',''))}</b></td><td>{esc(r.get('detail',''))}</td></tr>" for r in rs]) or "<tr><td colspan=5>لا يوجد سجل</td></tr>"
+            return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل - {len(rs)} - يحفظ كلشي: دخول/إضافة/حذف</b><div class=row><a href="/api/export/logs" class=btn-gold style="text-decoration:none;padding:4px 8px">تصدير</a><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>المستخدم</th><th>عمل</th><th>الهدف</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs=async()=>{{if(!confirm("مسح السجل نهائيا؟")) return; await fetch("/api/clear_logs",{{method:"POST"}}); loadPage("logs",true);}};</script>"""
         if v=='subs':
             rs=qall("SELECT * FROM subs ORDER BY name ASC LIMIT 50")
             rows="".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td><span style='cursor:pointer;color:var(--accent)' onclick=\"openInChrome('{esc(r.get('phone') or '')}')\">{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><div style='display:flex;gap:4px'><button class=\"btn-circle edit\" onclick=\"editSub({r.get('id')})\" title=\"تعديل\">✏</button><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑</button></div></td></tr>" for r in rs])
@@ -1426,8 +1492,9 @@ async function loadPage(v,force=false,push=true){{
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
 window.closeEditModal=()=>document.getElementById('editModal').classList.remove('show');
 window.openDeleteModal=function(url,id,name){{
+ let displayName = name || 'هذا العنصر';
  let b=document.getElementById("editBody");
- b.innerHTML='<div style="text-align:center;padding:10px"><div style="font-size:40px">🗑</div><h3 style="margin:10px 0">تأكيد حذف '+ (name||'') +'؟</h3><p style="font-size:11px;opacity:.7">لا يمكن التراجع</p><div style="display:flex;gap:8px;margin-top:14px"><button onclick="closeEditModal()" style="flex:1;padding:10px;border-radius:8px;background:transparent;border:1px solid var(--border);color:var(--text)">تراجع</button><button id=delConfirmBtn style="flex:1;padding:10px;border-radius:8px;background:#ef4444;color:#fff;border:0">حذف</button></div></div>';
+ b.innerHTML='<div style="text-align:center;padding:10px"><div style="font-size:40px">🗑</div><h3 style="margin:10px 0">تأكيد حذف<br><b style="color:#ef4444;font-size:16px">'+escHtml(displayName)+'</b>؟</h3><p style="font-size:12px;opacity:.8;margin-top:6px">الاسم: <b>'+escHtml(displayName)+'</b></p><p style="font-size:11px;opacity:.7">لا يمكن التراجع</p><div style="display:flex;gap:8px;margin-top:14px"><button onclick="closeEditModal()" style="flex:1;padding:10px;border-radius:8px;background:transparent;border:1px solid var(--border);color:var(--text)">تراجع</button><button id=delConfirmBtn style="flex:1;padding:10px;border-radius:8px;background:#ef4444;color:#fff;border:0">حذف '+escHtml(displayName)+'</button></div></div>';
  document.getElementById("editModalTitle").textContent="تأكيد الحذف";
  document.getElementById("editModal").classList.add("show");
  document.getElementById("delConfirmBtn").onclick=async()=>{{
