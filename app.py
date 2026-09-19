@@ -388,47 +388,27 @@ def bulk_delete():
         d=request.json or {}
         tbl=(d.get('table') or '').strip()
         ids=d.get('ids') or []
-        if not ids or not isinstance(ids, list): return jsonify(ok=False,msg='ids مطلوب'),400
-        clean_ids=[]
+        if not ids: return jsonify(ok=False,msg='ids مطلوب'),400
+        clean=[]
         for i in ids:
-            try: clean_ids.append(int(i))
+            try: clean.append(int(i))
             except: pass
-        if not clean_ids: return jsonify(ok=False,msg='لا يوجد معرفات'),400
+        if not clean: return jsonify(ok=False),400
         allowed={'dish_ips':'dish_ips','towers':'towers','subs':'subs','ledger':'ledger','logs':'logs'}
         if tbl not in allowed: return jsonify(ok=False,msg='جدول غير مسموح'),400
-        placeholders=",".join(["?"]*len(clean_ids))
+        ph=",".join(["?"]*len(clean))
         if tbl=='towers':
-            qexec(f"UPDATE dish_ips SET tower_id=NULL WHERE tower_id IN ({placeholders})", tuple(clean_ids))
-        ok=qexec(f"DELETE FROM {allowed[tbl]} WHERE id IN ({placeholders})", tuple(clean_ids))
+            qexec(f"UPDATE dish_ips SET tower_id=NULL WHERE tower_id IN ({ph})", tuple(clean))
+        ok=qexec(f"DELETE FROM {allowed[tbl]} WHERE id IN ({ph})", tuple(clean))
         if ok:
             with _clock:
-                _cache.pop('counts',None)
-                _cache.pop('towers_list',None)
-                _cache.pop('logs_preview',None)
-                _cache.pop('all_data',None)
-            add_log(session.get('phone'), f'حذف جماعي {tbl}', f"{len(clean_ids)} سطر")
-        return jsonify(ok=ok, deleted=len(clean_ids))
+                for k in ['counts','towers_list','logs_preview','all_data']:
+                    _cache.pop(k,None)
+            add_log(session.get('phone'), f'حذف جماعي {tbl}', f"{len(clean)} سطر")
+        return jsonify(ok=ok, deleted=len(clean))
     except Exception as e:
         traceback.print_exc()
         return jsonify(ok=False,msg=str(e)),500
-
-@app.route('/api/cached_data')
-@login_required
-def cached_data():
-    with _clock:
-        c=_cache.get('all_data')
-        if c and time.time()-c[1]<10:
-            return jsonify(ok=True, **c[0])
-    try:
-        towers=qall("SELECT t.id,t.name,t.area,t.lat,t.lng, COUNT(d.id) as cnt FROM towers t LEFT JOIN dish_ips d ON d.tower_id=t.id GROUP BY t.id,t.name,t.area,t.lat,t.lng ORDER BY t.name ASC")
-        dishes=qall("SELECT * FROM dish_ips ORDER BY dish_name ASC LIMIT 500")
-        subs=qall("SELECT * FROM subs ORDER BY id DESC LIMIT 200")
-        data=dict(towers=towers, dishes=dishes, subs=subs, counts=get_counts())
-        with _clock: _cache['all_data']=(data,time.time())
-        return jsonify(ok=True, **data)
-    except Exception as e:
-        return jsonify(ok=False,msg=str(e)),500
-
 
 @app.route('/api/clear_logs',methods=['POST'])
 @login_required
@@ -489,7 +469,32 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 .btn{{width:100%;padding:12px;border:0;border-radius:10px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800;cursor:pointer}} .btn:hover{{transform:scale(1.02)}}
 .support{{margin-top:16px;padding-top:12px;border-top:1px dashed #ffffff15;text-align:center}}
 .support a{{display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:50%;margin:0 8px;text-decoration:none;font-size:22px;transition:.2s}} .support a:hover{{transform:scale(1.12)}}
-</style></head><body>
+
+/* Clean UI Sidebar + Glass */
+.sidebar{{position:fixed;top:12px;right:12px;bottom:12px;width:300px;background:var(--card-bg);z-index:1002;padding:18px 12px;border-radius:16px;border:1px solid var(--border);transform:translateX(calc(100% + 24px));transition:transform .32s cubic-bezier(0.4,0,0.2,1);overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)}}
+.sidebar.active{{transform:none}}
+.nav-group{{margin-bottom:14px}}
+.nav-label{{font-size:10px;letter-spacing:.8px;opacity:.45;margin:6px 12px 8px;text-transform:uppercase;font-weight:700}}
+.nav-separator{{height:1px;background:var(--border);margin:10px 12px;opacity:.6}}
+.sidebar a{{display:flex;align-items:center;gap:12px;padding:11px 14px;margin:0 0 8px 0;color:var(--text);text-decoration:none;border-radius:12px;font-size:14px;font-weight:500;transition:all .2s ease;opacity:.9}}
+.sidebar a:hover{{background:rgba(255,255,255,0.06);transform:translateX(-2px)}}
+.sidebar a.active{{background:rgba(255,190,77,0.15);color:var(--accent);border-right:3px solid var(--accent);border-radius:12px 4px 4px 12px}}
+.support-row{{display:flex;gap:8px;justify-content:center;margin-top:10px}}
+.support-btn{{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;transition:transform .2s}}
+.support-btn:hover{{transform:scale(1.1)}}
+.ip-card{{background:rgba(255,255,255,0.08);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:14px;transition:all .22s ease}}
+.ip-card:hover{{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,0.2)}}
+.btn-circle{{width:36px;height:36px;border-radius:50%;border:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .2s, box-shadow .2s}}
+.btn-circle:hover{{transform:scale(1.1)}}
+.btn-circle.del{{background:rgba(239,68,68,0.2);color:#fff}}
+.btn-circle.del:hover{{box-shadow:0 0 15px rgba(239,68,68,0.4);background:rgba(239,68,68,0.3)}}
+.btn-circle.edit{{background:rgba(245,158,11,0.2);color:#fff}}
+.btn-circle.edit:hover{{box-shadow:0 0 15px rgba(245,158,11,0.4)}}
+.btn-circle.view{{background:rgba(6,182,212,0.2);color:#fff}}
+.btn-circle.view:hover{{box-shadow:0 0 15px rgba(6,182,212,0.4)}}
+
+</style>
+<script src='https://unpkg.com/lucide@latest/dist/umd/lucide.min.js'></script></head><body>
 <div class=card>
 <div style='text-align:center;font-weight:900;font-size:24px;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <form id=loginForm>
@@ -872,8 +877,7 @@ window.renderDishesBatch=function(tid,start){
   let row=document.createElement('div');
   row.id='dish-'+d.id;
   row.className='dish-row';
-  row.className='ip-card';
-  row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;';
+  row.className='ip-card'; row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center';
   let ip=d.ip||'';
   row.innerHTML=`
    <div style="min-width:0">
@@ -883,13 +887,12 @@ window.renderDishesBatch=function(tid,start){
      </div>
      <div style="font-size:11px;color:#94a3b8;margin-top:4px;display:flex;align-items:center;gap:4px">📍 <span style="color:#94a3b8">${escHtml(d.location||'')}</span></div>
    </div>
-   <div style="display:flex;gap:8px;align-items:center">
-     <button class="btn-circle view" onclick="openInChrome('${escHtml(ip)}')" title="عرض"><i data-lucide="eye" style="width:16px;height:16px"></i></button>
-     <button class="btn-circle edit" onclick="openEditDishAcc(${d.id})" title="تعديل"><i data-lucide="pencil" style="width:16px;height:16px"></i></button>
-     <button class="btn-circle del" onclick="openDeleteModal('/del_dish/${d.id}',${d.id},'${escHtml(ip)}')" title="حذف"><i data-lucide="trash-2" style="width:16px;height:16px"></i></button>
+   <div style="display:flex;gap:8px">
+     <button class="btn-circle view" onclick="openInChrome('${escHtml(ip)}')" title="عرض">👁</button>
+     <button class="btn-circle edit" onclick="openEditDishAcc(${d.id})" title="تعديل">✏</button>
+     <button class="btn-circle del" onclick="openDeleteModal('/del_dish/${d.id}',${d.id},'${escHtml(ip)}')" title="حذف">🗑</button>
    </div>`;
   list.appendChild(row);
-  try{lucide.createIcons();}catch{}
  }
  if(end < dishes.length){
   moreDiv.innerHTML=`<button onclick="renderDishesBatch(${tid},${end})" class="btn-gold" style="width:100%;background:#ffffff10;color:var(--text);border:1px dashed var(--border)">عرض المزيد (${dishes.length-end} متبقي) ↓</button>`;
@@ -910,18 +913,15 @@ window.saveDishToTower=async function(){
  let tid=document.getElementById('modalDishTowerId').value;
  if(!ip){alert('IP مطلوب'); return;}
  if(!name) name='صحن '+ip;
- let btn=event.target; btn.textContent='...'; btn.disabled=true;
  let r=await fetch('/api/add_dish_to_tower',{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:ip,dish_name:name,location:loc,tower_id:tid})});
  let j=await r.json();
- btn.textContent='حفظ'; btn.disabled=false;
  if(j.ok){
   closeAddDishModal();
-  // تحديث فوري بدون إعادة تحميل كل الصفحة - امسح الكاش وأعد تحميل البرج فقط
   let acc=document.getElementById('tower-acc-'+tid);
-  if(acc){ acc.dataset.loaded='0'; }
+  if(acc) acc.dataset.loaded='0';
   let body=document.getElementById('tower-body-'+tid);
-  if(body){ body.classList.remove('open'); setTimeout(()=>body.style.display='none',200); }
-  setTimeout(()=>toggleAccordionLazy(parseInt(tid)),300);
+  if(body) body.style.display='none';
+  toggleAccordionLazy(parseInt(tid));
  }
 };
 window.openEditDishAcc=async function(did){
@@ -1212,145 +1212,122 @@ def layout(c,v='home'):
     cfg={r['key']:r['value'] for r in cfg_rows} if cfg_rows else {}
     lang=session.get('lang','ar')
     tr={
-      'ar':{'home':'الرئيسية','towers':'الأبراج','dishes':'الصحون','map':'الخريطة','ping':'البنج','network':'الشبكة','subs':'المشتركين','ledger':'الحسابات','logs':'السجل','settings':'الإعدادات','logout':'خروج','support':'الدعم الفني','main':'الشبكة','manage':'الإدارة'},
-      'en':{'home':'Home','towers':'Towers','dishes':'Dishes','map':'Map','ping':'Ping','network':'Network','subs':'Subs','ledger':'Ledger','logs':'Logs','settings':'Settings','logout':'Logout','support':'Support','main':'Main','manage':'Manage'}
+      'ar':{'home':'الرئيسية','towers':'الأبراج','dishes':'الصحون','map':'الخريطة','ping':'البنج','network':'الشبكة','subs':'المشتركين','ledger':'الحسابات','logs':'السجل','settings':'الإعدادات','logout':'خروج','support':'الدعم الفني'},
+      'en':{'home':'Home','towers':'Towers','dishes':'Dishes','map':'Map','ping':'Ping','network':'Network','subs':'Subs','ledger':'Ledger','logs':'Logs','settings':'Settings','logout':'Logout','support':'Support'}
     }[lang if lang in ['ar','en'] else 'ar']
     return f"""<html dir={'rtl' if lang=='ar' else 'ltr'}><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
 :root{{--card-min:{cfg.get('card_size','160')}px; --icon-size:{cfg.get('icon_size','44')}px; --tower-bg:{cfg.get('tower_bg','#1e2433')}; --dish-bg:{cfg.get('dish_bg','#ffffff06')}; --accent:{cfg.get('accent_color','#ffbe4d')}; --card-bg-dark:#1e2433f2; --card-bg-light:#ffffff; --text-dark:#ffffff; --text-light:#0f172a; --border-dark:#ffffff14; --border-light:#e2e8f0}}
-*{{box-sizing:border-box;font-family:system-ui,-apple-system}}html,body{{margin:0;padding:0}}
-body.dark{{--bg:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%); --card-bg:var(--card-bg-dark); --text:var(--text-dark); --border:var(--border-dark); --sidebar-bg:#151a2d; --glass:rgba(255,255,255,0.08); --glass-border:rgba(255,255,255,0.12)}} 
-body.light{{--bg:#eef2f7; --card-bg:var(--card-bg-light); --text:var(--text-light); --border:var(--border-light); --tower-bg:#ffffff; --dish-bg:#f8fafc; --sidebar-bg:#ffffff; --glass:rgba(255,255,255,0.7); --glass-border:rgba(0,0,0,0.08)}}
+*{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
+body.dark{{--bg:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%); --card-bg:var(--card-bg-dark); --text:var(--text-dark); --border:var(--border-dark)}} 
+body.light{{--bg:#eef2f7; --card-bg:var(--card-bg-light); --text:var(--text-light); --border:var(--border-light); --tower-bg:#ffffff; --dish-bg:#f8fafc}}
 body{{background:var(--bg);color:var(--text);overflow-x:hidden;transition:background .2s,color .2s}}
-.card{{background:var(--card-bg);color:var(--text);padding:14px;border-radius:16px;margin-bottom:10px;border:1px solid var(--border);transition:transform.28s cubic-bezier(0.4,0,0.2,1), box-shadow.28s ease, border-color.2s ease; will-change:transform}}
-.card:hover{{transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,0.18)}}
-.ip-card{{background:rgba(255,255,255,0.08);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:14px;transition:all .22s cubic-bezier(0.4,0,0.2,1)}}
-.ip-card:hover{{border:1px solid var(--accent);transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,0.2)}}
-body.light .ip-card{{background:rgba(255,255,255,0.7);border:1px solid rgba(0,0,0,0.08)}}
-.btn-circle{{width:36px;height:36px;border-radius:50%;border:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .2s ease, box-shadow .2s ease, background .2s ease}}
-.btn-circle:hover{{transform:scale(1.1)}}
-.btn-circle.del{{background:rgba(239,68,68,0.2);color:#fff}}
-.btn-circle.del:hover{{box-shadow:0 0 15px rgba(239,68,68,0.4);background:rgba(239,68,68,0.3)}}
-.btn-circle.edit{{background:rgba(245,158,11,0.2);color:#fff}}
-.btn-circle.edit:hover{{box-shadow:0 0 15px rgba(245,158,11,0.4);background:rgba(245,158,11,0.3)}}
-.btn-circle.view{{background:rgba(6,182,212,0.2);color:#fff}}
-.btn-circle.view:hover{{box-shadow:0 0 15px rgba(6,182,212,0.4);background:rgba(6,182,212,0.3)}}
-.sidebar{{position:fixed;top:12px;right:12px;bottom:12px;width:300px;background:var(--sidebar-bg);z-index:1002;padding:20px 12px;border-radius:16px;border:1px solid var(--border);transform:translateX(calc(100% + 24px));transition:transform .32s cubic-bezier(0.4,0,0.2,1);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;box-shadow:0 20px 60px rgba(0,0,0,0.3)}}
-.sidebar.active{{transform:none}}
-.sidebar::-webkit-scrollbar{{width:4px}} .sidebar::-webkit-scrollbar-thumb{{background:var(--accent);border-radius:10px}}
-.nav-group{{margin-bottom:16px}}
-.nav-label{{font-size:10px;letter-spacing:0.8px;opacity:.5;margin:8px 12px 6px;text-transform:uppercase;font-weight:700}}
-.nav-separator{{height:1px;background:var(--border);margin:12px 12px;opacity:.6}}
-.sidebar a{{display:flex;align-items:center;gap:12px;padding:11px 14px;margin:0 0 8px 0;color:var(--text);text-decoration:none;border-radius:12px;font-size:14px;font-weight:500;transition:all .2s ease;position:relative;opacity:.85}}
-.sidebar a:hover{{background:rgba(255,255,255,0.06);opacity:1;transform:translateX(-2px)}}
-.sidebar a.active{{background:rgba(255,190,77,0.15);color:var(--accent);opacity:1;border-right:3px solid var(--accent);border-radius:12px 4px 4px 12px}}
-.sidebar a svg{{width:18px;height:18px;opacity:.8}}
-.sidebar a.active svg{{opacity:1}}
-.support-row{{display:flex;gap:8px;justify-content:center;margin-top:12px}}
-.support-btn{{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;transition:transform .2s ease;flex-shrink:0}}
-.support-btn:hover{{transform:scale(1.1)}}
-.top{{position:fixed;top:0;left:0;right:0;height:60px;background:var(--card-bg);display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1003;border-bottom:1px solid var(--border);backdrop-filter:blur(12px)}}
-#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:1001;display:none;opacity:0;transition:opacity .25s}} #overlay.show{{display:block;opacity:1}}
-.main{{margin-top:68px;padding:12px;min-height:90vh}}
-#mn{{animation:pageEnter .32s cubic-bezier(0.4,0,0.2,1)}}
-@keyframes pageEnter{{from{{opacity:0;transform:translateY(6px)}} to{{opacity:1;transform:translateY(0)}}}}
-.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min),1fr));gap:10px}}
-.row{{display:flex;gap:8px;align-items:center;flex-wrap:wrap}}
-.btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:8px 14px;border:0;border-radius:10px;font-weight:700;font-size:12px;cursor:pointer;transition:transform .18s ease, box-shadow .18s ease}}
+.card{{background:var(--card-bg);color:var(--text);padding:10px;border-radius:12px;margin-bottom:8px;border:1px solid var(--border);transition:transform.28s cubic-bezier(0.4,0,0.2,1), box-shadow.28s ease, border-color.2s ease, background.2s ease; will-change:transform}}
+.card:hover{{transform:translateY(-2px);box-shadow:0 10px 30px rgba(0,0,0,0.18), 0 4px 12px rgba(255,190,77,0.12)}}
+.tower-accordion{{border-radius:12px;overflow:hidden;border:1px solid #ffffff10;transition:transform.25s ease, box-shadow.25s ease}}
+.tower-accordion:hover{{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,0,0,0.12)}}
+.tower-accordion-body{{max-height:0;overflow:hidden;opacity:0;transition:max-height.35s cubic-bezier(0.4,0,0.2,1), opacity.28s ease;background:#0f1424}}
+.tower-accordion-body.open{{max-height:4000px;opacity:1}}
+#mn{{animation:pageEnter.38s cubic-bezier(0.4,0,0.2,1)}}
+@keyframes pageEnter{{from{{opacity:0;transform:translateY(8px) scale(0.98)}} to{{opacity:1;transform:translateY(0) scale(1)}}}}
+.dish-row{{transition:transform.22s ease, box-shadow.22s ease, border-color.2s ease!important}}
+.dish-row:hover{{transform:translateY(-1.5px)!important;box-shadow:0 6px 18px rgba(0,0,0,0.12)!important;border-color:var(--accent)!important}}
+.btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:7px 12px;border:0;border-radius:8px;font-weight:700;font-size:11px;cursor:pointer;transition:transform.18s ease, box-shadow.18s ease}}
 .btn-gold:hover{{transform:translateY(-1px);box-shadow:0 4px 12px rgba(255,190,77,0.3)}}
-.ip{{background:#000;color:var(--accent);padding:3px 8px;border-radius:6px;font-family:monospace;font-size:11px;cursor:pointer;font-weight:700}} .badge{{background:var(--accent);color:#111;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700}}
-.pingBox{{margin-top:8px;background:#000a;color:#22c55e;border:1px solid var(--border);border-radius:12px;padding:12px;font-family:monospace;min-height:36px;white-space:pre-wrap;font-size:11px;cursor:pointer}}
-table{{width:100%;border-collapse:collapse}} th{{background:var(--border);padding:10px;font-size:11px;text-align:right;position:sticky;top:0}} td{{padding:10px;border-bottom:1px solid var(--border)}}
-#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.25s;z-index:2000}} #editModal.show{{opacity:1;pointer-events:auto}} #editBox{{background:var(--card-bg);color:var(--text);padding:20px;border-radius:16px;width:92%;max-width:440px;transform:scale(.96) translateY(8px);transition:.32s cubic-bezier(0.4,0,0.2,1);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.4)}} #editModal.show #editBox{{transform:scale(1) translateY(0)}}
-input,select{{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--border);color:var(--text);font-size:13px;transition:border-color .2s}} input:focus{{border-color:var(--accent);outline:none}}
-.wa-float{{position:fixed;bottom:20px;left:20px;width:54px;height:54px;background:#25D366;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;z-index:999;font-size:24px;box-shadow:0 6px 20px #25D36666;transition:transform .2s}}.wa-float:hover{{transform:scale(1.08)}}
-.stat{{text-align:center;cursor:pointer;border-radius:16px}} .ico{{font-size:22px}}
-.tower-accordion{{border-radius:16px;overflow:hidden;border:1px solid var(--border);transition:transform .25s ease, box-shadow .25s ease, border-color .2s}}
-.tower-accordion:hover{{transform:translateY(-1px);border-color:rgba(255,190,77,0.3)}}
-.tower-accordion-body{{max-height:0;overflow:hidden;opacity:0;transition:max-height .35s cubic-bezier(0.4,0,0.2,1), opacity .28s ease;background:rgba(0,0,0,0.15)}}
-.tower-accordion-body.open{{max-height:5000px;opacity:1}}
+.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--card-min),1fr));gap:8px}}
+.top{{position:fixed;top:0;left:0;right:0;height:56px;background:var(--card-bg);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid var(--border)}}
+.sidebar{{position:fixed;top:0;right:0;width:320px;height:100vh;height:100dvh;background:var(--card-bg);z-index:1002;padding-top:60px;padding-bottom:40px;transform:translateX(110%);transition:transform .25s ease;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;border-left:1px solid var(--border)}}
+.sidebar.active{{transform:none}}
+.sidebar a{{display:flex;align-items:center;gap:12px;padding:14px 16px;margin:6px 12px;color:var(--text);text-decoration:none;border-radius:10px;background:var(--border);font-size:15px;font-weight:600;position:relative;overflow:hidden;transition:transform.28s cubic-bezier(0.4,0,0.2,1), background.3s ease}}
+.sidebar a::after{{content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--accent),#ffb020);transform:translateX(-105%);transition:transform.38s cubic-bezier(0.4,0,0.2,1);z-index:-1;border-radius:inherit}}
+.sidebar a.active::after{{transform:translateX(0)}}
+.sidebar a.active{{color:#111;box-shadow:0 4px 14px rgba(255,190,77,0.25);transform:translateX(2px)}}
+.sidebar::-webkit-scrollbar{{width:6px}} .sidebar::-webkit-scrollbar-thumb{{background:var(--accent);border-radius:10px}}
+#overlay{{position:fixed;inset:0;background:#0006;z-index:1001;display:none}} #overlay.show{{display:block}}
+.main{{margin-top:62px;padding:10px;min-height:90vh}}
+.row{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}}
+.btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:7px 12px;border:0;border-radius:8px;font-weight:700;font-size:11px;cursor:pointer}}
+.mini-btn{{background:var(--border);color:var(--text);border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}} .mini-btn-del{{background:#ef4444;color:#fff;border:0;padding:5px 8px;border-radius:6px;font-size:11px;cursor:pointer}}
+.ip{{background:#000;color:var(--accent);padding:2px 6px;border-radius:5px;font-family:monospace;font-size:10px;cursor:pointer}} .badge{{background:var(--accent);color:#111;padding:2px 6px;border-radius:5px;font-size:10px;font-weight:700}}
+.pingBox{{margin-top:8px;background:#000a;color:#22c55e;border:1px solid var(--border);border-radius:10px;padding:10px;font-family:monospace;min-height:36px;white-space:pre-wrap;font-size:11px;cursor:pointer}}
+table{{width:100%;border-collapse:collapse}} th{{background:var(--border);padding:8px;font-size:11px;text-align:right;position:sticky;top:0}} td{{padding:8px;border-bottom:1px solid var(--border)}}
+#editModal{{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s;z-index:2000}} #editModal.show{{opacity:1;pointer-events:auto}} #editBox{{background:var(--card-bg);color:var(--text);padding:18px;border-radius:14px;width:92%;max-width:420px;transform:scale(.95);transition:.2s;border:1px solid var(--border)}} #editModal.show #editBox{{transform:scale(1)}}
+input,select{{padding:9px 11px;border-radius:8px;border:1px solid var(--border);background:var(--border);color:var(--text);font-size:12px}} input:focus{{border-color:var(--accent);outline:none}}
+.wa-float{{position:fixed;bottom:18px;left:18px;width:58px;height:58px;background:#25D366;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;z-index:999;font-size:28px;box-shadow:0 6px 20px #25D36666}}
+.stat{{text-align:center;cursor:pointer}} .ico{{font-size:20px}}
 </style></head><body class="{'dark' if is_dark else 'light'}">
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
-<div style='padding:4px 8px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);margin-bottom:8px;padding-bottom:14px'>
-<div style='width:36px;height:36px;background:linear-gradient(135deg,var(--accent),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#111'>O</div>
-<div><b style="font-size:15px">OMAIA <span style='color:var(--accent)'>ISP</span></b><br><small style="font-size:10px;opacity:.6">{esc(cur_user.get('username') or '')} • {esc(cur_user.get('role') or '')}</small></div>
+<div style='padding:0 16px 14px;border-bottom:1px solid var(--border)'><b style="font-size:16px">OMAIA <span style='color:var(--accent)'>ISP</span></b><br><small style="font-size:11px;opacity:.7">{esc(cur_user.get('username') or '')} • {esc(cur_user.get('role') or '')}</small></div>
+<a href="javascript:loadPage('home')" id=nav-home>🏠 <span>{tr['home']}</span></a>
+<a href="javascript:loadPage('towers')" id=nav-towers>🗼 <span>{tr['towers']}</span></a>
+<a href="javascript:loadPage('dishes')" id=nav-dishes>📡 <span>{tr['dishes']}</span></a>
+<a href="javascript:loadPage('map')" id=nav-map>🗺 <span>{tr['map']}</span></a>
+<a href="javascript:loadPage('ping')" id=nav-ping>📶 <span>{tr['ping']}</span></a>
+<a href="javascript:loadPage('network')" id=nav-network>📊 <span>{tr['network']}</span></a>
+<a href="javascript:loadPage('subs')" id=nav-subs>👥 <span>{tr['subs']}</span></a>
+<a href="javascript:loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
+<a href="javascript:loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
+<a href="javascript:loadPage('settings')" id=nav-settings>⚙ <span>{tr['settings']}</span></a>
+<div style='padding:14px 16px;margin-top:12px;border-top:1px dashed var(--border)'>
+<div style='font-size:12px;font-weight:700;margin-bottom:10px'>💬 {tr['support']}</div>
+<div style='display:flex;gap:12px'>
+<a href="{SUPPORT_WA_LINK}" target="_blank" style="flex:1;background:#25D366;color:#fff;padding:12px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;font-size:22px;font-weight:700">💬</a>
+<a href="{SUPPORT_INSTA_LINK}" target="_blank" style="flex:1;background:linear-gradient(45deg,#feda75,#d62976);color:#fff;padding:12px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;font-size:22px;font-weight:700">📷</a>
 </div>
-<div class="nav-group">
-<div class="nav-label">{tr['main']}</div>
-<a href="javascript:loadPage('home')" id=nav-home><i data-lucide="layout-dashboard"></i><span>{tr['home']}</span></a>
-<a href="javascript:loadPage('towers')" id=nav-towers><i data-lucide="radio-tower"></i><span>{tr['towers']}</span></a>
-<a href="javascript:loadPage('dishes')" id=nav-dishes><i data-lucide="satellite-dish"></i><span>{tr['dishes']}</span></a>
-<a href="javascript:loadPage('map')" id=nav-map><i data-lucide="map"></i><span>{tr['map']}</span></a>
-<a href="javascript:loadPage('network')" id=nav-network><i data-lucide="network"></i><span>{tr['network']}</span></a>
-<a href="javascript:loadPage('ping')" id=nav-ping><i data-lucide="activity"></i><span>{tr['ping']}</span></a>
+<div style='font-size:11px;opacity:.7;margin-top:10px;text-align:center'>+{SUPPORT_WA}<br>{SUPPORT_INSTA}</div>
 </div>
-<div class="nav-separator"></div>
-<div class="nav-group">
-<div class="nav-label">{tr['manage']}</div>
-<a href="javascript:loadPage('subs')" id=nav-subs><i data-lucide="users"></i><span>{tr['subs']}</span></a>
-<a href="javascript:loadPage('ledger')" id=nav-ledger><i data-lucide="wallet"></i><span>{tr['ledger']}</span></a>
-<a href="javascript:loadPage('logs')" id=nav-logs><i data-lucide="scroll-text"></i><span>{tr['logs']}</span></a>
-<a href="javascript:loadPage('settings')" id=nav-settings><i data-lucide="settings"></i><span>{tr['settings']}</span></a>
+<a href="javascript:logoutFast()" style='margin:12px;background:#ef444422;display:flex;gap:12px;border:1px solid #ef444444'>🚪 <span>{tr['logout']}</span></a>
 </div>
-<div class="nav-separator"></div>
-<div style='padding:8px 12px'>
-<div style='font-size:10px;opacity:.5;margin-bottom:8px;text-align:center;letter-spacing:.5px'>{tr['support']}</div>
-<div class="support-row">
-<a href="{SUPPORT_WA_LINK}" target="_blank" class="support-btn" style="background:#25D366;color:#fff"><i data-lucide="message-circle" style="width:18px;height:18px"></i></a>
-<a href="{SUPPORT_INSTA_LINK}" target="_blank" class="support-btn" style="background:linear-gradient(45deg,#feda75,#d62976);color:#fff"><i data-lucide="instagram" style="width:18px;height:18px"></i></a>
-<a href="javascript:logoutFast()" class="support-btn" style="background:rgba(239,68,68,0.15);color:#ef4444"><i data-lucide="log-out" style="width:18px;height:18px"></i></a>
-</div>
-<div style='font-size:10px;opacity:.4;margin-top:8px;text-align:center'>+{SUPPORT_WA}</div>
-</div>
-</div>
+
 <div class=top>
-<div class=row><button onclick="toggleSb()" style='width:40px;height:40px;background:var(--border);border:1px solid var(--border);color:var(--text);border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center'><i data-lucide="menu" style="width:18px;height:18px"></i></button></div>
-<div style="display:flex;align-items:center;gap:8px"><div style='width:32px;height:32px;background:linear-gradient(135deg,var(--accent),#ffb020);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#111;font-size:12px'>O</div><b style="font-size:14px">OMAIA <span style='color:var(--accent)'>ISP</span></b></div>
+<div class=row><span onclick="toggleSb()" style='font-size:24px;cursor:pointer;padding:6px 12px;background:var(--border);border-radius:8px'>☰</span></div>
+<b style="font-size:16px">OMAIA <span style='color:var(--accent)'>ISP</span></b>
 <div class=row>
-<button onclick="toggleLangFast()" style="width:40px;height:40px;background:var(--border);border:1px solid var(--border);color:var(--text);border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center"><i data-lucide="globe" style="width:16px;height:16px"></i></button>
-<button onclick="toggleThemeFast()" style="width:40px;height:40px;background:var(--border);border:1px solid var(--border);color:var(--text);border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center"><i data-lucide="moon" style="width:16px;height:16px"></i></button>
-<div style="position:relative"><input id=topsearch placeholder='🔍' oninput="globalSearchTop(this.value)" style='width:40px;height:40px;background:var(--border);border:1px solid var(--border);color:var(--text);padding:0 12px;border-radius:12px;font-size:12px;transition:width .3s' onfocus="this.style.width='160px'" onblur="setTimeout(()=>this.style.width='40px',200)"></div>
+<button onclick="toggleLangFast()" style="width:38px;height:38px;background:var(--border);border:1px solid var(--border);color:var(--text);border-radius:8px;cursor:pointer;font-size:16px">🌐</button>
+<button onclick="toggleThemeFast()" style="width:38px;height:38px;background:var(--border);border:1px solid var(--border);color:var(--text);border-radius:8px;cursor:pointer;font-size:16px">🌓</button>
+<input id=topsearch placeholder='🔍' oninput="globalSearchTop(this.value)" style='width:36px;transition:.3s;background:var(--border);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:11px' onfocus="this.style.width='140px'" onblur="setTimeout(()=>this.style.width='36px',200)">
 </div>
 </div>
-<div id=searchResults style='position:fixed;top:66px;right:14px;max-width:340px;width:90%;background:var(--card-bg);border:1px solid var(--border);border-radius:16px;z-index:1500;display:none;max-height:50vh;overflow:auto;font-size:12px;box-shadow:0 20px 40px rgba(0,0,0,0.2)'></div>
+
+<div id=searchResults style='position:fixed;top:60px;right:10px;max-width:320px;width:90%;background:var(--card-bg);border:1px solid var(--border);border-radius:10px;z-index:1500;display:none;max-height:50vh;overflow:auto;font-size:11px'></div>
 <div class=main id=mn>{c}</div>
-<div id=editModal><div id=editBox><div class=row style='justify-content:space-between;margin-bottom:14px'><b id=editModalTitle style='font-size:14px'>نافذة</b><button onclick="closeEditModal()" style='width:32px;height:32px;border-radius:50%;background:var(--border);border:0;color:var(--text);font-size:16px;display:flex;align-items:center;justify-content:center'>✕</button></div><div id=editBody></div></div></div>
-<a href="{SUPPORT_WA_LINK}" target="_blank" class=wa-float><i data-lucide="message-circle" style="width:26px;height:26px"></i></a>
+
+<div id=editModal><div id=editBox><div class=row style='justify-content:space-between;margin-bottom:12px'><b id=editModalTitle style='font-size:14px'>نافذة</b><button onclick="closeEditModal()" style='width:30px;height:30px;border-radius:50%;background:var(--border);border:0;color:var(--text);font-size:16px'>✕</button></div><div id=editBody></div></div></div>
+
+<a href="{SUPPORT_WA_LINK}" target="_blank" class=wa-float>💬</a>
 <script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
 <script>
 let cur='{v}';
-function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o); if(o){{ try{{lucide.createIcons();}}catch{{}} }}}}
+function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o);}}
 async function loadPage(v,force=false,push=true){{
  if(push&&cur!==v){{try{{history.pushState({{page:v}},'', '/dash?v='+v)}}catch(e){{}}}}
  cur=v; toggleSb(false); document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active')); let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
  let mn=document.getElementById('mn');
- mn.innerHTML='<div class=card style="text-align:center;padding:24px"><div style="width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 8px"></div>تحميل...</div><style>@keyframes spin{{to{{transform:rotate(360deg)}}}}</style>';
+ mn.innerHTML='<div class=card style="text-align:center;padding:20px">⚡ تحميل...</div>';
  try{{let r=await fetch('/api/page?v='+v,{{cache:'no-store'}}); let h=await r.text(); mn.innerHTML=h; execScripts(); try{{lucide.createIcons();}}catch{{}}}}catch(e){{mn.innerHTML='<div class=card>خطأ</div>';}}
 }}
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
 window.closeEditModal=()=>document.getElementById('editModal').classList.remove('show');
 window.openDeleteModal=function(url,id,name){{
  let b=document.getElementById("editBody");
- b.innerHTML='<div style="text-align:center;padding:12px"><div style="width:56px;height:56px;background:rgba(239,68,68,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px"><i data-lucide="trash-2" style="color:#ef4444"></i></div><h3 style="margin:10px 0">تأكيد حذف '+ (name||'') +'؟</h3><p style="font-size:11px;opacity:.6">لا يمكن التراجع</p><div style="display:flex;gap:8px;margin-top:16px"><button onclick="closeEditModal()" style="flex:1;padding:11px;border-radius:12px;background:transparent;border:1px solid var(--border);color:var(--text);cursor:pointer">تراجع</button><button id=delConfirmBtn style="flex:1;padding:11px;border-radius:12px;background:#ef4444;color:#fff;border:0;cursor:pointer">حذف</button></div></div>';
+ b.innerHTML='<div style="text-align:center;padding:10px"><div style="font-size:40px">🗑</div><h3 style="margin:10px 0">تأكيد حذف '+ (name||'') +'؟</h3><p style="font-size:11px;opacity:.7">لا يمكن التراجع</p><div style="display:flex;gap:8px;margin-top:14px"><button onclick="closeEditModal()" style="flex:1;padding:10px;border-radius:8px;background:transparent;border:1px solid var(--border);color:var(--text)">تراجع</button><button id=delConfirmBtn style="flex:1;padding:10px;border-radius:8px;background:#ef4444;color:#fff;border:0">حذف</button></div></div>';
  document.getElementById("editModalTitle").textContent="تأكيد الحذف";
  document.getElementById("editModal").classList.add("show");
- try{{lucide.createIcons();}}catch{{}}
  document.getElementById("delConfirmBtn").onclick=async()=>{{
   let el=document.getElementById('tower-'+id)||document.getElementById('dish-'+id)||document.getElementById('sub-'+id)||document.getElementById('led-'+id)||document.getElementById('user-'+id)||document.getElementById('tower-acc-'+id);
-  if(el){{el.style.transform='scale(.92)'; el.style.opacity='0'; el.style.transition='all .25s ease'}}
-  try{{let r=await fetch(url); let j=await r.json(); if(j.ok){{if(el) setTimeout(()=>el.remove(),250); closeEditModal();}} else {{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(j.msg);}}}}catch(e){{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(e);}}
+  if(el){{el.style.transform='scale(.9)'; el.style.opacity='0';}}
+  try{{let r=await fetch(url); let j=await r.json(); if(j.ok){{if(el) el.remove(); closeEditModal();}} else {{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(j.msg);}}}}catch(e){{if(el){{el.style.transform='scale(1)'; el.style.opacity='1';}} alert(e);}}
  }};
 }};
 window.toggleLangFast=async()=>{{try{{let r=await fetch('/toggle_lang'); let j=await r.json(); localStorage.setItem('lang',j.lang); location.reload();}}catch(e){{console.log(e);}}}};
 window.toggleThemeFast=async()=>{{try{{let r=await fetch('/toggle_theme'); let j=await r.json(); document.body.className=j.theme; localStorage.setItem('theme',j.theme);}}catch(e){{let cur=document.body.classList.contains('dark')?'dark':'light'; let nxt=cur==='dark'?'light':'dark'; document.body.className=nxt; localStorage.setItem('theme',nxt); try{{await fetch('/toggle_theme');}}catch{{}}}}}};
-window.globalSearchTop=async q=>{{let box=document.getElementById('searchResults'); if(!q||q.length<2){{box.style.display='none'; return;}} try{{let r=await fetch('/api/search?q='+encodeURIComponent(q)); let d=await r.json(); if(!d.length){{box.style.display='none'; return;}} let h=''; d.forEach(x=>{{h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--border)'" onmouseout="this.style.background='transparent'"><b>'+x.title+'</b><br><small style="opacity:.6">'+x.sub+'</small></div>';}}); box.innerHTML=h; box.style.display='block';}}catch{{}}}};
+window.globalSearchTop=async q=>{{let box=document.getElementById('searchResults'); if(!q||q.length<2){{box.style.display='none'; return;}} try{{let r=await fetch('/api/search?q='+encodeURIComponent(q)); let d=await r.json(); if(!d.length){{box.style.display='none'; return;}} let h=''; d.forEach(x=>{{h+='<div onclick="loadPage(\\''+x.page+'\\');document.getElementById(\\'searchResults\\').style.display=\\'none\\'" style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border)"><b>'+x.title+'</b><br><small style="opacity:.6">'+x.sub+'</small></div>';}}); box.innerHTML=h; box.style.display='block';}}catch{{}}}};
 window.logoutFast=async()=>{{try{{await fetch('/api/logout',{{method:'POST'}});}}catch{{}} localStorage.clear(); location.replace('/login');}};
 window.addEventListener('popstate',e=>{{let v='home'; if(e.state&&e.state.page) v=e.state.page; else {{let p=new URLSearchParams(location.search); v=p.get('v')||'home';}} loadPage(v,false,false);}});
-(function(){{let sz=localStorage.getItem('cardSize'); if(sz) document.documentElement.style.setProperty('--card-min',sz+'px'); let ic=localStorage.getItem('iconSize'); if(ic) document.documentElement.style.setProperty('--icon-size',ic+'px'); let th=localStorage.getItem('theme'); if(th) document.body.className=th; try{{lucide.createIcons();}}catch{{}}}})();
-loadPage(cur,true,false);
+(function(){{let sz=localStorage.getItem('cardSize'); if(sz) document.documentElement.style.setProperty('--card-min',sz+'px'); let ic=localStorage.getItem('iconSize'); if(ic) document.documentElement.style.setProperty('--icon-size',ic+'px'); let th=localStorage.getItem('theme'); if(th) document.body.className=th;}})();
+loadPage(cur,true,false); try{{setTimeout(()=>{{try{{lucide.createIcons();}}catch{{}}}},300);}}catch{{}}
 </script></body></html>"""
 
 if __name__=='__main__':
