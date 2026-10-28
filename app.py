@@ -1,18 +1,3 @@
-أهلاً بك. لقد قمت بتنفيذ جميع التعديلات المطلوبة بدقة وتنظيف الكود من الأخطاء والزوائد كما طلبت.
-
-**إليك ملخص ما تم تعديله في الكود الجديد:**
-
-1. **إزالة الزوائد:** تم حذف الخريطة بالكامل، وحذف صفحة وروابط "الدعم الفني" (واتساب وإنستغرام) من شاشة الدخول ومن الإعدادات.
-2. **تصحيح الأبراج والصحون:** تم تفعيل إمكانية "التعديل" (Edit) للصحون والأبراج من خلال نوافذ منبثقة، وتصحيح عملية الإضافة لتصبح فعالة بدون مشاكل.
-3. **تحسين الحذف بصمت:** تم منع عرض أي نتائج أو استجابات مزعجة (مثل ظهور JSON) عند الحذف. الآن عند الضغط على زر الحذف، يختفي العنصر مباشرة من الموقع بسلاسة بدون إعادة تحميل الصفحة.
-4. **أزرار شفافة نصف دائرية:** تم تصميم أزرار "التعديل" بلون أزرق وأزرار "الحذف" بلون أحمر، وجعلها شفافة (Glassmorphism) بنصف استدارة أنيقة، مع إضافة أيقونات معبرة.
-5. **إدارة المستخدمين:** تمت إضافة صفحة "إدارة المستخدمين" للمدير (Manager) لإضافة، تعديل، وحذف حسابات الدخول وتحديد صلاحياتهم.
-6. **التحكم بحجم الكروت:** تمت إضافة خيار في صفحة "الإعدادات" للتحكم بحجم الكروت على الشاشة. يمكنك كتابة الحجم (مثلاً 120 أو 150) وسيتغير حجم الشبكة تلقائياً.
-7. **تشغيل السجل:** تم التأكد من تسجيل كافة الحركات، وتم تحسين مظهر "السجل" ليكون أوضح وأكثر ترتيباً.
-
-**إليك الكود النهائي والصافي (قم بنسخه واستبدال ملف `app.py` بالكامل):**
-
-```python
 # -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
@@ -644,13 +629,12 @@ window.delTower=async function(e, id){{
         accordion_html = "".join([f"""<div class="card tower-accordion" id="tower-acc-{t['id']}"><div onclick="toggleAccordionLazy({t['id']})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:13px">🗼 {esc(t['name'])}</b> <span class="badge">{t['cnt']}</span><div style="font-size:10px;color:#94a3b8">📍 {esc(t.get('area') or '')}</div></div><div>▼</div></div><div id="tower-body-{t['id']}" style="display:none;margin-top:6px;padding-top:6px;border-top:1px dashed #ffffff22"><div id="tower-content-{t['id']}"></div></div></div>""" for t in towers])
         accordion_html += f"""<div class="card tower-accordion" id="tower-acc-0" style="border:1px dashed #ef444488"><div onclick="toggleAccordionLazy(0)" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:13px">بدون برج</b> <span class="badge" style="background:#ef4444">{no_cnt}</span></div><div>▼</div></div><div id="tower-body-0" style="display:none;margin-top:6px;padding-top:6px;border-top:1px dashed #ffffff22"><div id="tower-content-0"></div></div></div>"""
         
-        # We need a tower list for the select dropdown in editing
         t_opts = "<option value='0'>بدون برج</option>" + "".join([f"<option value='{t['id']}'>{esc(t['name'])}</option>" for t in towers])
         
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الصحون</b><button class=btn-gold onclick="openDishModal(0,0,'','','')">+ صحن</button></div>
-  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="بحث عن برج..." style="margin-top:6px;width:100%">
+  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="بحث عن برج أو صحن..." style="margin-top:6px;width:100%">
   <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">{accordion_html}</div>
 </div>
 <script>
@@ -946,6 +930,6 @@ loadPage(cur,true);
 </script></body></html>"""
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-
-```
+    # تم إرجاع الإعدادات لتتوافق مع استضافة Render.com السحابية 
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
