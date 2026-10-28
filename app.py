@@ -1,3 +1,7 @@
+لقد قمت بدمج كافة التعديلات التي طلبناها (الأزرار الدائرية الزجاجية Glassmorphism، فتح الروابط بشكل صحيح، البحث الفوري للمشتركين والأبراج والصحون، وتبسيط التفاعل) داخل الكود الخاص بك بالكامل.
+
+إليك كود `app.py` كاملاً وجاهزاً للنسخ والتشغيل مباشرة:
+
 ```python
 # -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response
@@ -671,8 +675,8 @@ def page_content(v):
       <div style="font-size:10px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']} | {esc(s['username'])}</div>
     </div>
     <div style="display:flex;gap:4px">
-      <button class="btn-circle view" onclick="fetchMikrotikStatus({sid})">⚡</button>
-      <button class="btn-circle del" onclick="delMikrotik({sid})">🗑</button>
+      <button class="glass-btn view" onclick="fetchMikrotikStatus({sid})">⚡</button>
+      <button class="glass-btn del" onclick="delMikrotik({sid})">🗑</button>
     </div>
   </div>
   <div id="mk-details-{sid}" style="margin-top:8px;padding:8px;background:#0006;border-radius:6px;font-size:11px;display:none"></div>
@@ -747,8 +751,8 @@ window.fetchMikrotikStatus=async function(id){{
         cards = ""
         for t in rs:
             tid = t.get('id'); tname = esc(t.get('name') or f'برج {tid}'); tarea = esc(t.get('area') or ''); lat = t.get('lat') or 35.1318; lng = t.get('lng') or 36.7578; cnt = t.get('cnt') or 0
-            cards += f'<div class="card tower-card" id="tower-{tid}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:13px">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {tarea} ({lat:.4f},{lng:.4f})</div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:4px;margin-top:6px"><button class="btn-circle del" onclick="delTower({tid})">🗑</button></div></div>'
-        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid style="margin-top:8px">{cards or '<div class=card>فارغ</div>'}</div></div>
+            cards += f'<div class="card tower-card" id="tower-{tid}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:13px">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {tarea} ({lat:.4f},{lng:.4f})</div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:4px;margin-top:6px"><button class="glass-btn del" onclick="delTower({tid})">🗑</button></div></div>'
+        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="بحث عن برج..." style="margin-top:6px;width:100%"><div class=grid-small id=towersGrid style="margin-top:8px">{cards or '<div class=card>فارغ</div>'}</div></div>
 <script>
 window.openNewTowerPage=function(){{
   let b=document.getElementById("editBody");
@@ -788,7 +792,7 @@ window.delTower=async function(id){{
   </div>
 </div>'''
         accordion_html += f'''
-<div class="card" id="tower-acc-0" style="border:1px dashed #ef444488">
+<div class="card tower-accordion" id="tower-acc-0" style="border:1px dashed #ef444488">
   <div onclick="toggleAccordionLazy(0)" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
     <div><b style="font-size:13px">بدون برج</b> <span class="badge" style="background:#ef4444">{no_cnt} IP</span></div>
     <div>▼</div>
@@ -803,6 +807,7 @@ window.delTower=async function(id){{
     <b>الصحون</b>
     <button class=btn-gold onclick="openAddDishModal(0)">+ صحن</button>
   </div>
+  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="بحث عن برج أو صحن..." style="margin-top:6px;width:100%">
   <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">{accordion_html}</div>
 </div>
 <script>
@@ -819,8 +824,8 @@ window.toggleAccordionLazy=async function(tid){{
       if(j.ok){{
         c.innerHTML=(j.dishes||[]).map(d=>`
           <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #ffffff11">
-            <div><b style="font-size:12px">${{d.dish_name||'صحن'}}</b> - <span class="ip" style="cursor:pointer" onclick="window.open('http://${{d.ip}}','_blank')">${{d.ip}}</span> <small style="color:#888">${{d.location||''}}</small></div>
-            <button class="btn-circle del" onclick="delDish(${{d.id}})">🗑</button>
+            <div><b style="font-size:12px">${{d.dish_name||'صحن'}}</b> - <span class="ip" style="cursor:pointer" onclick="openLink('${{d.ip}}')">${{d.ip}}</span> <small style="color:#888">${{d.location||''}}</small></div>
+            <button class="glass-btn del" onclick="delDish(${{d.id}})">🗑</button>
           </div>
         `).join('') || '<div style="color:#888;font-size:11px">فارغ</div>';
         c.innerHTML += `<button class="btn-gold" onclick="openAddDishModal(${{tid}})" style="width:100%;margin-top:6px">+ إضافة صحن</button>`;
@@ -915,7 +920,7 @@ window.runPing=async function(){
 <div class="card" id="net-card-{d['id']}">
   <div style="display:flex;justify-content:space-between"><b style="font-size:12px">{esc(d.get('dish_name') or 'صحن')}</b><span class="badge">{esc(d.get('location') or '')}</span></div>
   <div style="margin-top:4px;display:flex;justify-content:space-between;align-items:center">
-    <span class="ip" style="cursor:pointer" onclick="window.open('http://{esc(d.get('ip') or '')}','_blank')">{esc(d.get('ip') or '')}</span>
+    <span class="ip" style="cursor:pointer" onclick="openLink('{esc(d.get('ip') or '')}')">{esc(d.get('ip') or '')}</span>
     <span class="net-status" id="net-status-{d['id']}" style="font-size:10px;color:#888">-</span>
   </div>
 </div>"""
@@ -943,11 +948,12 @@ window.pingAllNetwork=async function(){{
 
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 100")
-        rows = "".join([f"<tr><td>{esc(r.get('name') or '')}</td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"delSub({r.get('id')})\">🗑</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr><td>{esc(r.get('name') or '')}</td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"glass-btn del\" onclick=\"delSub({r.get('id')})\">🗑</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ مشترك</button></div>
 <form id=fSub style="display:none;gap:4px;margin-top:6px"><input name=name placeholder="الاسم" required><input name=phone placeholder="الهاتف" required><input name=note placeholder="ملاحظة"><button class=btn-gold>+</button></form>
-<table style="width:100%;margin-top:8px"><thead><tr><th>الاسم</th><th>الهاتف</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
+<input id="searchSubs" onkeyup="filterTable('searchSubs', 'subsTable')" placeholder="بحث عن مشترك..." style="margin-top:6px;width:100%">
+<table id="subsTable" style="width:100%;margin-top:8px"><thead><tr><th>الاسم</th><th>الهاتف</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok)loadPage('subs',true);}});
 window.delSub=async function(id){{if(!confirm("حذف؟"))return;let r=await fetch('/del_sub/'+id);let j=await r.json();if(j.ok)loadPage('subs',true);}};
@@ -955,11 +961,12 @@ window.delSub=async function(id){{if(!confirm("حذف؟"))return;let r=await fet
 
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
-        rows = "".join([f"<tr><td>{esc(r.get('name') or '')}</td><td><b>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"delLedger({r.get('id')})\">🗑</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr><td>{esc(r.get('name') or '')}</td><td><b>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"glass-btn del\" onclick=\"delLedger({r.get('id')})\">🗑</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div>
 <form id=fLed style="display:none;gap:4px;margin-top:6px"><input name=name placeholder="البيان" required><input name=amount type=number step=0.01 placeholder="المبلغ" required><input name=note placeholder="ملاحظة"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form>
-<table style="width:100%;margin-top:8px"><thead><tr><th>البيان</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
+<input id="searchLedger" onkeyup="filterTable('searchLedger', 'ledgerTable')" placeholder="بحث في الحسابات..." style="margin-top:6px;width:100%">
+<table id="ledgerTable" style="width:100%;margin-top:8px"><thead><tr><th>البيان</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fLed').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_ledger',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok)loadPage('ledger',true);}});
 window.delLedger=async function(id){{if(!confirm("حذف؟"))return;let r=await fetch('/del_ledger/'+id);let j=await r.json();if(j.ok)loadPage('ledger',true);}};
@@ -1013,9 +1020,13 @@ body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, 
 .sidebar a.active{{background:rgba(255,190,77,0.2);color:#ffbe4d;border:1px solid #ffbe4d}}
 #overlay{{position:fixed;inset:0;background:#0008;z-index:1001;display:none}} #overlay.show{{display:block}}
 .main{{margin-top:54px;padding:8px;min-height:90vh}}
-.btn-circle{{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:11px}}
-.btn-circle.del{{background:rgba(239,68,68,0.2);color:#ef4444;border-color:rgba(239,68,68,0.4)}}
-.btn-circle.view{{background:rgba(6,182,212,0.2);color:#06b6d4;border-color:rgba(6,182,212,0.4)}}
+
+/* أزرار Glassmorphism الدائرية الأنيقة */
+.glass-btn{{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.15);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#fff;font-size:12px;transition:all 0.3s ease;}}
+.glass-btn:hover{{background:rgba(255,255,255,0.3);transform:scale(1.1);}}
+.glass-btn.del{{background:rgba(239,68,68,0.2);color:#ef4444;border-color:rgba(239,68,68,0.4);}}
+.glass-btn.view{{background:rgba(6,182,212,0.2);color:#06b6d4;border-color:rgba(6,182,212,0.4);}}
+
 .ip{{background:#000;color:#ffbe4d;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:10px}}
 .badge{{background:#ffbe4d;color:#111;padding:2px 5px;border-radius:4px;font-size:10px;font-weight:700}}
 table{{width:100%;border-collapse:collapse}} th{{background:#ffffff11;padding:6px;text-align:right;font-size:11px}} td{{padding:6px;border-bottom:1px solid #ffffff11;font-size:11px}}
@@ -1054,6 +1065,30 @@ input,select{{width:100%;padding:8px;border-radius:6px;border:1px solid #ffffff2
 
 <script>
 let cur='{v}';
+
+/* دالة فتح الروابط بشكل آمن وصحيح */
+window.openLink = function(ip) {{
+  if(!ip) return;
+  let u = ip.trim();
+  if(!u.startsWith('http://') && !u.startsWith('https://')) u = 'http://' + u;
+  window.open(u, '_blank');
+}};
+
+/* دوال البحث الفوري */
+window.filterTable = function(inpId, tblId) {{
+  let q = document.getElementById(inpId).value.toLowerCase();
+  document.querySelectorAll('#' + tblId + ' tbody tr').forEach(r => {{
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  }});
+}};
+
+window.filterCards = function(inpId, sel) {{
+  let q = document.getElementById(inpId).value.toLowerCase();
+  document.querySelectorAll(sel).forEach(c => {{
+    c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none';
+  }});
+}};
+
 function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o);}}
 async function loadPage(v,force=false){{
   cur=v; toggleSb(false);
