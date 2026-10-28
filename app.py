@@ -1,11 +1,11 @@
-# FIXED & EXPANDED VERSION - OMAIA ISP + MIKROTIK INTEGRATION
+# -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 import os, html, ipaddress, secrets, subprocess, json, socket, platform, io, csv, datetime, re, threading, time, traceback
 import concurrent.futures as _cf
 
-# دعم ميكروتك الاختياري
+# دعم ميكروتك RouterOS
 try:
     import routeros_api
     ROUTEROS_AVAILABLE = True
@@ -24,8 +24,9 @@ import sqlite3
 from collections import defaultdict
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
-app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(minutes=60)
+# مفتاح ثابت لمنع تسجيل الخروج التلقائي عند إعادة تشغيل السيرفر
+app.secret_key = os.environ.get("SECRET_KEY", "omaia_isp_fixed_secret_token_2026_xyz")
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -57,7 +58,6 @@ def init_pool():
 init_pool()
 
 def esc(s): return html.escape(str(s or ''), quote=True)
-def esc_js(s): return json.dumps(str(s or ''))[1:-1].replace("'", r"\'")
 
 def get_conn():
     global USE_PG, _sqlite_conn
@@ -174,7 +174,6 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS dish_ips(id INTEGER PRIMARY KEY AUTOINCREMENT,ip TEXT,location TEXT,dish_name TEXT,tower_id INTEGER)",
         "CREATE TABLE IF NOT EXISTS towers(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT,area TEXT,lat REAL,lng REAL,created_at TEXT)",
         "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_phone TEXT,username TEXT,action TEXT,target TEXT,detail TEXT,time TEXT)",
-        "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,msg TEXT,time TEXT,read INTEGER DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS system_config(key TEXT PRIMARY KEY,value TEXT)",
         "CREATE TABLE IF NOT EXISTS mikrotik_servers(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, host TEXT, username TEXT, password TEXT, port INTEGER DEFAULT 8728, note TEXT)"
     ]
@@ -253,7 +252,7 @@ def after(r):
     r.headers['Pragma'] = 'no-cache'
     return r
 
-# ==================== ROUTEROS API HELPERS ====================
+# ==================== MIKROTIK ROUTEROS HELPERS ====================
 def mikrotik_connect(host, user, pwd, port=8728):
     if not ROUTEROS_AVAILABLE:
         raise Exception("routeros_api غير مثبت في السيرفر (pip install routeros_api)")
@@ -337,25 +336,7 @@ def api_mikrotik_status(mid):
             try: conn.disconnect()
             except Exception: pass
 
-@app.route('/api/mikrotik/active_users/<int:mid>')
-@login_required
-def api_mikrotik_active_users(mid):
-    srv = qone("SELECT * FROM mikrotik_servers WHERE id=?", (mid,))
-    if not srv: return jsonify(ok=False, msg='غير موجود'), 404
-
-    conn = None
-    try:
-        conn, api = mikrotik_connect(srv['host'], srv['username'], srv['password'], srv['port'])
-        users = api.get_resource('/ip/hotspot/active').get()
-        return jsonify(ok=True, users=users)
-    except Exception as e:
-        return jsonify(ok=False, msg=str(e)), 500
-    finally:
-        if conn:
-            try: conn.disconnect()
-            except Exception: pass
-
-# ==================== ROUTES ====================
+# ==================== MAIN ROUTES ====================
 @app.route('/ping')
 def ping(): return jsonify(ok=True, use_pg=USE_PG)
 
@@ -440,19 +421,6 @@ def api_towers_list():
     with _clock: _cache['towers_list'] = (towers, time.time())
     return jsonify(ok=True, towers=towers)
 
-@app.route('/toggle_lang')
-@login_required
-def toggle_lang():
-    cur = session.get('lang', 'ar'); session['lang'] = 'en' if cur == 'ar' else 'ar'
-    add_log(session.get('phone'), 'تغيير لغة', session['lang'], 'تغيير اللغة إلى ' + session['lang'])
-    return jsonify(ok=True, lang=session['lang'])
-
-@app.route('/toggle_theme')
-@login_required
-def toggle_theme():
-    cur = session.get('theme', 'dark'); session['theme'] = 'light' if cur == 'dark' else 'dark'
-    return jsonify(ok=True, theme=session['theme'])
-
 @app.route('/api/get_config')
 @login_required
 def get_config():
@@ -477,18 +445,13 @@ def set_config():
 def api_login_public():
     try:
         uin = request.form.get('userin', '').strip(); pw = request.form.get('password', '')
-        cache_key = f"user:{uin}"
-        with _clock:
-            uc = _cache.get('user_cache', {}).get(cache_key)
-            if uc and time.time() - uc[1] < 30: u = uc[0]
-            else: u = None
-        if u is None:
-            u = qone("SELECT * FROM users WHERE phone=? OR username=?", (uin, uin))
-            with _clock:
-                if 'user_cache' not in _cache: _cache['user_cache'] = {}
-                _cache['user_cache'][cache_key] = (u, time.time())
+        u = qone("SELECT * FROM users WHERE phone=? OR username=?", (uin, uin))
         if u and check_password_hash(u['password'], pw):
-            session.clear(); session['phone'] = u['phone']; session['username'] = u.get('username') or u['phone']; session['role'] = u.get('role') or 'tech'; session.permanent = True
+            session.clear()
+            session['phone'] = u['phone']
+            session['username'] = u.get('username') or u['phone']
+            session['role'] = u.get('role') or 'tech'
+            session.permanent = True
             add_log(u['phone'], 'دخول', uin, f'دخول المستخدم {uin}', u.get('username') or uin)
             return jsonify(ok=True)
         return jsonify(ok=False, msg='بيانات الدخول غير صحيحة'), 401
@@ -538,13 +501,6 @@ def add_dish_to_tower():
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False, msg=str(e)), 500
 
-@app.route('/api/dish_detail/<int:id>')
-@login_required
-def dish_detail(id):
-    d = qone("SELECT * FROM dish_ips WHERE id=?", (id,))
-    if not d: return jsonify(ok=False, msg='غير موجود'), 404
-    return jsonify(ok=True, dish=d)
-
 @app.route('/api/tower_detail/<int:id>')
 @login_required
 def tower_detail(id):
@@ -566,16 +522,15 @@ def login():
 *{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%,#1a2344,#0a0e2a 60%);display:flex;align-items:center;justify-content:center;color:#fff}}
 .card{{background:#1e2433ee;border:1px solid #ffffff18;padding:22px;border-radius:16px;width:92%;max-width:360px;box-shadow:0 20px 50px #0006}}
 input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:10px}}input:focus{{border-color:#ffbe4d;outline:none}}
-.btn{{width:100%;padding:12px;border:0;border-radius:10px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800;cursor:pointer}} .btn:hover{{transform:scale(1.02)}}
+.btn{{width:100%;padding:12px;border:0;border-radius:10px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800;cursor:pointer}}
 .support{{margin-top:16px;padding-top:12px;border-top:1px dashed #ffffff15;text-align:center}}
-.support a{{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;margin:0 8px;text-decoration:none;font-size:20px;transition:.2s}}
+.support a{{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;margin:0 8px;text-decoration:none;font-size:20px}}
 </style></head><body>
 <div class=card>
 <div style='text-align:center;font-weight:900;font-size:24px;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <form id=loginForm>
 <input name=userin id=userin placeholder='اسم المستخدم' required autofocus>
 <input name=password id=password type=password placeholder='كلمة المرور' required>
-<label style='display:flex;gap:6px;font-size:12px;margin:8px 0'><input type=checkbox id=remember style='width:14px'> حفظ البيانات</label>
 <button class=btn id=loginBtn>دخول ⚡</button>
 <div id=msg style='text-align:center;color:#ff6b6b;font-size:11px;min-height:14px;margin-top:8px'></div>
 </form>
@@ -586,22 +541,23 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 </div>
 </div>
 <script>
-const u=document.getElementById('userin'),p=document.getElementById('password'),r=document.getElementById('remember');
-if(localStorage.getItem('su'))u.value=localStorage.getItem('su');
-if(localStorage.getItem('sp')){{p.value=localStorage.getItem('sp'); r.checked=true;}}
-document.getElementById('loginForm').addEventListener('submit',async e=>{{
- e.preventDefault(); let b=document.getElementById('loginBtn'),m=document.getElementById('msg'); b.textContent='...'; b.disabled=true;
- try{{let fd=new FormData(e.target); let res=await fetch('/api/login_public',{{method:'POST',body:fd}}); let j=await res.json();
- if(j.ok){{if(r.checked){{localStorage.setItem('su',u.value); localStorage.setItem('sp',p.value);}}else{{localStorage.removeItem('su'); localStorage.removeItem('sp');}} location.replace('/dash?v=home');}}else{{m.textContent=j.msg; b.textContent='دخول ⚡'; b.disabled=false;}}
- }}catch{{m.textContent='فشل الاتصال بالشبكة'; b.textContent='دخول ⚡'; b.disabled=false;}}
+document.getElementById('loginForm').addEventListener('submit', async e => {{
+  e.preventDefault();
+  let b = document.getElementById('loginBtn'), m = document.getElementById('msg');
+  b.textContent = '...'; b.disabled = true;
+  try {{
+    let res = await fetch('/api/login_public', {{ method: 'POST', body: new FormData(e.target) }});
+    let j = await res.json();
+    if(j.ok) location.replace('/dash?v=home');
+    else {{ m.textContent = j.msg || 'خطأ في الدخول'; b.textContent = 'دخول ⚡'; b.disabled = false; }}
+  }} catch {{
+    m.textContent = 'تعذر الاتصال بالسيرفر'; b.textContent = 'دخول ⚡'; b.disabled = false;
+  }}
 }});
 </script></body></html>"""
 
 @app.route('/logout')
 def lo(): session.clear(); return redirect('/login')
-
-@app.route('/api/logout', methods=['POST'])
-def api_logout(): session.clear(); return jsonify(ok=True)
 
 @app.route('/dash')
 @login_required
@@ -611,53 +567,7 @@ def dash(): v = request.args.get('v', 'home'); return layout('<div class=card>ج
 @login_required
 def ap():
     try: return page_content(request.args.get('v', 'home'))
-    except Exception as e: traceback.print_exc(); return f"<div class=card>خطأ {esc(str(e))}</div>", 500
-
-@app.route('/api/search')
-@login_required
-def s():
-    q = request.args.get('q', '').strip()
-    if not q: return jsonify([])
-    like = "%" + q + "%"; op = "ILIKE" if USE_PG else "LIKE"; res = []
-    try:
-        for r in qall(f"SELECT * FROM dish_ips WHERE ip {op} ? OR dish_name {op} ? OR location {op} ? LIMIT 15", (like, like, like)):
-            res.append({"title": r.get('dish_name') or r['ip'], "sub": r['ip'] + " - " + (r.get('location') or ''), "page": "dishes"})
-        for r in qall(f"SELECT * FROM towers WHERE name {op} ? OR area {op} ? LIMIT 10", (like, like)):
-            res.append({"title": r['name'], "sub": r.get('area', '') + " | " + str(r.get('lat') or '') + "," + str(r.get('lng') or ''), "page": "towers"})
-    except Exception: pass
-    return jsonify(res)
-
-@app.route('/add_dish', methods=['POST'])
-@login_required
-def ad():
-    try:
-        d = request.json if request.is_json else request.form; ip = (d.get('ip') or '').strip(); name = (d.get('dish_name') or '').strip(); loc = (d.get('location') or '').strip(); tid = d.get('tower_id')
-        if not is_valid_ip(ip): return jsonify(ok=False, msg='IP غير صالح'), 400
-        if USE_PG: ok = qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location, tower_id=EXCLUDED.tower_id", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
-        else: ok = qexec("INSERT OR REPLACE INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
-        if ok: add_log(session.get('phone'), 'إضافة صحن', f"{name}", f"IP: {ip} | موقع: {loc}")
-        with _clock: _cache.pop('counts', None)
-        return jsonify(ok=ok)
-    except Exception as e: return jsonify(ok=False, msg=str(e)), 500
-
-@app.route('/edit_dish/<int:i>', methods=['POST'])
-@login_required
-def ed(i):
-    if not is_manager(): return jsonify(ok=False, msg='ممنوع'), 403
-    d = request.json if request.is_json else request.form
-    ok = qexec("UPDATE dish_ips SET dish_name=?,ip=?,location=?,tower_id=? WHERE id=?", (d.get('dish_name', ''), d.get('ip', ''), d.get('location', ''), d.get('tower_id') or None, i))
-    if ok: add_log(session.get('phone'), 'تعديل صحن', f"صحن {i}", f"ID {i}")
-    return jsonify(ok=ok)
-
-@app.route('/del_dish/<int:i>')
-@login_required
-def dd(i):
-    if not is_manager(): return jsonify(ok=False, msg='ممنوع'), 403
-    info = qone("SELECT * FROM dish_ips WHERE id=?", (i,)); ok = qexec("DELETE FROM dish_ips WHERE id=?", (i,))
-    if ok:
-        with _clock: _cache.pop('counts', None)
-        add_log(session.get('phone'), 'حذف صحن', info.get('dish_name', '') if info else f"صحن {i}", f"{info.get('dish_name','')} {info.get('ip','')}" if info else f"ID {i}")
-    return jsonify(ok=ok)
+    except Exception as e: traceback.print_exc(); return f"<div class=card>خطأ: {esc(str(e))}</div>", 500
 
 @app.route('/add_tower', methods=['POST'])
 @login_required
@@ -688,11 +598,21 @@ def et(i):
     if ok: add_log(session.get('phone'), 'تعديل برج', f"برج {i}", f"ID {i} تم تعديله")
     return jsonify(ok=ok)
 
+@app.route('/del_dish/<int:i>')
+@login_required
+def dd(i):
+    if not is_manager(): return jsonify(ok=False, msg='ممنوع'), 403
+    info = qone("SELECT * FROM dish_ips WHERE id=?", (i,)); ok = qexec("DELETE FROM dish_ips WHERE id=?", (i,))
+    if ok:
+        with _clock: _cache.pop('counts', None)
+        add_log(session.get('phone'), 'حذف صحن', info.get('dish_name', '') if info else f"صحن {i}")
+    return jsonify(ok=ok)
+
 @app.route('/add_sub', methods=['POST'])
 @login_required
 def asub():
     d = request.json if request.is_json else request.form; ok = qexec("INSERT INTO subs(name,phone,note) VALUES(?,?,?)", (d.get('name', ''), d.get('phone', ''), d.get('note', '')))
-    if ok: add_log(session.get('phone'), 'إضافة مشترك', d.get('name', ''), f"هاتف: {d.get('phone','')} | {d.get('note','')}")
+    if ok: add_log(session.get('phone'), 'إضافة مشترك', d.get('name', ''))
     return jsonify(ok=ok)
 
 @app.route('/del_sub/<int:i>')
@@ -700,15 +620,6 @@ def asub():
 def dsub(i):
     if not is_manager(): return jsonify(ok=False), 403
     ok = qexec("DELETE FROM subs WHERE id=?", (i,))
-    if ok: add_log(session.get('phone'), 'حذف مشترك', f"مشترك {i}", f"ID {i}")
-    return jsonify(ok=ok)
-
-@app.route('/edit_sub/<int:i>', methods=['POST'])
-@login_required
-def esub(i):
-    if not is_manager(): return jsonify(ok=False), 403
-    d = request.json if request.is_json else request.form; ok = qexec("UPDATE subs SET name=?,phone=?,note=? WHERE id=?", (d.get('name', ''), d.get('phone', ''), d.get('note', ''), i))
-    if ok: add_log(session.get('phone'), 'تعديل مشترك', f"مشترك {i}", f"ID {i} تم تعديله")
     return jsonify(ok=ok)
 
 @app.route('/add_ledger', methods=['POST'])
@@ -718,10 +629,180 @@ def al():
     try: amt = float(d.get('amount') or 0)
     except Exception: amt = 0
     ok = qexec("INSERT INTO ledger(name,amount,note,currency) VALUES(?,?,?,?)", (d.get('name', ''), amt, d.get('note', ''), d.get('currency', 'USD')))
-    if ok: add_log(session.get('phone'), 'إضافة حساب', d.get('name', ''), f"مبلغ: {amt} {d.get('currency','')} | {d.get('note','')}")
     return jsonify(ok=ok)
 
 @app.route('/del_ledger/<int:i>')
 @login_required
 def dll(i):
-    if not is_manager(): return jsonify(ok
+    if not is_manager(): return jsonify(ok=False), 403
+    ok = qexec("DELETE FROM ledger WHERE id=?", (i,))
+    return jsonify(ok=ok)
+
+@app.route('/change_pass', methods=['POST'])
+@login_required
+def cp():
+    d = request.json if request.is_json else request.form; np = (d.get('newpass') or '').strip()
+    if not np: return jsonify(ok=False, msg='كلمة المرور فارغة'), 400
+    ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:150000'), session.get('phone')))
+    return jsonify(ok=ok)
+
+# ==================== PAGE RENDERER ====================
+def page_content(v):
+    if v == 'home':
+        return f"""
+<div style="max-width:1100px;margin:0 auto">
+<div class=grid-small id=statsGrid>
+<div class="card stat" onclick="loadPage('subs')"><div class=ico>👥</div><h4>مشتركين</h4><h2 id=stat-subs>...</h2></div>
+<div class="card stat" onclick="loadPage('dishes')"><div class=ico>📡</div><h4>صحون</h4><h2 id=stat-dishes>...</h2></div>
+<div class="card stat" onclick="loadPage('towers')"><div class=ico>🗼</div><h4>أبراج</h4><h2 id=stat-towers>...</h2></div>
+<div class="card stat" onclick="loadPage('ledger')"><div class=ico>📒</div><h4>حسابات</h4><h2 id=stat-ledger>...</h2></div>
+<div class="card stat" onclick="loadPage('mikrotik')"><div class=ico>🖧</div><h4>ميكروتك</h4><h2 id=stat-mikrotik>...</h2></div>
+</div>
+<div class=card style="margin-top:10px"><div style="display:flex;justify-content:space-between"><b>📜 آخر السجلات</b><button class=btn-gold onclick="loadPage('logs')">الكل</button></div>
+<div id=logsPreview style="margin-top:8px"><div style="text-align:center;padding:10px">جاري جلب الإحصائيات...</div></div>
+</div>
+</div>
+<script>
+(async()=>{{
+ try{{
+  let r=await fetch('/api/stats');
+  if(r.status===401) {{ location.replace('/login'); return; }}
+  let j=await r.json();
+  if(j.ok){{
+   document.getElementById('stat-subs').textContent=j.stats.subs;
+   document.getElementById('stat-dishes').textContent=j.stats.dishes;
+   document.getElementById('stat-towers').textContent=j.stats.towers;
+   document.getElementById('stat-ledger').textContent=j.stats.ledger;
+   document.getElementById('stat-mikrotik').textContent=j.stats.mikrotik || 0;
+   let lh=j.logs.map(l=>`<tr><td>${{l.time||''}}</td><td><span class=badge>${{l.action||''}}</span></td><td>${{l.user_phone||''}}</td><td>${{(l.detail||'').substring(0,60)}}</td></tr>`).join('') || '<tr><td colspan=4>لا يوجد سجل</td></tr>';
+   document.getElementById('logsPreview').innerHTML='<table style="width:100%"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>'+lh+'</tbody></table>';
+  }}
+ }}catch(e){{console.log(e);}}
+}})();
+</script>"""
+
+    if v == 'mikrotik':
+        servers = qall("SELECT * FROM mikrotik_servers ORDER BY id DESC")
+        cards = ""
+        for s in servers:
+            sid = s['id']
+            cards += f"""
+<div class="card" id="mk-server-{sid}">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <b style="font-size:15px">🖧 {esc(s['name'])}</b>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px">العنوان: {esc(s['host'])}:{s['port']} | المستخدم: {esc(s['username'])}</div>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button class="btn-circle view" onclick="fetchMikrotikStatus({sid})" title="فحص وقراءة">⚡</button>
+      <button class="btn-circle del" onclick="delMikrotik({sid})" title="حذف">🗑</button>
+    </div>
+  </div>
+  <div id="mk-details-{sid}" style="margin-top:10px;padding:10px;background:#0006;border-radius:8px;font-size:12px;display:none"></div>
+</div>"""
+        return f"""
+<div style="max-width:1100px;margin:0 auto">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center">
+    <b>🖧 إدارة سيرفرات ميكروتك (RouterOS API)</b>
+    <button class=btn-gold onclick="openAddMikrotikModal()">+ سيرفر ميكروتك</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{cards or '<div class=card style="text-align:center;color:#888">لا يوجد سيرفرات ميكروتك مسجلة</div>'}</div>
+</div>
+<script>
+window.openAddMikrotikModal=function(){{
+  let b=document.getElementById("editBody");
+  b.innerHTML=`
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <input id="mk_name" placeholder="اسم السيرفر (مثال: سيرفر البرج الرئيسي)">
+      <input id="mk_host" placeholder="IP أو دومين السيرفر (Public IP أو VPN)">
+      <input id="mk_user" placeholder="اسم مستخدم API">
+      <input id="mk_pwd" type="password" placeholder="كلمة المرور">
+      <input id="mk_port" type="number" value="8728" placeholder="المنفذ الافتراضي 8728">
+      <input id="mk_note" placeholder="ملاحظات إضافية">
+      <button class="btn-gold" onclick="saveNewMikrotik()" style="width:100%;margin-top:6px">حفظ السيرفر ✓</button>
+    </div>
+  `;
+  document.getElementById("editModalTitle").textContent="إضافة سيرفر ميكروتك";
+  document.getElementById("editModal").classList.add("show");
+}};
+
+window.saveNewMikrotik=async function(){{
+  let d={{name:document.getElementById("mk_name").value,host:document.getElementById("mk_host").value,username:document.getElementById("mk_user").value,password:document.getElementById("mk_pwd").value,port:document.getElementById("mk_port").value,note:document.getElementById("mk_note").value}};
+  if(!d.host||!d.username){{alert("الرجاء إدخال العنوان والمستخدم");return;}}
+  let r=await fetch('/api/mikrotik/add',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
+  let j=await r.json();
+  if(j.ok){{closeEditModal();loadPage('mikrotik',true);}}else alert(j.msg||"خطأ");
+}};
+
+window.delMikrotik=async function(id){{
+  if(!confirm("هل أنت متأكد من حذف هذا السيرفر؟"))return;
+  let r=await fetch('/api/mikrotik/del/'+id);
+  let j=await r.json();
+  if(j.ok) loadPage('mikrotik',true);
+}};
+
+window.fetchMikrotikStatus=async function(id){{
+  let box=document.getElementById("mk-details-"+id);
+  box.style.display="block";
+  box.innerHTML="⏳ جاري الاتصال بالراوتر عبر API...";
+  try{{
+    let r=await fetch('/api/mikrotik/status/'+id);
+    let j=await r.json();
+    if(j.ok){{
+      let d=j.data;
+      box.innerHTML=`
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div><b>الهوية (Identity):</b> ${{d.identity||'--'}}</div>
+          <div><b>الإصدار:</b> ${{d.version||'--'}}</div>
+          <div><b>وقت التشغيل:</b> ${{d.uptime||'--'}}</div>
+          <div><b>المعالج CPU:</b> ${{d.cpu}}%</div>
+          <div><b>مشتركي Hotspot:</b> <span class="badge">${{d.hotspot_active}}</span></div>
+          <div><b>مشتركي PPPoE:</b> <span class="badge">${{d.ppp_active}}</span></div>
+        </div>
+      `;
+    }}else box.innerHTML='<span style="color:#ef4444">'+j.msg+'</span>';
+  }}catch(e){{box.innerHTML='<span style="color:#ef4444">تعذر الاتصال بالسيرفر</span>';}}
+}};
+</script>"""
+
+    if v == 'towers':
+        rs = qall("SELECT t.id,t.name,t.area,t.lat,t.lng, COUNT(d.id) as cnt FROM towers t LEFT JOIN dish_ips d ON d.tower_id=t.id GROUP BY t.id,t.name,t.area,t.lat,t.lng ORDER BY t.name ASC")
+        cards = ""
+        for t in rs:
+            tid = t.get('id'); tname = esc(t.get('name') or f'برج {tid}'); tarea = esc(t.get('area') or ''); lat = t.get('lat') or 35.1318; lng = t.get('lng') or 36.7578; cnt = t.get('cnt') or 0
+            cards += f'<div class="card tower-card" id="tower-{tid}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🗼 {tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tarea} ({lat:.4f},{lng:.4f})</div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:10px"><button class="btn-circle del" onclick="delTower({tid})">🗑</button></div></div>'
+        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>🗼 الأبراج المسجلة</b><button class=btn-gold onclick="openNewTowerPage()">+ إضافة برج</button></div><div class=grid-small id=towersGrid style="margin-top:10px">{cards or '<div class=card>لا توجد أبراج مسجلة</div>'}</div></div>
+<script>
+window.openNewTowerPage=function(){{
+  let b=document.getElementById("editBody");
+  b.innerHTML='<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div style="display:flex;gap:6px"><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%;margin-top:8px">حفظ</button>';
+  document.getElementById("editModalTitle").textContent="إضافة برج";
+  document.getElementById("editModal").classList.add("show");
+}};
+window.saveNewTowerPage=async function(){{
+  let d={{name:document.getElementById("nt_name").value,area:document.getElementById("nt_area").value,lat:document.getElementById("nt_lat").value,lng:document.getElementById("nt_lng").value}};
+  if(!d.name)return;
+  let r=await fetch("/add_tower",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
+  let j=await r.json();
+  if(j.ok){{closeEditModal();loadPage('towers',true);}}
+}};
+window.delTower=async function(id){{
+  if(!confirm("هل أنت متأكد من حذف هذا البرج؟"))return;
+  let r=await fetch('/del_tower/'+id);
+  let j=await r.json();
+  if(j.ok) loadPage('towers',true);
+}};
+</script>"""
+
+    if v == 'dishes':
+        towers = qall("SELECT t.id, t.name, t.area, t.lat, t.lng, (SELECT COUNT(*) FROM dish_ips WHERE tower_id=t.id) as cnt FROM towers t ORDER BY t.name ASC")
+        no_cnt = (qone("SELECT COUNT(*) as c FROM dish_ips WHERE tower_id IS NULL") or {}).get('c', 0)
+        accordion_html = ""
+        for t in towers:
+            tid = t.get('id'); tname = esc(t.get('name') or f'برج {tid}'); tarea = esc(t.get('area') or ''); cnt = t.get('cnt') or 0
+            accordion_html += f'''
+<div class="card tower-accordion" id="tower-acc-{tid}">
+  <div onclick="toggleAccordionLazy({tid})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+    <div><b>🗼 {tname}</b> <span class="badge">{cnt} IP</span><div style="font-size:11px;color:#94a3b8">📍 {tarea}</div></div>
+    <div>▼</div>
+  </div>
