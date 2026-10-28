@@ -1,3 +1,4 @@
+```python
 # -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
@@ -5,7 +6,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import os, html, ipaddress, secrets, subprocess, json, socket, platform, io, csv, datetime, re, threading, time, traceback
 import concurrent.futures as _cf
 
-# دعم ميكروتك RouterOS
 try:
     import routeros_api
     ROUTEROS_AVAILABLE = True
@@ -24,7 +24,6 @@ import sqlite3
 from collections import defaultdict
 
 app = Flask(__name__)
-# مفتاح ثابت لمنع تسجيل الخروج التلقائي عند إعادة تشغيل السيرفر
 app.secret_key = os.environ.get("SECRET_KEY", "omaia_isp_fixed_secret_token_2026_xyz")
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -208,7 +207,7 @@ def init_db():
         qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)",
               ('نقطة حماة الرئيسية', 'حماة', 35.1318, 36.7578, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
-    defaults = [('card_size', '160'), ('icon_size', '44'), ('tower_bg', '#1e2433'), ('dish_bg', '#ffffff06'), ('accent_color', '#ffbe4d')]
+    defaults = [('card_size', '120'), ('icon_size', '32'), ('tower_bg', '#1e2433'), ('dish_bg', '#ffffff06'), ('accent_color', '#ffbe4d')]
     for k, v in defaults:
         if not qone("SELECT * FROM system_config WHERE key=?", (k,)):
             qexec("INSERT INTO system_config(key,value) VALUES(?,?)", (k, v))
@@ -252,10 +251,9 @@ def after(r):
     r.headers['Pragma'] = 'no-cache'
     return r
 
-# ==================== MIKROTIK ROUTEROS HELPERS ====================
 def mikrotik_connect(host, user, pwd, port=8728):
     if not ROUTEROS_AVAILABLE:
-        raise Exception("routeros_api غير مثبت في السيرفر (pip install routeros_api)")
+        raise Exception("routeros_api غير مثبت")
     connection = routeros_api.RouterOsApiPool(
         host=host,
         username=user,
@@ -285,12 +283,12 @@ def api_mikrotik_add():
     note = (d.get('note') or '').strip()
     
     if not host or not user:
-        return jsonify(ok=False, msg='Host و Username مطلوبان'), 400
+        return jsonify(ok=False, msg='بيانات ناقصة'), 400
     
     ok = qexec("INSERT INTO mikrotik_servers(name,host,username,password,port,note) VALUES(?,?,?,?,?,?)",
                (name or host, host, user, pwd, port, note))
     if ok:
-        add_log(session.get('phone'), 'إضافة ميكروتك', name or host, f"Host: {host}:{port}")
+        add_log(session.get('phone'), 'إضافة ميكروتك', name or host, f"{host}:{port}")
     return jsonify(ok=ok)
 
 @app.route('/api/mikrotik/del/<int:mid>')
@@ -300,17 +298,17 @@ def api_mikrotik_del(mid):
     srv = qone("SELECT name, host FROM mikrotik_servers WHERE id=?", (mid,))
     ok = qexec("DELETE FROM mikrotik_servers WHERE id=?", (mid,))
     if ok and srv:
-        add_log(session.get('phone'), 'حذف ميكروتك', srv['name'], f"Host: {srv['host']}")
+        add_log(session.get('phone'), 'حذف ميكروتك', srv['name'])
     return jsonify(ok=ok)
 
 @app.route('/api/mikrotik/status/<int:mid>')
 @login_required
 def api_mikrotik_status(mid):
     srv = qone("SELECT * FROM mikrotik_servers WHERE id=?", (mid,))
-    if not srv: return jsonify(ok=False, msg='السيرفر غير موجود'), 404
+    if not srv: return jsonify(ok=False, msg='غير موجود'), 404
     
     if not ROUTEROS_AVAILABLE:
-        return jsonify(ok=False, msg='مكتبة routeros_api غير مثبتة على السيرفر'), 500
+        return jsonify(ok=False, msg='مكتبة routeros_api غير متوفرة'), 500
 
     conn = None
     try:
@@ -336,7 +334,6 @@ def api_mikrotik_status(mid):
             try: conn.disconnect()
             except Exception: pass
 
-# ==================== MAIN ROUTES ====================
 @app.route('/ping')
 def ping(): return jsonify(ok=True, use_pg=USE_PG)
 
@@ -452,7 +449,7 @@ def api_login_public():
             session['username'] = u.get('username') or u['phone']
             session['role'] = u.get('role') or 'tech'
             session.permanent = True
-            add_log(u['phone'], 'دخول', uin, f'دخول المستخدم {uin}', u.get('username') or uin)
+            add_log(u['phone'], 'دخول', uin, f'{uin}', u.get('username') or uin)
             return jsonify(ok=True)
         return jsonify(ok=False, msg='بيانات الدخول غير صحيحة'), 401
     except Exception as e: return jsonify(ok=False, msg=str(e)), 500
@@ -460,7 +457,7 @@ def api_login_public():
 @app.route('/api/export/<tbl>')
 @login_required
 def api_export(tbl):
-    add_log(session.get('phone'), 'تصدير', tbl, f'تصدير جدول {tbl}')
+    add_log(session.get('phone'), 'تصدير', tbl)
     output = io.StringIO(); output.write('\ufeff'); w = csv.writer(output)
     if tbl == 'dishes':
         rows = qall("SELECT * FROM dish_ips ORDER BY location ASC, dish_name ASC"); w.writerow(['ID', 'اسم', 'IP', 'موقع', 'tower_id'])
@@ -478,16 +475,6 @@ def api_export(tbl):
 @role_required_manager
 def clear_logs(): qexec("DELETE FROM logs"); return jsonify(ok=True)
 
-@app.route('/api/update_tower_pos', methods=['POST'])
-@login_required
-def update_tower_pos():
-    try:
-        d = request.json if request.is_json else request.form; tid = int(d.get('id')); lat = float(d.get('lat')); lng = float(d.get('lng'))
-        qexec("UPDATE towers SET lat=?,lng=? WHERE id=?", (lat, lng, tid))
-        add_log(session.get('phone'), 'تعديل موقع برج', f"ID {tid}", f"تعديل موقع البرج {tid} إلى {lat},{lng}")
-        return jsonify(ok=True)
-    except Exception as e: return jsonify(ok=False, msg=str(e)), 400
-
 @app.route('/api/add_dish_to_tower', methods=['POST'])
 @login_required
 def add_dish_to_tower():
@@ -496,7 +483,7 @@ def add_dish_to_tower():
         if not is_valid_ip(ip): return jsonify(ok=False, msg='IP غير صالح'), 400
         if USE_PG: ok = qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location, tower_id=EXCLUDED.tower_id", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
         else: ok = qexec("INSERT OR REPLACE INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
-        if ok: add_log(session.get('phone'), 'إضافة صحن للبرج', f"{name}", f"IP: {ip} | الموقع: {loc} | برج: {tid}")
+        if ok: add_log(session.get('phone'), 'إضافة صحن', f"{name}", f"IP: {ip}")
         with _clock: _cache.pop('counts', None)
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False, msg=str(e)), 500
@@ -520,24 +507,23 @@ def login():
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
 *{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%,#1a2344,#0a0e2a 60%);display:flex;align-items:center;justify-content:center;color:#fff}}
-.card{{background:#1e2433ee;border:1px solid #ffffff18;padding:22px;border-radius:16px;width:92%;max-width:360px;box-shadow:0 20px 50px #0006}}
-input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:10px}}input:focus{{border-color:#ffbe4d;outline:none}}
-.btn{{width:100%;padding:12px;border:0;border-radius:10px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800;cursor:pointer}}
-.support{{margin-top:16px;padding-top:12px;border-top:1px dashed #ffffff15;text-align:center}}
-.support a{{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;margin:0 8px;text-decoration:none;font-size:20px}}
+.card{{background:#1e2433ee;border:1px solid #ffffff18;padding:20px;border-radius:14px;width:92%;max-width:340px}}
+input{{width:100%;padding:10px;margin:6px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:8px}}
+.btn{{width:100%;padding:11px;border:0;border-radius:8px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:700;cursor:pointer}}
+.support{{margin-top:14px;padding-top:10px;border-top:1px dashed #ffffff15;text-align:center}}
+.support a{{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;margin:0 6px;text-decoration:none;font-size:18px}}
 </style></head><body>
 <div class=card>
-<div style='text-align:center;font-weight:900;font-size:24px;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div style='text-align:center;font-weight:800;font-size:22px;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <form id=loginForm>
 <input name=userin id=userin placeholder='اسم المستخدم' required autofocus>
 <input name=password id=password type=password placeholder='كلمة المرور' required>
-<button class=btn id=loginBtn>دخول ⚡</button>
-<div id=msg style='text-align:center;color:#ff6b6b;font-size:11px;min-height:14px;margin-top:8px'></div>
+<button class=btn id=loginBtn>دخول</button>
+<div id=msg style='text-align:center;color:#ff6b6b;font-size:11px;margin-top:6px'></div>
 </form>
 <div class=support>
 <a href="{SUPPORT_WA_LINK}" target="_blank" style="background:#25D366;color:#fff">💬</a>
 <a href="{SUPPORT_INSTA_LINK}" target="_blank" style="background:linear-gradient(45deg,#feda75,#d62976);color:#fff">📷</a>
-<div style='font-size:11px;color:#94a3b8;margin-top:10px'>الدعم الفني: +{SUPPORT_WA}</div>
 </div>
 </div>
 <script>
@@ -549,9 +535,9 @@ document.getElementById('loginForm').addEventListener('submit', async e => {{
     let res = await fetch('/api/login_public', {{ method: 'POST', body: new FormData(e.target) }});
     let j = await res.json();
     if(j.ok) location.replace('/dash?v=home');
-    else {{ m.textContent = j.msg || 'خطأ في الدخول'; b.textContent = 'دخول ⚡'; b.disabled = false; }}
+    else {{ m.textContent = j.msg || 'خطأ'; b.textContent = 'دخول'; b.disabled = false; }}
   }} catch {{
-    m.textContent = 'تعذر الاتصال بالسيرفر'; b.textContent = 'دخول ⚡'; b.disabled = false;
+    m.textContent = 'خطأ اتصال'; b.textContent = 'دخول'; b.disabled = false;
   }}
 }});
 </script></body></html>"""
@@ -576,7 +562,7 @@ def at():
         d = request.json if request.is_json else request.form; la = float(d.get('lat') or 35.1318); ln = float(d.get('lng') or 36.7578)
         ok = qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)", (d.get('name', 'برج'), d.get('area', ''), la, ln, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         if ok:
-            add_log(session.get('phone'), 'إضافة برج', d.get('name', ''), f"منطقة: {d.get('area','')} | {la},{ln}")
+            add_log(session.get('phone'), 'إضافة برج', d.get('name', ''))
             with _clock: _cache.pop('towers_list', None)
         return jsonify(ok=ok)
     except Exception as e: return jsonify(ok=False, msg=str(e)), 500
@@ -586,26 +572,17 @@ def at():
 def dt(i):
     if not is_manager(): return jsonify(ok=False, msg='ممنوع'), 403
     qexec("UPDATE dish_ips SET tower_id=NULL WHERE tower_id=?", (i,)); ok = qexec("DELETE FROM towers WHERE id=?", (i,))
-    if ok: add_log(session.get('phone'), 'حذف برج', f"برج {i}", f"ID {i}")
-    return jsonify(ok=ok)
-
-@app.route('/edit_tower/<int:i>', methods=['POST'])
-@login_required
-def et(i):
-    if not is_manager(): return jsonify(ok=False, msg='ممنوع'), 403
-    d = request.json if request.is_json else request.form; la = float(d.get('lat') or 35.1318); ln = float(d.get('lng') or 36.7578)
-    ok = qexec("UPDATE towers SET name=?,area=?,lat=?,lng=? WHERE id=?", (d.get('name', ''), d.get('area', ''), la, ln, i))
-    if ok: add_log(session.get('phone'), 'تعديل برج', f"برج {i}", f"ID {i} تم تعديله")
+    if ok: add_log(session.get('phone'), 'حذف برج', f"{i}")
     return jsonify(ok=ok)
 
 @app.route('/del_dish/<int:i>')
 @login_required
 def dd(i):
     if not is_manager(): return jsonify(ok=False, msg='ممنوع'), 403
-    info = qone("SELECT * FROM dish_ips WHERE id=?", (i,)); ok = qexec("DELETE FROM dish_ips WHERE id=?", (i,))
+    ok = qexec("DELETE FROM dish_ips WHERE id=?", (i,))
     if ok:
         with _clock: _cache.pop('counts', None)
-        add_log(session.get('phone'), 'حذف صحن', info.get('dish_name', '') if info else f"صحن {i}")
+        add_log(session.get('phone'), 'حذف صحن', f"{i}")
     return jsonify(ok=ok)
 
 @app.route('/add_sub', methods=['POST'])
@@ -642,24 +619,23 @@ def dll(i):
 @login_required
 def cp():
     d = request.json if request.is_json else request.form; np = (d.get('newpass') or '').strip()
-    if not np: return jsonify(ok=False, msg='كلمة المرور فارغة'), 400
+    if not np: return jsonify(ok=False, msg='فارغ'), 400
     ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:150000'), session.get('phone')))
     return jsonify(ok=ok)
 
-# ==================== PAGE RENDERER ====================
 def page_content(v):
     if v == 'home':
         return f"""
 <div style="max-width:1100px;margin:0 auto">
 <div class=grid-small id=statsGrid>
-<div class="card stat" onclick="loadPage('subs')"><div class=ico>👥</div><h4>مشتركين</h4><h2 id=stat-subs>...</h2></div>
-<div class="card stat" onclick="loadPage('dishes')"><div class=ico>📡</div><h4>صحون</h4><h2 id=stat-dishes>...</h2></div>
-<div class="card stat" onclick="loadPage('towers')"><div class=ico>🗼</div><h4>أبراج</h4><h2 id=stat-towers>...</h2></div>
-<div class="card stat" onclick="loadPage('ledger')"><div class=ico>📒</div><h4>حسابات</h4><h2 id=stat-ledger>...</h2></div>
-<div class="card stat" onclick="loadPage('mikrotik')"><div class=ico>🖧</div><h4>ميكروتك</h4><h2 id=stat-mikrotik>...</h2></div>
+<div class="card stat" onclick="loadPage('subs')"><div class=ico>👥</div><h4>المشتركين</h4><h3 id=stat-subs>...</h3></div>
+<div class="card stat" onclick="loadPage('dishes')"><div class=ico>📡</div><h4>الصحون</h4><h3 id=stat-dishes>...</h3></div>
+<div class="card stat" onclick="loadPage('towers')"><div class=ico>🗼</div><h4>الأبراج</h4><h3 id=stat-towers>...</h3></div>
+<div class="card stat" onclick="loadPage('ledger')"><div class=ico>📒</div><h4>الحسابات</h4><h3 id=stat-ledger>...</h3></div>
+<div class="card stat" onclick="loadPage('mikrotik')"><div class=ico>🖧</div><h4>ميكروتك</h4><h3 id=stat-mikrotik>...</h3></div>
 </div>
-<div class=card style="margin-top:10px"><div style="display:flex;justify-content:space-between"><b>📜 آخر السجلات</b><button class=btn-gold onclick="loadPage('logs')">الكل</button></div>
-<div id=logsPreview style="margin-top:8px"><div style="text-align:center;padding:10px">جاري جلب الإحصائيات...</div></div>
+<div class=card style="margin-top:8px"><div style="display:flex;justify-content:space-between"><b>📜 السجل</b><button class=btn-gold onclick="loadPage('logs')">الكل</button></div>
+<div id=logsPreview style="margin-top:6px"></div>
 </div>
 </div>
 <script>
@@ -673,11 +649,12 @@ def page_content(v):
    document.getElementById('stat-dishes').textContent=j.stats.dishes;
    document.getElementById('stat-towers').textContent=j.stats.towers;
    document.getElementById('stat-ledger').textContent=j.stats.ledger;
-   document.getElementById('stat-mikrotik').textContent=j.stats.mikrotik || 0;
-   let lh=j.logs.map(l=>`<tr><td>${{l.time||''}}</td><td><span class=badge>${{l.action||''}}</span></td><td>${{l.user_phone||''}}</td><td>${{(l.detail||'').substring(0,60)}}</td></tr>`).join('') || '<tr><td colspan=4>لا يوجد سجل</td></tr>';
+   let mkEl = document.getElementById('stat-mikrotik');
+   if(mkEl) mkEl.textContent=j.stats.mikrotik || 0;
+   let lh=j.logs.map(l=>`<tr><td>${{l.time||''}}</td><td><span class=badge>${{l.action||''}}</span></td><td>${{l.user_phone||''}}</td><td>${{(l.detail||'').substring(0,40)}}</td></tr>`).join('') || '<tr><td colspan=4>فارغ</td></tr>';
    document.getElementById('logsPreview').innerHTML='<table style="width:100%"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>'+lh+'</tbody></table>';
   }}
- }}catch(e){{console.log(e);}}
+ }}catch(e){{}}
 }})();
 </script>"""
 
@@ -690,52 +667,52 @@ def page_content(v):
 <div class="card" id="mk-server-{sid}">
   <div style="display:flex;justify-content:space-between;align-items:center">
     <div>
-      <b style="font-size:15px">🖧 {esc(s['name'])}</b>
-      <div style="font-size:11px;color:#94a3b8;margin-top:2px">العنوان: {esc(s['host'])}:{s['port']} | المستخدم: {esc(s['username'])}</div>
+      <b style="font-size:13px">🖧 {esc(s['name'])}</b>
+      <div style="font-size:10px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']} | {esc(s['username'])}</div>
     </div>
-    <div style="display:flex;gap:6px">
-      <button class="btn-circle view" onclick="fetchMikrotikStatus({sid})" title="فحص وقراءة">⚡</button>
-      <button class="btn-circle del" onclick="delMikrotik({sid})" title="حذف">🗑</button>
+    <div style="display:flex;gap:4px">
+      <button class="btn-circle view" onclick="fetchMikrotikStatus({sid})">⚡</button>
+      <button class="btn-circle del" onclick="delMikrotik({sid})">🗑</button>
     </div>
   </div>
-  <div id="mk-details-{sid}" style="margin-top:10px;padding:10px;background:#0006;border-radius:8px;font-size:12px;display:none"></div>
+  <div id="mk-details-{sid}" style="margin-top:8px;padding:8px;background:#0006;border-radius:6px;font-size:11px;display:none"></div>
 </div>"""
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center">
-    <b>🖧 إدارة سيرفرات ميكروتك (RouterOS API)</b>
-    <button class=btn-gold onclick="openAddMikrotikModal()">+ سيرفر ميكروتك</button>
+    <b>سيرفرات ميكروتك</b>
+    <button class=btn-gold onclick="openAddMikrotikModal()">+ سيرفر</button>
   </div>
-  <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{cards or '<div class=card style="text-align:center;color:#888">لا يوجد سيرفرات ميكروتك مسجلة</div>'}</div>
+  <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">{cards or '<div class=card>لا يوجد سيرفرات</div>'}</div>
 </div>
 <script>
 window.openAddMikrotikModal=function(){{
   let b=document.getElementById("editBody");
   b.innerHTML=`
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <input id="mk_name" placeholder="اسم السيرفر (مثال: سيرفر البرج الرئيسي)">
-      <input id="mk_host" placeholder="IP أو دومين السيرفر (Public IP أو VPN)">
-      <input id="mk_user" placeholder="اسم مستخدم API">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <input id="mk_name" placeholder="اسم السيرفر">
+      <input id="mk_host" placeholder="IP أو دومين السيرفر">
+      <input id="mk_user" placeholder="اسم المستخدم">
       <input id="mk_pwd" type="password" placeholder="كلمة المرور">
-      <input id="mk_port" type="number" value="8728" placeholder="المنفذ الافتراضي 8728">
-      <input id="mk_note" placeholder="ملاحظات إضافية">
-      <button class="btn-gold" onclick="saveNewMikrotik()" style="width:100%;margin-top:6px">حفظ السيرفر ✓</button>
+      <input id="mk_port" type="number" value="8728" placeholder="المنفذ">
+      <input id="mk_note" placeholder="ملاحظات">
+      <button class="btn-gold" onclick="saveNewMikrotik()" style="width:100%;margin-top:4px">حفظ</button>
     </div>
   `;
-  document.getElementById("editModalTitle").textContent="إضافة سيرفر ميكروتك";
+  document.getElementById("editModalTitle").textContent="إضافة سيرفر";
   document.getElementById("editModal").classList.add("show");
 }};
 
 window.saveNewMikrotik=async function(){{
   let d={{name:document.getElementById("mk_name").value,host:document.getElementById("mk_host").value,username:document.getElementById("mk_user").value,password:document.getElementById("mk_pwd").value,port:document.getElementById("mk_port").value,note:document.getElementById("mk_note").value}};
-  if(!d.host||!d.username){{alert("الرجاء إدخال العنوان والمستخدم");return;}}
+  if(!d.host||!d.username){{alert("بيانات ناقصة");return;}}
   let r=await fetch('/api/mikrotik/add',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
   let j=await r.json();
   if(j.ok){{closeEditModal();loadPage('mikrotik',true);}}else alert(j.msg||"خطأ");
 }};
 
 window.delMikrotik=async function(id){{
-  if(!confirm("هل أنت متأكد من حذف هذا السيرفر؟"))return;
+  if(!confirm("حذف السيرفر؟"))return;
   let r=await fetch('/api/mikrotik/del/'+id);
   let j=await r.json();
   if(j.ok) loadPage('mikrotik',true);
@@ -744,24 +721,24 @@ window.delMikrotik=async function(id){{
 window.fetchMikrotikStatus=async function(id){{
   let box=document.getElementById("mk-details-"+id);
   box.style.display="block";
-  box.innerHTML="⏳ جاري الاتصال بالراوتر عبر API...";
+  box.innerHTML="⏳ جاري الاتصال...";
   try{{
     let r=await fetch('/api/mikrotik/status/'+id);
     let j=await r.json();
     if(j.ok){{
       let d=j.data;
       box.innerHTML=`
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div><b>الهوية (Identity):</b> ${{d.identity||'--'}}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div><b>الهوية:</b> ${{d.identity||'--'}}</div>
           <div><b>الإصدار:</b> ${{d.version||'--'}}</div>
-          <div><b>وقت التشغيل:</b> ${{d.uptime||'--'}}</div>
-          <div><b>المعالج CPU:</b> ${{d.cpu}}%</div>
-          <div><b>مشتركي Hotspot:</b> <span class="badge">${{d.hotspot_active}}</span></div>
-          <div><b>مشتركي PPPoE:</b> <span class="badge">${{d.ppp_active}}</span></div>
+          <div><b>Uptime:</b> ${{d.uptime||'--'}}</div>
+          <div><b>CPU:</b> ${{d.cpu}}%</div>
+          <div><b>Hotspot:</b> <span class="badge">${{d.hotspot_active}}</span></div>
+          <div><b>PPPoE:</b> <span class="badge">${{d.ppp_active}}</span></div>
         </div>
       `;
     }}else box.innerHTML='<span style="color:#ef4444">'+j.msg+'</span>';
-  }}catch(e){{box.innerHTML='<span style="color:#ef4444">تعذر الاتصال بالسيرفر</span>';}}
+  }}catch(e){{box.innerHTML='<span style="color:#ef4444">خطأ اتصال</span>';}}
 }};
 </script>"""
 
@@ -770,12 +747,12 @@ window.fetchMikrotikStatus=async function(id){{
         cards = ""
         for t in rs:
             tid = t.get('id'); tname = esc(t.get('name') or f'برج {tid}'); tarea = esc(t.get('area') or ''); lat = t.get('lat') or 35.1318; lng = t.get('lng') or 36.7578; cnt = t.get('cnt') or 0
-            cards += f'<div class="card tower-card" id="tower-{tid}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🗼 {tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tarea} ({lat:.4f},{lng:.4f})</div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:10px"><button class="btn-circle del" onclick="delTower({tid})">🗑</button></div></div>'
-        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>🗼 الأبراج المسجلة</b><button class=btn-gold onclick="openNewTowerPage()">+ إضافة برج</button></div><div class=grid-small id=towersGrid style="margin-top:10px">{cards or '<div class=card>لا توجد أبراج مسجلة</div>'}</div></div>
+            cards += f'<div class="card tower-card" id="tower-{tid}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:13px">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {tarea} ({lat:.4f},{lng:.4f})</div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:4px;margin-top:6px"><button class="btn-circle del" onclick="delTower({tid})">🗑</button></div></div>'
+        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid style="margin-top:8px">{cards or '<div class=card>فارغ</div>'}</div></div>
 <script>
 window.openNewTowerPage=function(){{
   let b=document.getElementById("editBody");
-  b.innerHTML='<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div style="display:flex;gap:6px"><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%;margin-top:8px">حفظ</button>';
+  b.innerHTML='<input id=nt_name placeholder="الاسم"><input id=nt_area placeholder="المنطقة"><div style="display:flex;gap:4px"><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%;margin-top:6px">حفظ</button>';
   document.getElementById("editModalTitle").textContent="إضافة برج";
   document.getElementById("editModal").classList.add("show");
 }};
@@ -787,7 +764,7 @@ window.saveNewTowerPage=async function(){{
   if(j.ok){{closeEditModal();loadPage('towers',true);}}
 }};
 window.delTower=async function(id){{
-  if(!confirm("هل أنت متأكد من حذف هذا البرج؟"))return;
+  if(!confirm("حذف البرج؟"))return;
   let r=await fetch('/del_tower/'+id);
   let j=await r.json();
   if(j.ok) loadPage('towers',true);
@@ -803,6 +780,301 @@ window.delTower=async function(id){{
             accordion_html += f'''
 <div class="card tower-accordion" id="tower-acc-{tid}">
   <div onclick="toggleAccordionLazy({tid})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
-    <div><b>🗼 {tname}</b> <span class="badge">{cnt} IP</span><div style="font-size:11px;color:#94a3b8">📍 {tarea}</div></div>
+    <div><b style="font-size:13px">🗼 {tname}</b> <span class="badge">{cnt} IP</span><div style="font-size:10px;color:#94a3b8">📍 {tarea}</div></div>
     <div>▼</div>
   </div>
+  <div id="tower-body-{tid}" style="display:none;margin-top:6px;padding-top:6px;border-top:1px dashed #ffffff22">
+    <div id="tower-content-{tid}">...</div>
+  </div>
+</div>'''
+        accordion_html += f'''
+<div class="card" id="tower-acc-0" style="border:1px dashed #ef444488">
+  <div onclick="toggleAccordionLazy(0)" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+    <div><b style="font-size:13px">بدون برج</b> <span class="badge" style="background:#ef4444">{no_cnt} IP</span></div>
+    <div>▼</div>
+  </div>
+  <div id="tower-body-0" style="display:none;margin-top:6px;padding-top:6px;border-top:1px dashed #ffffff22">
+    <div id="tower-content-0"></div>
+  </div>
+</div>'''
+        return f"""
+<div style="max-width:1100px;margin:0 auto">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center">
+    <b>الصحون</b>
+    <button class=btn-gold onclick="openAddDishModal(0)">+ صحن</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">{accordion_html}</div>
+</div>
+<script>
+window.toggleAccordionLazy=async function(tid){{
+  let b=document.getElementById('tower-body-'+tid);
+  if(b.style.display==='none'){{
+    b.style.display='block';
+    let c=document.getElementById('tower-content-'+tid);
+    c.innerHTML='⏳ تحميل...';
+    try{{
+      let r=await fetch('/api/tower_detail/'+tid);
+      if(r.status===401){{location.replace('/login');return;}}
+      let j=await r.json();
+      if(j.ok){{
+        c.innerHTML=(j.dishes||[]).map(d=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #ffffff11">
+            <div><b style="font-size:12px">${{d.dish_name||'صحن'}}</b> - <span class="ip" style="cursor:pointer" onclick="window.open('http://${{d.ip}}','_blank')">${{d.ip}}</span> <small style="color:#888">${{d.location||''}}</small></div>
+            <button class="btn-circle del" onclick="delDish(${{d.id}})">🗑</button>
+          </div>
+        `).join('') || '<div style="color:#888;font-size:11px">فارغ</div>';
+        c.innerHTML += `<button class="btn-gold" onclick="openAddDishModal(${{tid}})" style="width:100%;margin-top:6px">+ إضافة صحن</button>`;
+      }}
+    }}catch(e){{c.innerHTML='خطأ';}}
+  }}else b.style.display='none';
+}};
+window.openAddDishModal=function(tid){{
+  let b=document.getElementById("editBody");
+  b.innerHTML=`
+    <input id="dish_name" placeholder="اسم الصحن">
+    <input id="dish_ip" placeholder="IP">
+    <input id="dish_loc" placeholder="الموقع">
+    <input type="hidden" id="dish_tid" value="${{tid}}">
+    <button class="btn-gold" onclick="saveNewDish()" style="width:100%;margin-top:4px">حفظ</button>
+  `;
+  document.getElementById("editModalTitle").textContent="إضافة صحن";
+  document.getElementById("editModal").classList.add("show");
+}};
+window.saveNewDish=async function(){{
+  let d={{dish_name:document.getElementById("dish_name").value,ip:document.getElementById("dish_ip").value,location:document.getElementById("dish_loc").value,tower_id:document.getElementById("dish_tid").value}};
+  if(!d.ip){{alert("IP مطلوب");return;}}
+  let r=await fetch('/api/add_dish_to_tower',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
+  let j=await r.json();
+  if(j.ok){{closeEditModal();loadPage('dishes',true);}}
+}};
+window.delDish=async function(id){{
+  if(!confirm("حذف؟"))return;
+  let r=await fetch('/del_dish/'+id);
+  let j=await r.json();
+  if(j.ok) loadPage('dishes',true);
+}};
+</script>"""
+
+    if v == 'map':
+        return """
+<div class=card>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <b>الخريطة</b>
+    <span id="mapStatus" style="font-size:11px;color:#ffbe4d"></span>
+  </div>
+  <div id="map" style="height:70vh;border-radius:8px;background:#0f1424"></div>
+</div>
+<script>
+(async function(){
+  try {
+    let map = L.map('map').setView([35.1318, 36.7578], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+    let r = await fetch('/api/towers_list');
+    let j = await r.json();
+    if(j.ok && j.towers){
+      j.towers.forEach(t => {
+        if(t.lat && t.lng){
+          L.marker([t.lat, t.lng]).addTo(map).bindPopup("<b>"+t.name+"</b><br>"+(t.area||''));
+        }
+      });
+      document.getElementById('mapStatus').textContent = j.towers.length + " برج";
+    }
+  } catch(e) {}
+})();
+</script>"""
+
+    if v == 'ping':
+        return """
+<div class=card>
+  <b>البنج</b>
+  <div style="display:flex;gap:6px;margin-top:8px">
+    <input id="pingIp" placeholder="IP الجهاز" style="flex:1">
+    <button class="btn-gold" onclick="runPing()">فحص</button>
+  </div>
+  <div id="pingRes" style="margin-top:8px;padding:8px;background:#000a;border-radius:6px;font-family:monospace;min-height:30px;color:#22c55e;font-size:11px">جاهز</div>
+</div>
+<script>
+window.runPing=async function(){
+  let ip=document.getElementById('pingIp').value.trim();
+  if(!ip)return;
+  let o=document.getElementById('pingRes');
+  o.textContent='...';
+  try{
+    let r=await fetch('/api/ping?ip='+encodeURIComponent(ip));
+    let j=await r.json();
+    o.textContent=j.out;
+  }catch(e){o.textContent='خطأ';}
+};
+</script>"""
+
+    if v == 'network':
+        dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC LIMIT 100")
+        cards = ""
+        for d in dishes:
+            cards += f"""
+<div class="card" id="net-card-{d['id']}">
+  <div style="display:flex;justify-content:space-between"><b style="font-size:12px">{esc(d.get('dish_name') or 'صحن')}</b><span class="badge">{esc(d.get('location') or '')}</span></div>
+  <div style="margin-top:4px;display:flex;justify-content:space-between;align-items:center">
+    <span class="ip" style="cursor:pointer" onclick="window.open('http://{esc(d.get('ip') or '')}','_blank')">{esc(d.get('ip') or '')}</span>
+    <span class="net-status" id="net-status-{d['id']}" style="font-size:10px;color:#888">-</span>
+  </div>
+</div>"""
+        return f"""
+<div class=card style="display:flex;justify-content:space-between;align-items:center">
+  <b>الشبكة</b>
+  <button class=btn-gold onclick="pingAllNetwork()">فحص الكل</button>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">{cards or '<div class=card>فارغ</div>'}</div>
+<script>
+window.pingAllNetwork=async function(){{
+  let cards=document.querySelectorAll("[id^=net-card-]");
+  for(let c of cards){{
+    let id=c.id.replace('net-card-','');
+    let ipEl=c.querySelector('.ip');
+    let stEl=document.getElementById('net-status-'+id);
+    if(ipEl && stEl){{
+      stEl.textContent='...';
+      fetch('/api/ping?ip='+encodeURIComponent(ipEl.textContent)).then(r=>r.json()).then(j=>{{stEl.textContent=j.out;}}).catch(()=>{{stEl.textContent='لا يرد';}});
+    }}
+    await new Promise(r=>setTimeout(r, 60));
+  }}
+}};
+</script>"""
+
+    if v == 'subs':
+        rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 100")
+        rows = "".join([f"<tr><td>{esc(r.get('name') or '')}</td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"delSub({r.get('id')})\">🗑</button></td></tr>" for r in rs])
+        return f"""
+<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ مشترك</button></div>
+<form id=fSub style="display:none;gap:4px;margin-top:6px"><input name=name placeholder="الاسم" required><input name=phone placeholder="الهاتف" required><input name=note placeholder="ملاحظة"><button class=btn-gold>+</button></form>
+<table style="width:100%;margin-top:8px"><thead><tr><th>الاسم</th><th>الهاتف</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
+<script>
+document.getElementById('fSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok)loadPage('subs',true);}});
+window.delSub=async function(id){{if(!confirm("حذف؟"))return;let r=await fetch('/del_sub/'+id);let j=await r.json();if(j.ok)loadPage('subs',true);}};
+</script>"""
+
+    if v == 'ledger':
+        rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
+        rows = "".join([f"<tr><td>{esc(r.get('name') or '')}</td><td><b>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"delLedger({r.get('id')})\">🗑</button></td></tr>" for r in rs])
+        return f"""
+<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div>
+<form id=fLed style="display:none;gap:4px;margin-top:6px"><input name=name placeholder="البيان" required><input name=amount type=number step=0.01 placeholder="المبلغ" required><input name=note placeholder="ملاحظة"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form>
+<table style="width:100%;margin-top:8px"><thead><tr><th>البيان</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
+<script>
+document.getElementById('fLed').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_ledger',{{method:'POST',body:new FormData(e.target)}});let j=await r.json();if(j.ok)loadPage('ledger',true);}});
+window.delLedger=async function(id){{if(!confirm("حذف؟"))return;let r=await fetch('/del_ledger/'+id);let j=await r.json();if(j.ok)loadPage('ledger',true);}};
+</script>"""
+
+    if v == 'settings':
+        return f"""
+<div style="max-width:1100px;margin:0 auto">
+  <div class=card>
+    <b>كلمة المرور</b>
+    <form id=formPass style="display:flex;gap:6px;margin-top:6px">
+      <input name=newpass type=password placeholder="كلمة المرور الجديدة" required style="flex:1">
+      <button class=btn-gold>حفظ</button>
+    </form>
+  </div>
+  <div class=card style="margin-top:8px">
+    <b>الدعم الفني</b>
+    <div style="margin-top:4px"><a href="{SUPPORT_WA_LINK}" target="_blank" style="color:#25D366;text-decoration:none">واتساب +{SUPPORT_WA}</a></div>
+  </div>
+</div>
+<script>
+document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault();let r=await fetch("/change_pass",{{method:"POST",body:new FormData(e.target)}});let j=await r.json();if(j.ok){{alert("تم الحفظ");e.target.reset();}}}});
+</script>"""
+
+    if v == 'logs':
+        rs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 200")
+        rows = "".join([f"<tr><td>{esc(r.get('time',''))}</td><td><b>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td>{esc(r.get('detail',''))}</td></tr>" for r in rs])
+        return f"""
+<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>السجل</b><div style="display:flex;gap:4px"><a href="/api/export/logs" class=btn-gold style="text-decoration:none">CSV</a><button class=btn-gold onclick="clearAllLogs()" style="background:#ef4444">مسح</button></div></div>
+<table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>المستخدم</th><th>عملية</th><th>الهدف</th><th>تفاصيل</th></tr></thead><tbody>{rows or '<tr><td colspan=5>فارغ</td></tr>'}</tbody></table>
+<script>
+window.clearAllLogs=async function(){{if(!confirm("مسح؟"))return;await fetch("/api/clear_logs",{{method:"POST"}});loadPage("logs",true);}};
+</script>"""
+
+    return "<div class=card>غير موجود</div>"
+
+def layout(c, v='home'):
+    cur_user = qone("SELECT * FROM users WHERE phone=?", (session.get('phone') or '',)) or {}
+    return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
+<link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>
+<style>
+*{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
+body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%);color:#fff;overflow-x:hidden}}
+.card{{background:#1e2433ee;color:#fff;padding:8px 10px;border-radius:10px;margin-bottom:6px;border:1px solid #ffffff18}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 10px;border:0;border-radius:6px;font-weight:700;font-size:11px;cursor:pointer}}
+.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}}
+.top{{position:fixed;top:0;left:0;right:0;height:48px;background:#1e2433;display:flex;align-items:center;justify-content:space-between;padding:0 10px;z-index:1003;border-bottom:1px solid #ffffff18}}
+.sidebar{{position:fixed;top:0;right:0;width:240px;height:100vh;background:rgba(15,20,36,0.96);backdrop-filter:blur(15px);z-index:1002;padding:12px;transform:translateX(110%);transition:transform .2s ease;overflow-y:auto;border-left:1px solid #ffffff18}}
+.sidebar.active{{transform:none}}
+.sidebar a{{display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:6px;color:#fff;text-decoration:none;border-radius:8px;background:#ffffff08;font-size:13px;font-weight:600}}
+.sidebar a.active{{background:rgba(255,190,77,0.2);color:#ffbe4d;border:1px solid #ffbe4d}}
+#overlay{{position:fixed;inset:0;background:#0008;z-index:1001;display:none}} #overlay.show{{display:block}}
+.main{{margin-top:54px;padding:8px;min-height:90vh}}
+.btn-circle{{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-size:11px}}
+.btn-circle.del{{background:rgba(239,68,68,0.2);color:#ef4444;border-color:rgba(239,68,68,0.4)}}
+.btn-circle.view{{background:rgba(6,182,212,0.2);color:#06b6d4;border-color:rgba(6,182,212,0.4)}}
+.ip{{background:#000;color:#ffbe4d;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:10px}}
+.badge{{background:#ffbe4d;color:#111;padding:2px 5px;border-radius:4px;font-size:10px;font-weight:700}}
+table{{width:100%;border-collapse:collapse}} th{{background:#ffffff11;padding:6px;text-align:right;font-size:11px}} td{{padding:6px;border-bottom:1px solid #ffffff11;font-size:11px}}
+#editModal{{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;z-index:2000}}
+#editModal.show{{display:flex}}
+#editBox{{background:#1e2433;border:1px solid #ffffff22;border-radius:10px;padding:14px;width:90%;max-width:380px}}
+input,select{{width:100%;padding:8px;border-radius:6px;border:1px solid #ffffff22;background:#0f1424;color:#fff;margin-bottom:6px;font-size:12px}}
+.stat{{text-align:center;cursor:pointer;padding:8px 4px}} .stat h4{{margin:2px 0;font-size:11px}} .stat h3{{margin:2px 0;font-size:14px}} .ico{{font-size:18px}}
+</style>
+<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>
+</head><body>
+<div id=overlay onclick="toggleSb(false)"></div>
+<div class=sidebar id=sb>
+<div style='padding-bottom:10px;border-bottom:1px solid #ffffff18;margin-bottom:8px'><b style="font-size:15px">OMAIA <span style='color:#ffbe4d'>ISP</span></b><br><small>{esc(cur_user.get('username') or '')}</small></div>
+<a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home>🏠 <span>الرئيسية</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('mikrotik')" id=nav-mikrotik>🖧 <span>ميكروتك</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers>🗼 <span>الأبراج</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('dishes')" id=nav-dishes>📡 <span>الصحون</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('map')" id=nav-map>🗺 <span>الخريطة</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ping')" id=nav-ping>📶 <span>البنج</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('network')" id=nav-network>📊 <span>الشبكة</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('subs')" id=nav-subs>👥 <span>المشتركين</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>الحسابات</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>السجل</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙ <span>الإعدادات</span></a>
+<a href="/logout" style="margin-top:12px;background:rgba(239,68,68,0.2);color:#ff6b6b">🚪 <span>خروج</span></a>
+</div>
+
+<div class=top>
+<div style="display:flex;align-items:center;gap:8px"><span onclick="toggleSb()" style='font-size:20px;cursor:pointer'>☰</span> <b style="font-size:15px">OMAIA <span style='color:#ffbe4d'>ISP</span></b></div>
+</div>
+
+<div class=main id=mn>{c}</div>
+
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;margin-bottom:8px'><b id=editModalTitle style="font-size:13px">نافذة</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#fff;cursor:pointer'>✕</button></div><div id=editBody></div></div></div>
+
+<script>
+let cur='{v}';
+function toggleSb(f){{let sb=document.getElementById('sb'),ov=document.getElementById('overlay'); let o=f!==undefined?f:!sb.classList.contains('active'); sb.classList.toggle('active',o); ov.classList.toggle('show',o);}}
+async function loadPage(v,force=false){{
+  cur=v; toggleSb(false);
+  document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
+  let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
+  let mn=document.getElementById('mn'); mn.innerHTML="<div class=card>تحميل...</div>";
+  try{{
+    let r=await fetch('/api/page?v='+v);
+    if(r.status===401){{ location.replace('/login'); return; }}
+    let t=await r.text();
+    if(t.includes('"ok":false') && t.includes('غير مسجل')){{ location.replace('/login'); return; }}
+    mn.innerHTML=t;
+    execScripts();
+  }}catch(e){{ mn.innerHTML='<div class=card style="color:#ef4444">خطأ</div>'; }}
+}}
+function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
+window.closeEditModal=()=>document.getElementById('editModal').classList.remove('show');
+loadPage(cur,true);
+</script></body></html>"""
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), debug=False)
+
+```
