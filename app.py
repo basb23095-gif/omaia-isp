@@ -38,7 +38,7 @@ _slock = threading.Lock()
 _cache = {}
 _clock = threading.Lock()
 
-# قاموس اللغات (العربية والإنجليزية)
+# قاموس اللغات
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
@@ -192,18 +192,18 @@ def init_db():
         try: qexec(al)
         except Exception: pass
 
-    # إضافة الحسابات الأساسية في حال عدم وجودها
-    if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
-        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'مدير النظام'))
-              
-    if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
-        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'المدير الأساسي'))
-
-    # أمر إجباري لتحديث وإصلاح كلمات المرور للحسابين أعلاه (لحل مشكلة عدم القدرة على تسجيل الدخول)
-    qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
-          (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
+    # إضافة الحسابات الأساسية في حال عدم وجودها وتحديث الباسوورد
+    try:
+        if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
+            qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
+                  ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'مدير النظام'))
+        if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
+            qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
+                  ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'المدير الأساسي'))
+        
+        qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
+              (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
+    except Exception: pass
 
     if not qone("SELECT * FROM system_config WHERE key=?", ('card_size',)):
         qexec("INSERT INTO system_config(key,value) VALUES(?,?)", ('card_size', '120'))
@@ -352,7 +352,7 @@ def api_login_public():
         uin = request.form.get('userin', '').strip(); pw = request.form.get('password', '')
         rem = request.form.get('remember') == 'on'
         u = qone("SELECT * FROM users WHERE phone=? OR username=?", (uin, uin))
-        if u and check_password_hash(u['password'], pw):
+        if u and check_password_hash(u.get('password', ''), pw):
             session.clear()
             session['phone'] = u['phone']
             session['username'] = u.get('username') or u['phone']
@@ -360,8 +360,10 @@ def api_login_public():
             if rem: session.permanent = True
             add_log(u['phone'], 'تسجيل دخول', uin, f'{uin}', u.get('username') or uin)
             return jsonify(ok=True)
-        return jsonify(ok=False, msg='بيانات الدخول غير صحيحة'), 401
-    except Exception as e: return jsonify(ok=False, msg=str(e)), 500
+        return jsonify(ok=False, msg='البيانات غير صحيحة'), 401
+    except Exception as e: 
+        traceback.print_exc()
+        return jsonify(ok=False, msg=str(e)), 500
 
 @app.route('/api/clear_logs', methods=['POST'])
 @login_required
@@ -528,20 +530,29 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
   <input type="checkbox" name="remember" checked style="width:auto;margin:0"> حفظ الدخول (30 يوم)
 </label>
 <button class=btn id=loginBtn>دخول Login</button>
-<div id=msg style='text-align:center;color:#ff6b6b;font-size:12px;margin-top:8px'></div>
+<div id=msg style='text-align:center;color:#ff6b6b;font-size:12px;margin-top:10px;font-weight:bold'></div>
 </form>
 </div>
 <script>
 document.getElementById('loginForm').addEventListener('submit', async e => {{
   e.preventDefault();
   let b = document.getElementById('loginBtn'), m = document.getElementById('msg');
-  b.disabled = true;
+  b.disabled = true; b.textContent = 'جاري التحقق...'; m.textContent = '';
   try {{
     let res = await fetch('/api/login_public', {{ method: 'POST', body: new FormData(e.target) }});
-    let j = await res.json();
-    if(j.ok) location.replace('/dash?v=home');
-    else {{ m.textContent = 'بيانات خاطئة'; b.disabled = false; }}
-  }} catch {{ m.textContent = 'خطأ اتصال'; b.disabled = false; }}
+    let txt = await res.text();
+    try {{
+        let j = JSON.parse(txt);
+        if(j.ok) location.replace('/dash?v=home');
+        else {{ m.textContent = j.msg || 'البيانات خاطئة'; b.disabled = false; b.textContent = 'دخول Login'; }}
+    }} catch (parseErr) {{
+        m.textContent = 'خطأ من السيرفر، ربما الموقع متوقف مؤقتاً';
+        b.disabled = false; b.textContent = 'دخول Login';
+    }}
+  }} catch (err) {{ 
+    m.textContent = 'خطأ اتصال بالشبكة'; 
+    b.disabled = false; b.textContent = 'دخول Login';
+  }}
 }});
 </script></body></html>"""
 
@@ -623,7 +634,7 @@ window.fetchMikrotikStatus=async function(id){{
     if(j.ok){{
       let d=j.data; box.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><div><b>ID:</b> ${{d.identity}}</div><div><b>CPU:</b> ${{d.cpu}}%</div><div><b>Uptime:</b> ${{d.uptime}}</div><div><b>Hotspot:</b> <span class="badge">${{d.hotspot_active}}</span></div></div>`;
     }}else box.innerHTML='<span style="color:#ef4444">Error</span>';
-  }}catch(e){{box.innerHTML='<span style="color:#ef4444">Error</span>';}}
+  }}catch(err){{box.innerHTML='<span style="color:#ef4444">Error</span>';}}
 }};
 </script>"""
 
@@ -710,7 +721,7 @@ window.toggleAccordionLazy=async function(tid){{
         `).join('') || '<div style="color:#888;font-size:12px;text-align:center;padding:10px">فارغ Empty</div>';
         c.innerHTML += `<button class="btn-gold" onclick="openDishModal(0, ${{tid}},'','','')" style="width:100%;margin-top:12px">{tr['add_dish']}</button>`;
       }}
-    }}catch(e){{c.innerHTML='Error';}}
+    }}catch(err){{c.innerHTML='Error';}}
   }}else b.style.display='none';
 }};
 window.openDishModal=function(id, tid, name, ip, loc){{
@@ -754,7 +765,7 @@ window.delDish=async function(e, id){{
 window.runPing=async function(){{
   let ip=document.getElementById('pingIp').value.trim(); if(!ip)return;
   let o=document.getElementById('pingRes'); o.textContent='...';
-  try{{ let r=await fetch('/api/ping?ip='+encodeURIComponent(ip)); o.textContent=(await r.json()).out; }}catch(e){{o.textContent='Error';}}
+  try{{ let r=await fetch('/api/ping?ip='+encodeURIComponent(ip)); o.textContent=(await r.json()).out; }}catch(err){{o.textContent='Error';}}
 }};
 </script>"""
 
@@ -1017,7 +1028,7 @@ async function loadPage(v,force=false){{
     if(t.includes('"ok":false') && t.includes('غير مسجل')){{ location.replace('/login'); return; }}
     mn.innerHTML=t;
     execScripts();
-  }}catch(e){{ mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">Error Loading Page</div>`; }}
+  }}catch(err){{ mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">Error Loading Page</div>`; }}
 }}
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
 
