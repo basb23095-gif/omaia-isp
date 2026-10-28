@@ -38,27 +38,27 @@ _slock = threading.Lock()
 _cache = {}
 _clock = threading.Lock()
 
-# قاموس اللغات
+# قاموس اللغات (عربي / إنجليزي)
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
         'home': 'الرئيسية', 'towers': 'الأبراج', 'dishes': 'الصحون والآيبيهات',
-        'ping': 'البنج', 'network': 'الشبكة', 'subs': 'المشتركين', 'ledger': 'الحسابات',
+        'ping': 'البنج (Ping)', 'network': 'الشبكة', 'subs': 'المشتركين', 'ledger': 'الحسابات',
         'users': 'المستخدمين', 'logs': 'السجل', 'settings': 'الإعدادات', 'logout': 'تسجيل خروج',
         'add': 'إضافة', 'edit': 'تعديل', 'delete': 'حذف', 'save': 'حفظ',
         'sure': 'هل أنت متأكد من الحذف؟ لا يمكن التراجع!', 'search': 'بحث...', 'mikrotik': 'ميكروتك',
         'add_tower': '+ برج جديد', 'add_dish': '+ صحن جديد', 'ip': 'الآي بي', 'name': 'الاسم',
-        'manager': 'مدير', 'tech': 'فني', 'phone': 'رقم الهاتف', 'role': 'الصلاحية', 'empty': 'لا توجد بيانات'
+        'manager': 'مدير', 'tech': 'فني', 'phone': 'اسم الدخول/الهاتف', 'role': 'الصلاحية', 'empty': 'لا توجد بيانات'
     },
     'en': {
         'dir': 'ltr', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
         'home': 'Home', 'towers': 'Towers', 'dishes': 'Dishes & IPs',
-        'ping': 'Ping', 'network': 'Network', 'subs': 'Subscribers', 'ledger': 'Ledger',
+        'ping': 'Ping Check', 'network': 'Network', 'subs': 'Subscribers', 'ledger': 'Ledger',
         'users': 'Users', 'logs': 'Logs', 'settings': 'Settings', 'logout': 'Logout',
         'add': 'Add', 'edit': 'Edit', 'delete': 'Delete', 'save': 'Save',
         'sure': 'Are you sure you want to delete?', 'search': 'Search...', 'mikrotik': 'MikroTik',
         'add_tower': '+ New Tower', 'add_dish': '+ New Dish', 'ip': 'IP Address', 'name': 'Name',
-        'manager': 'Manager', 'tech': 'Tech', 'phone': 'Phone', 'role': 'Role', 'empty': 'No data found'
+        'manager': 'Manager', 'tech': 'Tech', 'phone': 'Login/Phone', 'role': 'Role', 'empty': 'No data found'
     }
 }
 
@@ -159,19 +159,12 @@ def add_log(phone, action, target='', detail='', username=''):
         if not ok:
             qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",
                   (phone or 'sys', action, str((detail or target))[:500], now))
-        with _clock:
-            for k in ['counts', 'logs']: _cache.pop(k, None)
     except Exception: pass
 
 def get_counts():
-    with _clock:
-        c = _cache.get('counts')
-        if c and time.time() - c[1] < 60: return c[0]
     try:
         row = qone("SELECT (SELECT COUNT(*) FROM subs) as ns, (SELECT COUNT(*) FROM dish_ips) as nd, (SELECT COUNT(*) FROM towers) as nt, (SELECT COUNT(*) FROM ledger) as nl, (SELECT COUNT(*) FROM mikrotik_servers) as nm")
-        d = (row.get('ns', 0), row.get('nd', 0), row.get('nt', 0), row.get('nl', 0), row.get('nm', 0)) if row else (0, 0, 0, 0, 0)
-        with _clock: _cache['counts'] = (d, time.time())
-        return d
+        return (row.get('ns', 0), row.get('nd', 0), row.get('nt', 0), row.get('nl', 0), row.get('nm', 0)) if row else (0, 0, 0, 0, 0)
     except Exception: return (0, 0, 0, 0, 0)
 
 def init_db():
@@ -192,18 +185,18 @@ def init_db():
         try: qexec(al)
         except Exception: pass
 
-    # إضافة الحسابات الأساسية في حال عدم وجودها وتحديث الباسوورد
-    try:
-        if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
-            qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-                  ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'مدير النظام'))
-        if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
-            qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-                  ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'المدير الأساسي'))
-        
-        qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
-              (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
-    except Exception: pass
+    # إضافة المستخدمين الأساسيين بصلاحيات المدير
+    if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
+        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
+              ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'مدير النظام'))
+              
+    if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
+        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
+              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'المدير الأساسي'))
+
+    # تحديث إجباري لحل مشكلة تسجيل الدخول
+    qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
+          (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
 
     if not qone("SELECT * FROM system_config WHERE key=?", ('card_size',)):
         qexec("INSERT INTO system_config(key,value) VALUES(?,?)", ('card_size', '120'))
@@ -349,8 +342,11 @@ def set_config():
 @app.route('/api/login_public', methods=['POST'])
 def api_login_public():
     try:
-        uin = request.form.get('userin', '').strip(); pw = request.form.get('password', '')
-        rem = request.form.get('remember') == 'on'
+        d = request.json if request.is_json else request.form
+        uin = str(d.get('userin') or '').strip()
+        pw = str(d.get('password') or '').strip()
+        rem = bool(d.get('remember'))
+        
         u = qone("SELECT * FROM users WHERE phone=? OR username=?", (uin, uin))
         if u and check_password_hash(u.get('password', ''), pw):
             session.clear()
@@ -360,8 +356,8 @@ def api_login_public():
             if rem: session.permanent = True
             add_log(u['phone'], 'تسجيل دخول', uin, f'{uin}', u.get('username') or uin)
             return jsonify(ok=True)
-        return jsonify(ok=False, msg='البيانات غير صحيحة'), 401
-    except Exception as e: 
+        return jsonify(ok=False, msg='بيانات الدخول غير صحيحة'), 401
+    except Exception as e:
         traceback.print_exc()
         return jsonify(ok=False, msg=str(e)), 500
 
@@ -483,7 +479,7 @@ def edit_user():
 @login_required
 @role_required_manager
 def del_user(phone):
-    if phone == 'admin' or phone == '05344851045': return jsonify(ok=False, msg="لا يمكن حذف المدير الأساسي")
+    if phone in ['admin', '05344851045']: return jsonify(ok=False, msg="لا يمكن حذف المدير الأساسي")
     ok = qexec("DELETE FROM users WHERE phone=?", (phone,))
     if ok: add_log(session.get('phone'), 'حذف مستخدم', phone)
     return jsonify(ok=ok)
@@ -524,12 +520,12 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
 <div class=card>
 <div style='text-align:center;font-weight:900;font-size:26px;margin-bottom:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <form id=loginForm>
-<input name=userin placeholder='{tr['name']} / {tr['phone']}' required autofocus>
-<input name=password type=password placeholder='***' required>
+<input name=userin placeholder="{tr['phone']}" required autofocus>
+<input name=password type=password placeholder="***" required>
 <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:10px;cursor:pointer">
-  <input type="checkbox" name="remember" checked style="width:auto;margin:0"> حفظ الدخول (30 يوم)
+  <input type="checkbox" name="remember" checked id="rememberBox" style="width:auto;margin:0"> حفظ الدخول
 </label>
-<button class=btn id=loginBtn>دخول Login</button>
+<button class=btn id=loginBtn>تسجيل الدخول</button>
 <div id=msg style='text-align:center;color:#ff6b6b;font-size:12px;margin-top:10px;font-weight:bold'></div>
 </form>
 </div>
@@ -538,20 +534,32 @@ document.getElementById('loginForm').addEventListener('submit', async e => {{
   e.preventDefault();
   let b = document.getElementById('loginBtn'), m = document.getElementById('msg');
   b.disabled = true; b.textContent = 'جاري التحقق...'; m.textContent = '';
+  
+  let payload = {{
+      userin: e.target.userin.value,
+      password: e.target.password.value,
+      remember: document.getElementById('rememberBox').checked
+  }};
+  
   try {{
-    let res = await fetch('/api/login_public', {{ method: 'POST', body: new FormData(e.target) }});
+    let res = await fetch('/api/login_public', {{ 
+        method: 'POST', 
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify(payload)
+    }});
+    
     let txt = await res.text();
     try {{
         let j = JSON.parse(txt);
         if(j.ok) location.replace('/dash?v=home');
-        else {{ m.textContent = j.msg || 'البيانات خاطئة'; b.disabled = false; b.textContent = 'دخول Login'; }}
+        else {{ m.textContent = j.msg || 'البيانات خاطئة'; b.disabled = false; b.textContent = 'تسجيل الدخول'; }}
     }} catch (parseErr) {{
-        m.textContent = 'خطأ من السيرفر، ربما الموقع متوقف مؤقتاً';
-        b.disabled = false; b.textContent = 'دخول Login';
+        m.textContent = 'خطأ من السيرفر، يرجى المحاولة بعد قليل';
+        b.disabled = false; b.textContent = 'تسجيل الدخول';
     }}
   }} catch (err) {{ 
     m.textContent = 'خطأ اتصال بالشبكة'; 
-    b.disabled = false; b.textContent = 'دخول Login';
+    b.disabled = false; b.textContent = 'تسجيل الدخول';
   }}
 }});
 </script></body></html>"""
@@ -917,7 +925,6 @@ def layout(c, v='home'):
     cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
     c_size = cfg.get('card_size', '120')
 
-    # شرطية عرض زر المستخدمين في السايد بار فقط للمدير
     users_link = f"""<a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>👥 <span>{tr['users']}</span></a>""" if is_manager() else ""
 
     return f"""<html dir="{tr['dir']}" lang="{l}"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
@@ -928,7 +935,6 @@ body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, 
 .btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:8px 16px;border:0;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer}}
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 120px),1fr));gap:10px}}
 .top{{position:fixed;top:0;left:0;right:0;height:55px;background:rgba(15,20,36,0.8);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.1)}}
-/* Sidebar Glassmorphism */
 .sidebar{{position:fixed;top:0;bottom:0;width:260px;background:rgba(20, 25, 45, 0.35);backdrop-filter:blur(25px);-webkit-backdrop-filter:blur(25px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 30px rgba(0,0,0,0.5);z-index:1004;padding:20px 14px;transition:transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275);overflow-y:auto}}
 html[dir="rtl"] .sidebar{{transform:translateX(110%);right:0;border-radius:24px 0 0 24px}}
 html[dir="rtl"] .sidebar.active{{transform:translateX(0)}}
@@ -940,12 +946,10 @@ html[dir="ltr"] .sidebar.active{{transform:translateX(0)}}
 #overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);z-index:1001;display:none;opacity:0;transition:opacity 0.3s}} 
 #overlay.show{{display:block;opacity:1}}
 .main{{margin-top:65px;padding:12px;min-height:90vh}}
-/* أزرار Glassmorphism شفافة ونصف دائرية */
 .glass-btn{{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;transition:all 0.2s ease}}
 .glass-btn:hover{{background:rgba(255,255,255,0.15);transform:translateY(-2px)}}
 .glass-btn.edit{{color:#38bdf8;border-color:rgba(56,189,248,0.4);background:rgba(56,189,248,0.1)}}
 .glass-btn.del{{color:#ef4444;border-color:rgba(239,68,68,0.4);background:rgba(239,68,68,0.1)}}
-.glass-btn.view{{color:#34d399;border-color:rgba(52,211,153,0.4);background:rgba(52,211,153,0.1)}}
 .ip{{background:#000;color:#ffbe4d;padding:4px 8px;border-radius:6px;font-family:monospace;font-size:12px}}
 .badge{{background:#ffbe4d;color:#111;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:800}}
 table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.05);padding:10px;text-align:start;font-size:13px;border-bottom:2px solid rgba(255,255,255,0.1)}} td{{padding:10px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px}}
@@ -1028,7 +1032,7 @@ async function loadPage(v,force=false){{
     if(t.includes('"ok":false') && t.includes('غير مسجل')){{ location.replace('/login'); return; }}
     mn.innerHTML=t;
     execScripts();
-  }}catch(err){{ mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">Error Loading Page</div>`; }}
+  }}catch(e){{ mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">Error Loading Page</div>`; }}
 }}
 function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
 
