@@ -1,8 +1,3 @@
-لقد قمت بدمج كافة التعديلات التي طلبناها (الأزرار الدائرية الزجاجية Glassmorphism، فتح الروابط بشكل صحيح، البحث الفوري للمشتركين والأبراج والصحون، وتبسيط التفاعل) داخل الكود الخاص بك بالكامل.
-
-إليك كود `app.py` كاملاً وجاهزاً للنسخ والتشغيل مباشرة:
-
-```python
 # -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
@@ -1110,6 +1105,5 @@ loadPage(cur,true);
 </script></body></html>"""
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)), debug=False)
-
-```
+    # تم تثبيت البورت على 5000 ليعمل مباشرة بدون مشاكل
+    app.run(host='0.0.0.0', port=5000, debug=True)
