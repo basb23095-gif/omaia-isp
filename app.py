@@ -24,7 +24,8 @@ from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "omaia_isp_fixed_secret_token_2026_xyz")
-app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
+# جعل الجلسة تدوم 30 يوماً لحفظ تسجيل الدخول
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -334,13 +335,14 @@ def set_config():
 def api_login_public():
     try:
         uin = request.form.get('userin', '').strip(); pw = request.form.get('password', '')
+        rem = request.form.get('remember') == 'on'
         u = qone("SELECT * FROM users WHERE phone=? OR username=?", (uin, uin))
         if u and check_password_hash(u['password'], pw):
             session.clear()
             session['phone'] = u['phone']
             session['username'] = u.get('username') or u['phone']
             session['role'] = u.get('role') or 'tech'
-            session.permanent = True
+            if rem: session.permanent = True
             add_log(u['phone'], 'تسجيل دخول', uin, f'{uin}', u.get('username') or uin)
             return jsonify(ok=True)
         return jsonify(ok=False, msg='بيانات الدخول غير صحيحة'), 401
@@ -450,6 +452,18 @@ def add_user():
     if ok: add_log(session.get('phone'), 'إضافة مستخدم', u, f"صلاحية: {r}")
     return jsonify(ok=ok)
 
+@app.route('/api/users/edit', methods=['POST'])
+@login_required
+@role_required_manager
+def edit_user():
+    d = request.json
+    p, pw, r = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech')
+    if pw:
+        qexec("UPDATE users SET password=?, role=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, p))
+    else:
+        qexec("UPDATE users SET role=? WHERE phone=?", (r, p))
+    return jsonify(ok=True)
+
 @app.route('/api/users/del/<phone>', methods=['POST'])
 @login_required
 @role_required_manager
@@ -486,17 +500,20 @@ def login():
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
 *{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%,#1a2344,#0a0e2a 60%);display:flex;align-items:center;justify-content:center;color:#fff}}
-.card{{background:#1e2433ee;border:1px solid #ffffff18;padding:20px;border-radius:14px;width:92%;max-width:340px}}
-input{{width:100%;padding:10px;margin:6px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:8px}}
-.btn{{width:100%;padding:11px;border:0;border-radius:8px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:700;cursor:pointer}}
+.card{{background:#1e2433ee;border:1px solid #ffffff18;padding:24px;border-radius:14px;width:92%;max-width:340px;box-shadow:0 10px 25px rgba(0,0,0,0.5)}}
+input{{width:100%;padding:12px;margin:6px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:8px}}
+.btn{{width:100%;padding:12px;border:0;border-radius:8px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:700;cursor:pointer;margin-top:10px}}
 </style></head><body>
 <div class=card>
-<div style='text-align:center;font-weight:800;font-size:22px;margin-bottom:12px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
+<div style='text-align:center;font-weight:800;font-size:24px;margin-bottom:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <form id=loginForm>
 <input name=userin id=userin placeholder='اسم المستخدم أو رقم الهاتف' required autofocus>
 <input name=password id=password type=password placeholder='كلمة المرور' required>
-<button class=btn id=loginBtn>دخول</button>
-<div id=msg style='text-align:center;color:#ff6b6b;font-size:11px;margin-top:6px'></div>
+<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:10px;cursor:pointer">
+  <input type="checkbox" name="remember" checked style="width:auto;margin:0"> حفظ تسجيل الدخول
+</label>
+<button class=btn id=loginBtn>تسجيل الدخول</button>
+<div id=msg style='text-align:center;color:#ff6b6b;font-size:11px;margin-top:8px'></div>
 </form>
 </div>
 <script>
@@ -508,9 +525,9 @@ document.getElementById('loginForm').addEventListener('submit', async e => {{
     let res = await fetch('/api/login_public', {{ method: 'POST', body: new FormData(e.target) }});
     let j = await res.json();
     if(j.ok) location.replace('/dash?v=home');
-    else {{ m.textContent = j.msg || 'خطأ في بيانات الدخول'; b.textContent = 'دخول'; b.disabled = false; }}
+    else {{ m.textContent = j.msg || 'خطأ في بيانات الدخول'; b.textContent = 'تسجيل الدخول'; b.disabled = false; }}
   }} catch {{
-    m.textContent = 'خطأ في الاتصال بالخادم'; b.textContent = 'دخول'; b.disabled = false;
+    m.textContent = 'خطأ في الاتصال بالخادم'; b.textContent = 'تسجيل الدخول'; b.disabled = false;
   }}
 }});
 </script></body></html>"""
@@ -583,6 +600,7 @@ window.saveNewMikrotik=async function(){{
   if((await r.json()).ok){{closeEditModal();loadPage('mikrotik',true);}}
 }};
 window.delMk=async function(e, id){{
+  if(!confirm("هل أنت متأكد من حذف هذا السيرفر؟")) return;
   let r=await fetch('/api/mikrotik/del/'+id);
   if((await r.json()).ok) e.target.closest('.card').remove();
 }};
@@ -599,9 +617,37 @@ window.fetchMikrotikStatus=async function(id){{
 
     if v == 'towers':
         rs = qall("SELECT t.id,t.name,t.area, COUNT(d.id) as cnt FROM towers t LEFT JOIN dish_ips d ON d.tower_id=t.id GROUP BY t.id,t.name,t.area ORDER BY t.name ASC")
-        cards = "".join([f"""<div class="card tower-card" id="tower-{t['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:13px">🗼 {esc(t['name'])}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {esc(t.get('area') or 'بدون منطقة')}</div></div><span class=badge>{t['cnt']} صحن</span></div><div style="display:flex;gap:6px;margin-top:8px"><button class="glass-btn edit" onclick="openEditTower({t['id']}, '{esc(t['name'])}', '{esc(t.get('area') or '')}')">✏️ تعديل</button><button class="glass-btn del" onclick="delTower(event, {t['id']})">🗑 حذف</button></div></div>""" for t in rs])
-        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الأبراج</b><button class=btn-gold onclick="openNewTower()">+ برج</button></div><input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="بحث عن برج..." style="margin-top:6px;width:100%"><div class=grid-small id=towersGrid style="margin-top:8px">{cards or '<div class=card>لا يوجد أبراج</div>'}</div></div>
+        cards = "".join([f"""
+<div class="card tower-card" id="tower-{t['id']}">
+  <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="viewTowerIps({t['id']})">
+    <div><b style="font-size:13px">🗼 {esc(t['name'])}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {esc(t.get('area') or 'بدون منطقة')}</div></div>
+    <span class=badge>{t['cnt']} صحن</span>
+  </div>
+  <div id="tower-ips-{t['id']}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22"></div>
+  <div style="display:flex;gap:6px;margin-top:8px">
+    <button class="glass-btn edit" onclick="openEditTower({t['id']}, '{esc(t['name'])}', '{esc(t.get('area') or '')}')">✏️ تعديل</button>
+    <button class="glass-btn del" onclick="delTower(event, {t['id']})">🗑 حذف</button>
+  </div>
+</div>""" for t in rs])
+        return f"""
+<div style="max-width:1100px;margin:0 auto">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الأبراج</b><button class=btn-gold onclick="openNewTower()">+ برج جديد</button></div>
+  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="بحث عن برج..." style="margin-top:6px;width:100%">
+  <div class=grid-small id=towersGrid style="margin-top:8px">{cards or '<div class=card>لا يوجد أبراج</div>'}</div>
+</div>
 <script>
+window.viewTowerIps = async function(tid) {{
+  let b = document.getElementById('tower-ips-' + tid);
+  if(b.style.display === 'none') {{
+    b.style.display = 'block'; b.innerHTML = '⏳ جاري التحميل...';
+    try {{
+      let r = await fetch('/api/tower_detail/' + tid); let j = await r.json();
+      if(j.ok) {{
+        b.innerHTML = (j.dishes||[]).map(d=> `<div style="padding:4px 0;border-bottom:1px solid #ffffff11;font-size:11px;display:flex;justify-content:space-between"><span style="color:#38bdf8;cursor:pointer" onclick="openLink('${{d.ip}}')">${{d.ip}}</span> <span>${{d.dish_name}}</span></div>`).join('') || '<div style="font-size:11px;color:#888">لا يوجد آي بيهات في هذا البرج</div>';
+      }}
+    }} catch(e) {{ b.innerHTML = 'خطأ في التحميل'; }}
+  }} else {{ b.style.display = 'none'; }}
+}};
 window.openNewTower=function(){{
   document.getElementById("editBody").innerHTML='<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:6px">إضافة</button>';
   document.getElementById("editModalTitle").textContent="إضافة برج"; document.getElementById("editModal").classList.add("show");
@@ -618,6 +664,7 @@ window.saveTower=async function(id){{
   if((await r.json()).ok) {{ closeEditModal(); loadPage('towers',true); }}
 }};
 window.delTower=async function(e, id){{
+  if(!confirm("هل أنت متأكد من حذف هذا البرج بشكل نهائي؟")) return;
   let r=await fetch('/del_tower/'+id, {{method:'POST'}});
   if((await r.json()).ok) e.target.closest('.card').remove();
 }};
@@ -633,7 +680,7 @@ window.delTower=async function(e, id){{
         
         return f"""
 <div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الصحون</b><button class=btn-gold onclick="openDishModal(0,0,'','','')">+ صحن</button></div>
+  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>الصحون والآيبيهات</b><button class=btn-gold onclick="openDishModal(0,0,'','','')">+ صحن جديد</button></div>
   <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="بحث عن برج أو صحن..." style="margin-top:6px;width:100%">
   <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">{accordion_html}</div>
 </div>
@@ -673,13 +720,25 @@ window.openDishModal=function(id, tid, name, ip, loc){{
   document.getElementById("editModal").classList.add("show");
 }};
 window.saveDish=async function(id){{
-  let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
-  if(!d.ip) return alert("IP مطلوب");
+  let tid = document.getElementById("dish_tid").value;
+  let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:tid}};
+  if(!d.ip) return alert("الـ IP مطلوب");
   let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
   let r=await fetch(url, {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
-  if((await r.json()).ok){{closeEditModal();loadPage('dishes',true);}}
+  if((await r.json()).ok){{
+     closeEditModal(); 
+     // تحديث بدون إعادة تحميل الصفحة بالكامل
+     let contentBox = document.getElementById('tower-content-' + tid);
+     if (contentBox) {{
+         document.getElementById('tower-body-' + tid).style.display = 'none';
+         toggleAccordionLazy(tid);
+     }} else {{
+         loadPage('dishes',true);
+     }}
+  }}
 }};
 window.delDish=async function(e, id){{
+  if(!confirm("هل أنت متأكد من حذف هذا الصحن؟")) return;
   let r=await fetch('/del_dish/'+id, {{method:'POST'}});
   if((await r.json()).ok) e.target.closest('.dish-row').remove();
 }};
@@ -727,7 +786,7 @@ window.pingAllNetwork=async function(){{
 <table id="subsTable" style="width:100%;margin-top:8px"><thead><tr><th>الاسم</th><th>الهاتف</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});if((await r.json()).ok)loadPage('subs',true);}});
-window.delSub=async function(e, id){{let r=await fetch('/del_sub/'+id,{{method:'POST'}});if((await r.json()).ok)e.target.closest('tr').remove();}};
+window.delSub=async function(e, id){{if(!confirm("تأكيد الحذف؟"))return; let r=await fetch('/del_sub/'+id,{{method:'POST'}});if((await r.json()).ok)e.target.closest('tr').remove();}};
 </script>"""
 
     if v == 'ledger':
@@ -740,33 +799,7 @@ window.delSub=async function(e, id){{let r=await fetch('/del_sub/'+id,{{method:'
 <table id="ledgerTable" style="width:100%;margin-top:8px"><thead><tr><th>البيان</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fLed').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_ledger',{{method:'POST',body:new FormData(e.target)}});if((await r.json()).ok)loadPage('ledger',true);}});
-window.delLedger=async function(e, id){{let r=await fetch('/del_ledger/'+id,{{method:'POST'}});if((await r.json()).ok)e.target.closest('tr').remove();}};
-</script>"""
-
-    if v == 'users' and is_manager():
-        rs = qall("SELECT * FROM users ORDER BY username ASC")
-        rows = "".join([f"<tr><td>{esc(r.get('username') or '')}</td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td><span class=badge>{'مدير' if r.get('role')=='manager' else 'دعم فني'}</span></td><td><button class=\"glass-btn del\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">🗑</button></td></tr>" for r in rs])
-        return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>إدارة المستخدمين</b><button class=btn-gold onclick="document.getElementById('fUsr').style.display='flex'">+ مستخدم</button></div>
-<form id=fUsr style="display:none;flex-direction:column;gap:4px;margin-top:6px" onsubmit="addUser(event)">
-  <input id=u_name placeholder="اسم المستخدم" required>
-  <input id=u_phone placeholder="رقم الهاتف (للدخول)" required>
-  <input id=u_pass type=password placeholder="كلمة المرور" required>
-  <select id=u_role><option value="tech">دعم فني</option><option value="manager">مدير النظام</option></select>
-  <button class=btn-gold style="width:100%">حفظ</button>
-</form>
-<table style="width:100%;margin-top:8px"><thead><tr><th>الاسم</th><th>الدخول</th><th>الصلاحية</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
-<script>
-window.addUser=async function(e){{
-  e.preventDefault();
-  let d={{username:document.getElementById('u_name').value, phone:document.getElementById('u_phone').value, password:document.getElementById('u_pass').value, role:document.getElementById('u_role').value}};
-  let r=await fetch('/api/users/add',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
-  let j=await r.json(); if(j.ok) loadPage('users',true); else alert(j.msg||'خطأ');
-}};
-window.delUser=async function(e, phone){{
-  let r=await fetch('/api/users/del/'+phone,{{method:'POST'}});
-  let j=await r.json(); if(j.ok) e.target.closest('tr').remove(); else alert(j.msg||'لا يمكن الحذف');
-}};
+window.delLedger=async function(e, id){{if(!confirm("تأكيد الحذف؟"))return; let r=await fetch('/del_ledger/'+id,{{method:'POST'}});if((await r.json()).ok)e.target.closest('tr').remove();}};
 </script>"""
 
     if v == 'logs':
@@ -778,16 +811,28 @@ window.delUser=async function(e, phone){{
 <div style="overflow-x:auto; margin-top:8px"><table id="logsTable" style="width:100%;min-width:400px"><thead><tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>الهدف</th><th>تفاصيل</th></tr></thead><tbody>{rows or '<tr><td colspan=5>السجل فارغ</td></tr>'}</tbody></table></div>
 <script>
 window.clearAllLogs=async function(){{
-  if(!confirm("هل أنت متأكد من مسح كافة السجلات؟"))return;
+  if(!confirm("هل أنت متأكد من مسح كافة السجلات؟ لا يمكن التراجع عن هذه الخطوة!"))return;
   await fetch("/api/clear_logs",{{method:"POST"}}); loadPage("logs",true);
 }};
 </script>"""
 
     if v == 'settings':
         cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
+        
+        users_html = ""
+        if is_manager():
+            rs = qall("SELECT * FROM users ORDER BY username ASC")
+            u_rows = "".join([f"<tr><td>{esc(r.get('username') or '')}</td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td><span class=badge>{'مدير' if r.get('role')=='manager' else 'فني'}</span></td><td style='display:flex;gap:4px'><button class=\"glass-btn edit\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">✏️</button><button class=\"glass-btn del\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">🗑</button></td></tr>" for r in rs])
+            users_html = f"""
+            <div class=card style="margin-top:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center"><b>إدارة المستخدمين</b><button class=btn-gold onclick="openAddUser()">+ مستخدم جديد</button></div>
+              <table style="width:100%;margin-top:8px"><thead><tr><th>الاسم</th><th>يوزر الدخول</th><th>الصلاحية</th><th></th></tr></thead><tbody>{u_rows or '<tr><td colspan=4>فارغ</td></tr>'}</tbody></table>
+            </div>"""
+
         return f"""
 <div style="max-width:1100px;margin:0 auto">
-  <div class=card>
+  {users_html}
+  <div class=card style="margin-top:8px">
     <b>تغيير كلمة المرور الخاصة بك</b>
     <form id=formPass style="display:flex;gap:6px;margin-top:6px">
       <input name=newpass type=password placeholder="كلمة المرور الجديدة" required style="flex:1">
@@ -810,6 +855,39 @@ window.saveCardSize = async function(){{
   let r = await fetch("/api/set_config", {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{key:"card_size",value:sz}})}});
   if((await r.json()).ok){{ document.body.style.setProperty('--cs', sz+'px'); alert('تم الحفظ'); }}
 }};
+
+/* دوال إدارة المستخدمين للمدير */
+window.openAddUser=function(){{
+  document.getElementById("editBody").innerHTML=`
+    <input id=u_name placeholder="الاسم الكامل">
+    <input id=u_phone placeholder="اسم الدخول أو رقم الهاتف">
+    <input id=u_pass type=password placeholder="كلمة المرور">
+    <select id=u_role><option value="tech">دعم فني (مشاهدة فقط)</option><option value="manager">مدير النظام (كامل الصلاحيات)</option></select>
+    <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:6px">إضافة المستخدم</button>`;
+  document.getElementById("editModalTitle").textContent="إضافة مستخدم"; document.getElementById("editModal").classList.add("show");
+}};
+window.openEditUser=function(phone, name, role){{
+  document.getElementById("editBody").innerHTML=`
+    <input id=u_name value="${{name}}" disabled style="opacity:0.6">
+    <input id=u_phone value="${{phone}}" disabled style="opacity:0.6">
+    <input id=u_pass type=password placeholder="كلمة المرور الجديدة (اختياري)">
+    <select id=u_role><option value="tech">دعم فني (مشاهدة فقط)</option><option value="manager">مدير النظام (كامل الصلاحيات)</option></select>
+    <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:6px">حفظ التعديلات</button>`;
+  document.getElementById("u_role").value = role;
+  document.getElementById("editModalTitle").textContent="تعديل مستخدم"; document.getElementById("editModal").classList.add("show");
+}};
+window.saveUser=async function(isNew){{
+  let d={{username:document.getElementById('u_name').value, phone:document.getElementById('u_phone').value, password:document.getElementById('u_pass').value, role:document.getElementById('u_role').value}};
+  if(isNew && (!d.phone || !d.password)) return alert('يرجى إكمال البيانات');
+  let url = isNew ? '/api/users/add' : '/api/users/edit';
+  let r=await fetch(url, {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
+  let j=await r.json(); if(j.ok) {{closeEditModal(); loadPage('settings',true);}} else alert(j.msg||'خطأ');
+}};
+window.delUser=async function(e, phone){{
+  if(!confirm("هل أنت متأكد من حذف هذا المستخدم؟")) return;
+  let r=await fetch('/api/users/del/'+phone, {{method:'POST'}});
+  let j=await r.json(); if(j.ok) e.target.closest('tr').remove(); else alert(j.msg||'لا يمكن الحذف');
+}};
 </script>"""
 
     return "<div class=card>الصفحة غير موجودة</div>"
@@ -818,8 +896,6 @@ def layout(c, v='home'):
     cur_user = qone("SELECT * FROM users WHERE phone=?", (session.get('phone') or '',)) or {}
     cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
     c_size = cfg.get('card_size', '120')
-    
-    users_link = """<a href="#" onclick="event.preventDefault(); loadPage('users')" id=nav-users>👤 <span>المستخدمين</span></a>""" if is_manager() else ""
 
     return f"""<html dir=rtl><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
@@ -864,12 +940,11 @@ input,select{{width:100%;padding:10px;border-radius:8px;border:1px solid #ffffff
 <a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home>🏠 <span>الرئيسية</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('mikrotik')" id=nav-mikrotik>🖧 <span>ميكروتك</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers>🗼 <span>الأبراج</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('dishes')" id=nav-dishes>📡 <span>الصحون</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('dishes')" id=nav-dishes>📡 <span>الصحون والآيبيهات</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('ping')" id=nav-ping>📶 <span>البنج</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('network')" id=nav-network>📊 <span>الشبكة</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('subs')" id=nav-subs>👥 <span>المشتركين</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>الحسابات</span></a>
-{users_link}
 <a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>السجل</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙ <span>الإعدادات</span></a>
 <a href="/logout" style="margin-top:16px;background:rgba(239,68,68,0.1);color:#ff6b6b;border:1px solid rgba(239,68,68,0.3)">🚪 <span>تسجيل خروج</span></a>
@@ -930,6 +1005,5 @@ loadPage(cur,true);
 </script></body></html>"""
 
 if __name__ == '__main__':
-    # تم إرجاع الإعدادات لتتوافق مع استضافة Render.com السحابية 
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
