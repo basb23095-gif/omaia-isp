@@ -37,7 +37,7 @@ BTN_DEL = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" view
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
-        'home': 'الرئيسية', 'towers': 'الأبراج والصحون', 'dishes': 'الآيبيهات',
+        'home': 'الرئيسية', 'towers': 'الأبراج', 'dishes': 'الصحون والآيبيهات',
         'ping': 'البنج (Ping)', 'network': 'الشبكة', 'subs': 'المشتركين', 'ledger': 'الحسابات',
         'users': 'المستخدمين', 'logs': 'السجل', 'settings': 'الإعدادات', 'logout': 'تسجيل خروج',
         'add': 'إضافة', 'edit': 'تعديل', 'delete': 'حذف', 'save': 'حفظ',
@@ -48,7 +48,7 @@ TR = {
     },
     'en': {
         'dir': 'rtl', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
-        'home': 'Home', 'towers': 'Towers & Dishes', 'dishes': 'Dishes & IPs',
+        'home': 'Home', 'towers': 'Towers', 'dishes': 'Dishes & IPs',
         'ping': 'Ping Check', 'network': 'Network', 'subs': 'Subscribers', 'ledger': 'Ledger',
         'users': 'Users', 'logs': 'Logs', 'settings': 'Settings', 'logout': 'Logout',
         'add': 'Add', 'edit': 'Edit', 'delete': 'Delete', 'save': 'Save',
@@ -615,7 +615,7 @@ window.delMk=async function(e, id){{
 }};
 </script>"""
 
-    # --- صفحة الأبراج مستقلة مع قوائم منسدلة لعرض الصحون التابعة لكل برج ---
+    # --- صفحة الأبراج مستقلة مع قوائم منسدلة لكل برج تعرض الآيبيهات الخاصة به فقط ---
     if v == 'towers':
         all_towers = qall("SELECT * FROM towers ORDER BY name ASC")
         all_dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
@@ -1041,7 +1041,7 @@ def layout(c, v='home'):
 *{{box-sizing:border-box;font-family:system-ui, -apple-system, sans-serif}}html,body{{margin:0;padding:0}}
 body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidden; --cs: {c_size}px;}}
 .card{{background:{card_bg};backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);color:{text_color};padding:12px;border-radius:16px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05);box-shadow:0 8px 32px rgba(0,0,0,0.2);}}
-.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:8px;font-weight:900;font-size:11px;cursor:pointer;transition:transform 0.2s, box-shadow 0.2s}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:8px;font-weight:900;font-size:11px;cursor:pointer;transition:transform 0.2s, box-shadow:0.2s}}
 .btn-gold:hover{{transform:translateY(-2px); box-shadow:0 4px 15px rgba(255,190,77,0.3);}}
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:10px}}
 .top{{position:fixed;top:0;left:0;right:0;height:60px;background:{top_bg};backdrop-filter:blur(25px) saturate(200%);-webkit-backdrop-filter:blur(25px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.05);box-shadow:0 4px 20px rgba(0,0,0,0.3)}}
