@@ -229,16 +229,8 @@ def role_required_manager(f):
     return w
 
 def is_valid_ip(h):
-    h = (h or '').strip()
-    if not h: return False
-    try:
-        ipaddress.ip_address(h)
-        return True
-    except Exception:
-        # السماح بالدومينات والآيبيهات بشكل مرن
-        if len(h) >= 3 and ' ' not in h and re.match(r'^[a-zA-Z0-9.-]+$', h):
-            return True
-        return False
+    # السماح التام بأي نص غير فارغ لتفادي مشاكل الرفض
+    return bool((h or '').strip())
 
 @app.after_request
 def after(r):
@@ -401,6 +393,7 @@ def add_dish_to_tower():
 def edit_dish(id):
     d = get_data(request)
     ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
+    if not is_valid_ip(ip): return jsonify(ok=False, msg='IP/Domain Invalid'), 400
     ok = qexec("UPDATE dish_ips SET ip=?, dish_name=?, location=?, tower_id=? WHERE id=?", (ip, name, loc, int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None, id))
     if ok: add_log(session.get('phone'), 'تعديل صحن', f"{name}", f"IP/Domain: {ip}")
     return jsonify(ok=ok)
@@ -623,8 +616,9 @@ def page_content(v):
    document.getElementById('stat-towers').textContent=j.stats.towers;
    document.getElementById('stat-ledger').textContent=j.stats.ledger;
    if(document.getElementById('stat-mikrotik')) document.getElementById('stat-mikrotik').textContent=j.stats.mikrotik || 0;
-   let lh=j.logs.map(l=>`<tr><td><small>${{l.time||''}}</small></td><td><span class=badge>${{l.action||'-'}}</span></td><td>${{l.username||l.user_phone||''}}</td></tr>`).join('') || '';
-   document.getElementById('logsPreview').innerHTML='<table style="width:100%"><tbody>'+lh+'</tbody></table>';
+   let logsList = j.logs || [];
+   let lh = logsList.map(l=>`<tr><td><small>${{l.time||''}}</small></td><td><span class=badge>${{l.action||'-'}}</span></td><td>${{l.username||l.user_phone||''}}</td></tr>`).join('');
+   document.getElementById('logsPreview').innerHTML='<table style="width:100%"><tbody>'+(lh || '<tr><td>Empty</td></tr>')+'</tbody></table>';
   }}
  }}catch(e){{}}
 }})();
@@ -646,13 +640,12 @@ window.openAddMikrotikModal=function(){{
 window.saveNewMikrotik=async function(){{
   let d={{name:document.getElementById("mk_name").value,host:document.getElementById("mk_host").value,username:document.getElementById("mk_user").value,password:document.getElementById("mk_pwd").value,port:document.getElementById("mk_port").value}};
   if(!d.host||!d.username) return;
-  let r=await fetch('/api/mikrotik/add',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
-  if((await r.json()).ok){{closeEditModal();loadPage('mikrotik',true);}}
+  if(await window.apiPost('/api/mikrotik/add', d)) {{ closeEditModal(); loadPage('mikrotik', true); }}
 }};
 window.delMk=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
-  let r=await fetch('/api/mikrotik/del/'+id);
-  if((await r.json()).ok) e.currentTarget.closest('.card').remove();
+  let card = e.currentTarget.closest('.card');
+  if(await window.apiPost('/api/mikrotik/del/'+id, {{}})) card.remove();
 }};
 </script>"""
 
@@ -767,13 +760,12 @@ window.saveTower=async function(id){{
   let d={{name:document.getElementById("nt_name").value, area:document.getElementById("nt_area").value}};
   if(!d.name) return;
   let url = id === 0 ? '/add_tower' : '/edit_tower/'+id;
-  let r=await fetch(url, {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
-  if((await r.json()).ok) {{ closeEditModal(); loadPage('towers',true); }}
+  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage('towers', true); }}
 }};
 window.delTower=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
-  let r=await fetch('/del_tower/'+id, {{method:'POST'}});
-  if((await r.json()).ok) e.currentTarget.closest('.card').remove();
+  let card = e.currentTarget.closest('.card');
+  if(await window.apiPost('/del_tower/'+id, {{}})) card.remove();
 }};
 window.openDishModal=function(id, tid, name, ip, loc){{
   document.getElementById("editBody").innerHTML=`
@@ -789,15 +781,14 @@ window.openDishModal=function(id, tid, name, ip, loc){{
 }};
 window.saveDish=async function(id){{
   let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
-  if(!d.ip) return;
+  if(!d.ip) return alert('يرجى كتابة الآي بي أو الدومين');
   let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
-  let r=await fetch(url, {{method:'POST',headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
-  if((await r.json()).ok){{ closeEditModal(); loadPage('towers',true); }}
+  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage(cur, true); }}
 }};
 window.delDish=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
-  let r=await fetch('/del_dish/'+id, {{method:'POST'}});
-  if((await r.json()).ok) e.currentTarget.closest('.dish-row').remove();
+  let row = e.currentTarget.closest('.dish-row');
+  if(await window.apiPost('/del_dish/'+id, {{}})) row.remove();
 }};
 </script>"""
         else:
@@ -815,8 +806,7 @@ window.toggleAcc = function(tid) {{
 window.editUnassignedName = async function() {{
     let newName = prompt("{tr['unassigned_edit']}");
     if(newName) {{
-        await fetch('/api/set_config', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{key:'unassigned_name', value:newName}})}});
-        loadPage('dishes', true);
+        if(await window.apiPost('/api/set_config', {{key:'unassigned_name', value:newName}})) loadPage('dishes', true);
     }}
 }};
 window.openDishModal=function(id, tid, name, ip, loc){{
@@ -833,15 +823,14 @@ window.openDishModal=function(id, tid, name, ip, loc){{
 }};
 window.saveDish=async function(id){{
   let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
-  if(!d.ip) return;
+  if(!d.ip) return alert('يرجى كتابة الآي بي أو الدومين');
   let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
-  let r=await fetch(url, {{method:'POST',headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
-  if((await r.json()).ok){{ closeEditModal(); loadPage('dishes',true); }}
+  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage(cur, true); }}
 }};
 window.delDish=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
-  let r=await fetch('/del_dish/'+id, {{method:'POST'}});
-  if((await r.json()).ok) e.currentTarget.closest('.dish-row').remove();
+  let row = e.currentTarget.closest('.dish-row');
+  if(await window.apiPost('/del_dish/'+id, {{}})) row.remove();
 }};
 </script>"""
 
@@ -901,8 +890,7 @@ window.openAddSubModal = function() {{
 }};
 window.saveNewSub = async function() {{
   let d = {{name: document.getElementById('sub_name').value, phone: document.getElementById('sub_phone').value, note: document.getElementById('sub_note').value}};
-  let r = await fetch('/add_sub', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(d)}});
-  if((await r.json()).ok) {{ closeEditModal(); loadPage('subs', true); }}
+  if(await window.apiPost('/add_sub', d)) {{ closeEditModal(); loadPage('subs', true); }}
 }};
 window.openEditSub = function(id, name, phone, note) {{
   document.getElementById("editBody").innerHTML=`
@@ -916,10 +904,13 @@ window.openEditSub = function(id, name, phone, note) {{
 }};
 window.saveSub = async function(id) {{
   let d = {{name: document.getElementById('sub_name').value, phone: document.getElementById('sub_phone').value, note: document.getElementById('sub_note').value}};
-  let r = await fetch('/edit_sub/'+id, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(d)}});
-  if((await r.json()).ok) {{ closeEditModal(); loadPage('subs', true); }}
+  if(await window.apiPost('/edit_sub/'+id, d)) {{ closeEditModal(); loadPage('subs', true); }}
 }};
-window.delSub=async function(e, id){{if(!confirm(MSG_SURE))return; let r=await fetch('/del_sub/'+id,{{method:'POST'}});if((await r.json()).ok)e.currentTarget.closest('tr').remove();}};
+window.delSub=async function(e, id){{
+  if(!confirm(MSG_SURE)) return;
+  let row = e.currentTarget.closest('tr');
+  if(await window.apiPost('/del_sub/'+id, {{}})) row.remove();
+}};
 </script>"""
 
     if v == 'ledger':
@@ -943,8 +934,7 @@ window.openAddLedgerModal = function() {{
 }};
 window.saveNewLedger = async function() {{
   let d = {{name: document.getElementById('led_name').value, amount: document.getElementById('led_amount').value, note: document.getElementById('led_note').value, currency: document.getElementById('led_curr').value}};
-  let r = await fetch('/add_ledger', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(d)}});
-  if((await r.json()).ok) {{ closeEditModal(); loadPage('ledger', true); }}
+  if(await window.apiPost('/add_ledger', d)) {{ closeEditModal(); loadPage('ledger', true); }}
 }};
 window.openEditLedger = function(id, name, amount, note, currency) {{
   document.getElementById("editBody").innerHTML=`
@@ -959,10 +949,13 @@ window.openEditLedger = function(id, name, amount, note, currency) {{
 }};
 window.saveLedger = async function(id) {{
   let d = {{name: document.getElementById('led_name').value, amount: document.getElementById('led_amount').value, note: document.getElementById('led_note').value, currency: document.getElementById('led_curr').value}};
-  let r = await fetch('/edit_ledger/'+id, {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify(d)}});
-  if((await r.json()).ok) {{ closeEditModal(); loadPage('ledger', true); }}
+  if(await window.apiPost('/edit_ledger/'+id, d)) {{ closeEditModal(); loadPage('ledger', true); }}
 }};
-window.delLedger=async function(e, id){{if(!confirm(MSG_SURE))return; let r=await fetch('/del_ledger/'+id,{{method:'POST'}});if((await r.json()).ok)e.currentTarget.closest('tr').remove();}};
+window.delLedger=async function(e, id){{
+  if(!confirm(MSG_SURE)) return;
+  let row = e.currentTarget.closest('tr');
+  if(await window.apiPost('/del_ledger/'+id, {{}})) row.remove();
+}};
 </script>"""
 
     if v == 'logs':
@@ -976,7 +969,7 @@ window.delLedger=async function(e, id){{if(!confirm(MSG_SURE))return; let r=awai
 <script>
 window.clearAllLogs=async function(){{
   if(!confirm(MSG_SURE))return;
-  await fetch("/api/clear_logs",{{method:"POST"}}); loadPage("logs",true);
+  if(await window.apiPost("/api/clear_logs", {{}})) loadPage("logs",true);
 }};
 </script>"""
 
@@ -1013,11 +1006,10 @@ window.clearAllLogs=async function(){{
   </div>
 </div>
 <script>
-document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault();let r=await fetch("/change_pass",{{method:"POST",headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{newpass:e.target.newpass.value}})}});if((await r.json()).ok){{alert("Saved");e.target.reset();}}}});
+document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault();let r=await window.apiPost("/change_pass", {{newpass:e.target.newpass.value}}); if(r){{alert("تم التغيير بنجاح"); e.target.reset();}}}});
 window.saveCardSize = async function(){{
   let sz = document.getElementById("cSize").value;
-  let r = await fetch("/api/set_config", {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{key:"card_size",value:sz}})}});
-  if((await r.json()).ok){{ document.body.style.setProperty('--cs', sz+'px'); alert('Saved'); }}
+  if(await window.apiPost("/api/set_config", {{key:"card_size",value:sz}})) {{ document.body.style.setProperty('--cs', sz+'px'); alert('تم الحفظ'); }}
 }};
 
 window.openAddUser=function(){{
@@ -1041,15 +1033,14 @@ window.openEditUser=function(phone, name, role){{
 }};
 window.saveUser=async function(isNew){{
   let d={{username:document.getElementById('u_name').value, phone:document.getElementById('u_phone').value, password:document.getElementById('u_pass').value, role:document.getElementById('u_role').value}};
-  if(isNew && (!d.phone || !d.password)) return alert('Missing info');
+  if(isNew && (!d.phone || !d.password)) return alert('البيانات ناقصة');
   let url = isNew ? '/api/users/add' : '/api/users/edit';
-  let r=await fetch(url, {{method:'POST',headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
-  let j=await r.json(); if(j.ok) {{closeEditModal(); loadPage('settings',true);}} else alert(j.msg||'Error');
+  if(await window.apiPost(url, d)) {{closeEditModal(); loadPage('settings',true);}}
 }};
 window.delUser=async function(e, phone){{
   if(!confirm(MSG_SURE)) return;
-  let r=await fetch('/api/users/del/'+phone, {{method:'POST'}});
-  let j=await r.json(); if(j.ok) e.currentTarget.closest('tr').remove(); else alert(j.msg||'Cannot delete Admin');
+  let row = e.currentTarget.closest('tr');
+  if(await window.apiPost('/api/users/del/'+phone, {{}})) row.remove();
 }};
 </script>"""
 
@@ -1169,6 +1160,35 @@ input:focus,select:focus{{border-color:#ffbe4d}}
 let cur='{v}';
 const MSG_SURE = "{tr['sure']}";
 
+// 🛡️ دالة ذكية مركزية للتعامل مع حفظ البيانات لتفادي تجميد الموقع نهائياً
+window.apiPost = async function(url, data) {{
+    let b = document.activeElement;
+    let oldTxt = "";
+    if (b && b.tagName === 'BUTTON') {{ oldTxt = b.innerHTML; b.disabled = true; b.style.opacity = '0.5'; b.innerHTML = '⏳...'; }}
+    try {{
+        let r = await fetch(url, {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify(data)
+        }});
+        let txt = await r.text();
+        try {{
+            let j = JSON.parse(txt);
+            if (b) {{ b.disabled = false; b.style.opacity = '1'; b.innerHTML = oldTxt; }}
+            if (!j.ok) {{ alert(j.msg || 'فشلت العملية، يرجى مراجعة البيانات المدخلة'); return false; }}
+            return true;
+        }} catch(e) {{
+            if (b) {{ b.disabled = false; b.style.opacity = '1'; b.innerHTML = oldTxt; }}
+            alert('حدث خطأ غير متوقع في الخادم.');
+            return false;
+        }}
+    }} catch (err) {{
+        if (b) {{ b.disabled = false; b.style.opacity = '1'; b.innerHTML = oldTxt; }}
+        alert('خطأ في الاتصال بالشبكة.');
+        return false;
+    }}
+}};
+
 window.openLink = function(ip) {{
   if(!ip) return; let u = ip.trim();
   if(!u.startsWith('http://') && !u.startsWith('https://')) u = 'http://' + u;
@@ -1220,8 +1240,11 @@ async function loadPage(v, force=false){{
 }}
 
 function execScripts(){{
+    // تنظيف السكربتات القديمة لمنع تسرب الذاكرة والتعليق عند كل تنقل
+    document.querySelectorAll('.dyn-script').forEach(e => e.remove());
     document.getElementById('mn').querySelectorAll('script').forEach(o=>{{
         let s=document.createElement('script'); 
+        s.className = 'dyn-script';
         s.textContent=o.textContent; 
         document.body.appendChild(s); 
         o.remove();
@@ -1236,7 +1259,6 @@ window.closeEditModal=()=>{{
 }};
 loadPage(cur,true);
 
-// Run icons on first load if script is ready
 document.addEventListener("DOMContentLoaded", function() {{
     if (window.lucide) lucide.createIcons();
 }});
