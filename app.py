@@ -38,7 +38,7 @@ TR = {
         'sure': 'هل أنت متأكد من الحذف؟ لا يمكن التراجع!', 'search': 'بحث...', 'mikrotik': 'ميكروتك',
         'add_tower': '+ برج جديد', 'add_dish': '+ صحن جديد', 'ip': 'الآي بي / دومين', 'name': 'الاسم',
         'manager': 'مدير', 'tech': 'فني', 'phone': 'اسم الدخول/الهاتف', 'role': 'الصلاحية', 'empty': 'لا توجد بيانات',
-        'unassigned_edit': 'أدخل الاسم الجديد لقسم "بدون برج":', 'support': 'الدعم الفني'
+        'unassigned_edit': 'أدخل الاسم الجديد لقسم "بدون برج":', 'support': 'التواصل والدعم الفني'
     },
     'en': {
         'dir': 'rtl', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
@@ -49,13 +49,12 @@ TR = {
         'sure': 'Are you sure you want to delete?', 'search': 'Search...', 'mikrotik': 'MikroTik',
         'add_tower': '+ New Tower', 'add_dish': '+ New Dish', 'ip': 'IP / Domain', 'name': 'Name',
         'manager': 'Manager', 'tech': 'Tech', 'phone': 'Login/Phone', 'role': 'Role', 'empty': 'No data found',
-        'unassigned_edit': 'Enter new name for "Unassigned" section:', 'support': 'Support'
+        'unassigned_edit': 'Enter new name for "Unassigned" section:', 'support': 'Contact & Support'
     }
 }
 
 def esc(s): return html.escape(str(s or ''), quote=True)
 
-# 🚀 نظام قواعد بيانات طازج لكل استعلام لمنع تعليق الموقع نهائياً على سيرفرات Render
 def get_sqlite():
     global _sqlite_conn
     if _sqlite_conn is None:
@@ -68,13 +67,13 @@ def get_sqlite():
 def qall(q, a=()):
     if USE_PG:
         try:
-            cn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
+            cn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=3)
             cur = cn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(q.replace("?", "%s"), a)
             r = [dict(x) for x in cur.fetchall()]
             cur.close(); cn.close()
             return r
-        except Exception as e:
+        except Exception:
             return []
     else:
         with _slock:
@@ -88,12 +87,12 @@ def qone(q, a=()):
 def qexec(q, a=()):
     if USE_PG:
         try:
-            cn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
+            cn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=3)
             cur = cn.cursor()
             cur.execute(q.replace("?", "%s"), a)
             cn.commit(); cur.close(); cn.close()
             return True
-        except Exception as e:
+        except Exception:
             return False
     else:
         with _slock:
@@ -111,13 +110,8 @@ def add_log(phone, action, target='', detail='', username=''):
     try:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         uname = str(username or session.get('username') or session.get('phone') or phone or 'sys')
-        ok = qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
-                   (str(phone or 'sys'), uname, str(action), str(target)[:300], str(detail)[:500], now))
-        if not ok:
-            qexec("ALTER TABLE logs ADD COLUMN username TEXT")
-            qexec("ALTER TABLE logs ADD COLUMN target TEXT")
-            qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
-                   (str(phone or 'sys'), uname, str(action), str(target)[:300], str(detail)[:500], now))
+        qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
+              (str(phone or 'sys'), uname, str(action), str(target)[:300], str(detail)[:500], now))
     except: pass
 
 def get_counts():
@@ -140,6 +134,7 @@ def init_db():
     if USE_PG: ss = [s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
     
+    # تحديث الحقول الناقصة بضمان لتشغيل السجل
     alters = [
         "ALTER TABLE dish_ips ADD COLUMN tower_id INTEGER",
         "ALTER TABLE towers ADD COLUMN created_at TEXT",
@@ -152,13 +147,14 @@ def init_db():
         try: qexec(al)
         except: pass
 
-    # 🚀 تسريع تسجيل الدخول إلى أجزاء من الثانية بتخفيف دورات التشفير لـ 1000 دورة فقط
+    # 🚀 تسريع الدخول الخارق: تغيير خوارزمية التشفير إلى 1000 دورة فقط (القديمة كانت 600,000 وتسبب بطء شديد)
     fast_hash = generate_password_hash('admin2024', method='pbkdf2:sha256:1000')
     if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)", ('admin', fast_hash, 'manager', 'مدير النظام'))
     if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)", ('05344851045', fast_hash, 'manager', 'المدير الأساسي'))
 
+    # إجبار الخادم على تحديث كلمات المرور القديمة لتسريع الدخول فوراً
     qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", (fast_hash,))
 
     defaults = [('card_size', '110'), ('unassigned_name', 'بدون برج / Unassigned'), ('theme', 'dark')]
@@ -178,7 +174,6 @@ def login_required(f):
     return w
 
 def is_manager(): return (session.get('role') or '') == 'manager'
-
 def role_required_manager(f):
     @wraps(f)
     def w(*a, **kw):
@@ -298,7 +293,6 @@ def api_login_public():
             return jsonify(ok=True)
         return jsonify(ok=False, msg='بيانات الدخول غير صحيحة'), 401
     except Exception as e:
-        traceback.print_exc()
         return jsonify(ok=False, msg=str(e)), 500
 
 @app.route('/api/clear_logs', methods=['POST'])
@@ -462,7 +456,7 @@ def login():
     except: tr = TR['ar']
     return f"""<html dir="rtl"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
-*{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0%, #1e293b, #0f172a 70%, #020617);display:flex;align-items:center;justify-content:center;color:#fff}}
+*{{box-sizing:border-box;font-family:system-ui, -apple-system, sans-serif}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0%, #1e293b, #0f172a 70%, #020617);display:flex;align-items:center;justify-content:center;color:#fff}}
 .card{{background:rgba(15, 23, 42, 0.4);backdrop-filter:blur(25px) saturate(180%);border:1px solid rgba(255,255,255,0.1);padding:24px;border-radius:24px;width:92%;max-width:350px;box-shadow:0 15px 40px rgba(0,0,0,0.6)}}
 input{{width:100%;padding:14px;margin:8px 0;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:12px;outline:none;transition:0.3s}}
 input:focus{{border-color:#ffbe4d}}
@@ -502,7 +496,7 @@ def lo(): session.clear(); return redirect('/login')
 
 @app.route('/dash')
 @login_required
-def dash(): v = request.args.get('v', 'home'); return layout('<div class=card style="text-align:center;padding:40px;font-weight:bold;color:#ffbe4d">⏳ جاري التحميل...</div>', v)
+def dash(): v = request.args.get('v', 'home'); return layout('', v)
 
 @app.route('/api/page')
 @login_required
@@ -524,15 +518,18 @@ def page_content(v):
 <div class="card stat" onclick="loadPage('mikrotik')"><div class=ico>🖧</div><h4>{tr['mikrotik']}</h4><h3 id=stat-mikrotik>...</h3></div>
 </div>
 
-<div class="card" style="margin-top:12px;padding:14px;display:flex;justify-content:space-between;align-items:center;background:rgba(37, 211, 102, 0.1);border-color:rgba(37, 211, 102, 0.3)">
-  <div><b style="font-size:13px;color:#25d366">💬 {tr['support']}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">تواصل معنا لحل أي مشكلة</div></div>
-  <a href="https://wa.me/905344851045" target="_blank" style="background:#25d366;color:#000;text-decoration:none;padding:8px 16px;border-radius:9999px;font-size:12px;font-weight:bold;box-shadow:0 4px 12px rgba(37, 211, 102, 0.3)">تواصل عبر واتساب</a>
+<div class="card" style="margin-top:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;background:rgba(20, 30, 50, 0.4);border:1px solid rgba(255,190,77,0.2)">
+  <div><b style="font-size:14px;color:#fff">💬 {tr['support']}</b><div style="font-size:11px;color:#94a3b8;margin-top:4px">تواصل معنا عبر المنصات الرسمية</div></div>
+  <div style="display:flex;gap:10px">
+    <a href="https://wa.me/905344851045" target="_blank" style="background:#25d366;color:#000;text-decoration:none;padding:8px 16px;border-radius:12px;font-size:12px;font-weight:bold;box-shadow:0 4px 12px rgba(37, 211, 102, 0.3);display:flex;align-items:center;gap:6px">واتساب</a>
+    <a href="https://instagram.com/af_20_1999" target="_blank" style="background:linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);color:#fff;text-decoration:none;padding:8px 16px;border-radius:12px;font-size:12px;font-weight:bold;box-shadow:0 4px 12px rgba(220, 39, 67, 0.3);display:flex;align-items:center;gap:6px">انستغرام</a>
+  </div>
 </div>
 
 <div class=card style="margin-top:8px">
-    <div style="display:flex;justify-content:space-between;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:8px">
-        <b style="color:#ffbe4d">📜 سجل حركات الدخول (Logs)</b>
-        <button class=btn-glass style="background:rgba(255,255,255,0.1)" onclick="loadPage('logs')">عرض السجل الكامل</button>
+    <div style="display:flex;justify-content:space-between;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:8px;align-items:center">
+        <b style="color:#ffbe4d;font-size:14px">📜 السجل الأخير (Logs)</b>
+        <button class=btn-glass style="background:rgba(255,255,255,0.1);font-size:11px" onclick="loadPage('logs')">عرض السجل الكامل</button>
     </div>
     <div id=logsPreview></div>
 </div>
@@ -549,13 +546,14 @@ def page_content(v):
    document.getElementById('stat-ledger').textContent=j.stats.ledger;
    if(document.getElementById('stat-mikrotik')) document.getElementById('stat-mikrotik').textContent=j.stats.mikrotik || 0;
    
-   // تلوين خاص لعمليات تسجيل الدخول
    let lh = (j.logs || []).map(l => {{
        let isLogin = (l.action||'').includes('دخول');
-       let badgeStyle = isLogin ? 'background:#10b981;color:#000' : 'background:#ffbe4d;color:#111';
-       return `<tr><td><small style="color:#94a3b8">${{l.time||''}}</small></td><td><span class=badge style="${{badgeStyle}}">${{l.action||'-'}}</span></td><td><b style="color:#fff">${{l.username||l.user_phone||''}}</b></td><td style="color:#cbd5e1;font-size:11px">${{l.target||''}}</td></tr>`;
+       let isAdd = (l.action||'').includes('إضافة');
+       let isDel = (l.action||'').includes('حذف');
+       let badgeStyle = isLogin ? 'background:rgba(16,185,129,0.2);color:#10b981' : (isAdd ? 'background:rgba(56,189,248,0.2);color:#38bdf8' : (isDel ? 'background:rgba(239,68,68,0.2);color:#ef4444' : 'background:rgba(255,190,77,0.2);color:#ffbe4d'));
+       return `<tr><td style="padding:10px"><small style="color:#94a3b8">${{l.time||''}}</small></td><td style="padding:10px"><span class=badge style="${{badgeStyle}};padding:4px 8px">${{l.action||'-'}}</span></td><td style="padding:10px"><b style="color:#fff">${{l.username||l.user_phone||''}}</b></td><td style="color:#cbd5e1;font-size:12px;padding:10px">${{l.target||''}}</td></tr>`;
    }}).join('');
-   document.getElementById('logsPreview').innerHTML='<table style="width:100%"><tbody>'+(lh || '<tr><td style="text-align:center;color:#666">لا يوجد حركات بعد</td></tr>')+'</tbody></table>';
+   document.getElementById('logsPreview').innerHTML='<table style="width:100%;border-collapse:collapse"><tbody>'+(lh || '<tr><td style="text-align:center;color:#666;padding:20px">لا يوجد حركات بعد</td></tr>')+'</tbody></table>';
   }}
  }}catch(e){{}}
 }})();
@@ -994,7 +992,6 @@ def layout(c, v='home'):
     c_size = cfg.get('card_size', '110')
     theme = cfg.get('theme', 'dark')
     
-    # تحسين الألوان لتناسب تصميم التطبيق الداكن 
     bg_style = "radial-gradient(circle at 50% -20%, #1e293b 0%, #0f172a 40%, #020617 100%)" if theme=='dark' else "linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%)"
     card_bg = "rgba(15, 23, 42, 0.45)" if theme=='dark' else "rgba(255, 255, 255, 0.85)"
     text_color = "#f8fafc" if theme=='dark' else "#0f172a"
@@ -1010,7 +1007,6 @@ body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidde
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:10px}}
 .top{{position:fixed;top:0;left:0;right:0;height:60px;background:{top_bg};backdrop-filter:blur(25px) saturate(200%);-webkit-backdrop-filter:blur(25px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.05);box-shadow:0 4px 20px rgba(0,0,0,0.3)}}
 
-/* تصميم القائمة الجانبية: شفافية وزجاجية ناعمة جداً */
 .sidebar {{
     position: fixed; top: 0; bottom: 0; right: 0; width: 260px;
     background: rgba(15, 23, 42, 0.2) !important; 
@@ -1027,9 +1023,7 @@ body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidde
 #overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.4);backdrop-filter:blur(3px);z-index:1001;display:none;opacity:0;transition:opacity 0.3s}} 
 #overlay.show{{display:block;opacity:1}}
 
-/* حركة تنقل سلسة وسريعة للموقع */
-.main{{margin-top:70px;padding:12px;min-height:90vh; transition: opacity 0.15s ease-out, transform 0.15s ease-out;}}
-.main.loading {{ opacity: 0.3; transform: scale(0.99); }}
+.main{{margin-top:70px;padding:12px;min-height:90vh; transition: none;}}
 
 .btn-glass {{
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -1077,8 +1071,8 @@ input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙️ <span>{tr['settings']}</span></a>
 <div style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.05);padding-top:16px;display:flex;flex-direction:column;gap:8px">
   <div style="display:flex;justify-content:space-around">
-    <a href="/api/set_lang/{tr['toggle_code']}" style="padding:8px 12px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:10px;text-decoration:none;">🌐 {tr['lang_toggle']}</a>
-    <a href="/logout" style="padding:8px 12px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:10px;text-decoration:none;">🚪 خروج</a>
+    <a href="https://wa.me/905344851045" target="_blank" style="padding:8px 12px;font-size:12px;background:rgba(37,211,102,0.15);color:#25d366;border-radius:10px;text-decoration:none;">واتساب</a>
+    <a href="https://instagram.com/af_20_1999" target="_blank" style="padding:8px 12px;font-size:12px;background:rgba(225,48,108,0.15);color:#e1306c;border-radius:10px;text-decoration:none;">انستغرام</a>
   </div>
 </div>
 </div>
@@ -1106,8 +1100,18 @@ window.apiPost = async function(url, data) {{
     let b = document.activeElement;
     let oldTxt = "";
     if (b && b.tagName === 'BUTTON') {{ oldTxt = b.innerHTML; b.disabled = true; b.style.opacity = '0.5'; b.innerHTML = '⏳...'; }}
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000); 
+
     try {{
-        let r = await fetch(url, {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data) }});
+        let r = await fetch(url, {{ 
+            method: 'POST', 
+            headers: {{'Content-Type': 'application/json'}}, 
+            body: JSON.stringify(data),
+            signal: controller.signal
+        }});
+        clearTimeout(timeoutId);
         let txt = await r.text();
         try {{
             let j = JSON.parse(txt);
@@ -1120,8 +1124,9 @@ window.apiPost = async function(url, data) {{
             return false;
         }}
     }} catch (err) {{
+        clearTimeout(timeoutId);
         if (b) {{ b.disabled = false; b.style.opacity = '1'; b.innerHTML = oldTxt; }}
-        alert('خطأ في الاتصال بالشبكة.');
+        alert('خطأ اتصال: السيرفر لا يستجيب.');
         return false;
     }}
 }};
@@ -1164,7 +1169,7 @@ async function loadPage(v, force=false){{
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
   let mn=document.getElementById('mn'); 
-  mn.classList.add('loading');
+  
   try{{
     let r=await fetch('/api/page?v='+v);
     if(r.status===401){{ location.replace('/login'); return; }}
@@ -1174,8 +1179,6 @@ async function loadPage(v, force=false){{
     execScripts();
   }}catch(e){{ 
     mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center;padding:30px">خطأ في تحميل الصفحة ⚠</div>`; 
-  }} finally {{
-    setTimeout(() => mn.classList.remove('loading'), 50);
   }}
 }}
 
