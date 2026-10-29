@@ -14,10 +14,9 @@ except ImportError:
 
 try:
     import psycopg2, psycopg2.extras
-    from psycopg2 import pool as pg_pool
     PG = True
 except Exception:
-    psycopg2 = None; pg_pool = None; PG = False
+    psycopg2 = None; PG = False
 
 import sqlite3
 from collections import defaultdict
@@ -31,10 +30,8 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip().replace("postgres://", "postgresql://", 1)
 USE_PG = bool(DATABASE_URL.startswith("postgresql://") and PG)
 
-_pg_pool = None
-_plock = threading.Lock()
-_sqlite_conn = None
 _slock = threading.Lock()
+_sqlite_conn = None
 
 BTN_EDIT = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>"""
 BTN_DEL = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>"""
@@ -64,32 +61,16 @@ TR = {
     }
 }
 
-def init_pool():
-    global _pg_pool, USE_PG
-    if not USE_PG or not pg_pool: return
-    with _plock:
-        if _pg_pool: return
-        try:
-            _pg_pool = pg_pool.ThreadedConnectionPool(3, 20, dsn=DATABASE_URL, sslmode='require', connect_timeout=5)
-        except Exception:
-            _pg_pool = None; USE_PG = False
-init_pool()
-
 def esc(s): return html.escape(str(s or ''), quote=True)
 
+# استبدال Pool بفتح اتصال سريع مباشر لمنع التجميد على Render نهائياً
 def get_conn():
     global USE_PG, _sqlite_conn
-    if USE_PG and _pg_pool:
+    if USE_PG:
         try:
-            c = _pg_pool.getconn()
-            if getattr(c, 'closed', 1) == 0: return c
-            _pg_pool.putconn(c, close=True)
-        except Exception: pass
-        try: return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
-        except Exception: USE_PG = False
-    elif USE_PG:
-        try: return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=2)
-        except Exception: USE_PG = False
+            return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=3, keepalives=1, keepalives_idle=10, keepalives_interval=10, keepalives_count=3)
+        except Exception as e: 
+            USE_PG = False
     with _slock:
         if _sqlite_conn is None:
             _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=15, isolation_level=None)
@@ -100,19 +81,11 @@ def get_conn():
 
 def put_conn(c):
     if not c: return
-    if USE_PG and _pg_pool and hasattr(c, 'closed'):
-        try:
-            if c.closed == 0: _pg_pool.putconn(c)
-            else: _pg_pool.putconn(c, close=True)
-        except Exception:
-            try: c.close()
-            except Exception: pass
-    elif USE_PG and hasattr(c, 'closed'):
+    if USE_PG and hasattr(c, 'closed'):
         try: c.close()
         except Exception: pass
 
-# نظام ذكي لإعادة الاتصال بقاعدة البيانات عند توقفها وتفادي الـ SSL Error
-def qall(q, a=(), retries=2):
+def qall(q, a=(), retries=1):
     cn = None
     try:
         cn = get_conn()
@@ -125,15 +98,17 @@ def qall(q, a=(), retries=2):
         else:
             with _slock: return [dict(x) for x in cn.execute(q, a).fetchall()]
     except Exception as e:
-        if cn and USE_PG:
-            try: cn.close() # إغلاق الاتصال الميت فوراً
-            except: pass
+        if cn: put_conn(cn)
         if retries > 0:
             time.sleep(0.1)
             return qall(q, a, retries - 1)
         return []
 
-def qexec(q, a=(), retries=2):
+def qone(q, a=()):
+    r = qall(q, a)
+    return r[0] if r else None
+
+def qexec(q, a=(), retries=1):
     cn = None
     try:
         cn = get_conn()
@@ -145,9 +120,10 @@ def qexec(q, a=(), retries=2):
             with _slock: cn.execute(q, a); cn.commit()
         return True
     except Exception as e:
-        if cn and USE_PG:
-            try: cn.rollback(); cn.close() # إغلاق الاتصال الميت فوراً
+        if cn: 
+            try: cn.rollback()
             except: pass
+            put_conn(cn)
         if retries > 0:
             time.sleep(0.1)
             return qexec(q, a, retries - 1)
@@ -171,7 +147,7 @@ def add_log(phone, action, target='', detail='', username=''):
         ok = qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
                    (str(phone or 'sys'), str(username), str(action), str(target)[:300], str(detail)[:500], now))
         
-        # معالجة ذكية للسجل: إذا فشل بسبب نقص الجداول القديمة، قم بإضافتها والمحاولة مجدداً
+        # معالجة السجل إذا كانت الحقول غير موجودة بالداتا بيز
         if not ok:
             qexec("ALTER TABLE logs ADD COLUMN username TEXT")
             qexec("ALTER TABLE logs ADD COLUMN target TEXT")
@@ -211,13 +187,14 @@ def init_db():
         try: qexec(al)
         except Exception: pass
 
+    # استخدام تشفير سريع جداً (10000 دورة) بدل 600 ألف لمنع تجميد السيرفرات المجانية
     if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256'), 'manager', 'مدير النظام'))
+              ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:10000'), 'manager', 'مدير النظام'))
               
     if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256'), 'manager', 'المدير الأساسي'))
+              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:10000'), 'manager', 'المدير الأساسي'))
 
     defaults = [('card_size', '110'), ('unassigned_name', 'بدون برج / Unassigned'), ('theme', 'dark')]
     for k, v in defaults:
@@ -477,7 +454,7 @@ def add_user():
     d = get_data(request)
     p, pw, u, r = d.get('phone','').strip(), d.get('password','').strip(), d.get('username','').strip(), d.get('role','tech')
     if not p or not pw: return jsonify(ok=False, msg="البيانات ناقصة")
-    ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256'), r, u))
+    ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256:10000'), r, u))
     if ok: add_log(session.get('phone'), 'إضافة مستخدم', u, f"صلاحية: {r}")
     return jsonify(ok=ok)
 
@@ -487,7 +464,7 @@ def add_user():
 def edit_user():
     d = get_data(request)
     p, pw, r, u = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech'), d.get('username','').strip()
-    if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256'), r, u, p))
+    if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:10000'), r, u, p))
     else: qexec("UPDATE users SET role=?, username=? WHERE phone=?", (r, u, p))
     add_log(session.get('phone'), 'تعديل مستخدم', p)
     return jsonify(ok=True)
@@ -506,7 +483,7 @@ def del_user(phone):
 def cp():
     d = get_data(request); np = (d.get('newpass') or '').strip()
     if not np: return jsonify(ok=False, msg='فارغ'), 400
-    ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256'), session.get('phone')))
+    ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:10000'), session.get('phone')))
     add_log(session.get('phone'), 'تغيير كلمة المرور الشخصية', session.get('phone'))
     return jsonify(ok=ok)
 
@@ -1232,7 +1209,7 @@ async function loadPage(v, force=false){{
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
   let mn=document.getElementById('mn'); 
-  mn.style.opacity = '0.3';
+  mn.style.opacity = '0.5';
   try{{
     let r=await fetch('/api/page?v='+v);
     if(r.status===401){{ location.replace('/login'); return; }}
