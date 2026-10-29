@@ -1,4 +1,4 @@
-\# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -516,15 +516,15 @@ def page_content(v):
         ns, nd, nt, nl = get_counts()
         logs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
         lh = "".join([f"<tr><td>{esc(l.get('time',''))}</td><td><span class=badge>{esc(l.get('action',''))}</span></td><td>{esc(l.get('user_phone',''))}</td><td>{esc(l.get('detail',''))}</td></tr>" for l in logs]) or "<tr><td colspan=4>لا يوجد سجل</td></tr>"
-        return f"""
+        return """
 <div style="max-width:1100px;margin:0 auto">
 <div class=grid-small>
-<div class="card small stat" onclick="loadPage('subs')"><div class=ico>👥</div><h4>{L("مشتركين","Subs")}</h4><h2>{ns}</h2></div>
-<div class="card small stat" onclick="loadPage('dishes')"><div class=ico>📡</div><h4>{L("صحون","Dishes")}</h4><h2>{nd}</h2></div>
-<div class="card small stat" onclick="loadPage('towers')"><div class=ico>🗼</div><h4>{L("أبراج","Towers")}</h4><h2>{nt}</h2></div>
-<div class="card small stat" onclick="loadPage('ledger')"><div class=ico>📒</div><h4>{L("حسابات","Acc")}</h4><h2>{nl}</h2></div>
+<div class="card small stat" onclick="loadPage('subs')"><div class=ico>👥</div><h4>""" + L("مشتركين","Subs") + f"""</h4><h2>{ns}</h2></div>
+<div class="card small stat" onclick="loadPage('dishes')"><div class=ico>📡</div><h4>""" + L("صحون","Dishes") + f"""</h4><h2>{nd}</h2></div>
+<div class="card small stat" onclick="loadPage('towers')"><div class=ico>🗼</div><h4>""" + L("أبراج","Towers") + f"""</h4><h2>{nt}</h2></div>
+<div class="card small stat" onclick="loadPage('ledger')"><div class=ico>📒</div><h4>""" + L("حسابات","Acc") + f"""</h4><h2>{nl}</h2></div>
 </div>
-<div class=card style="margin-top:10px"><div style="display:flex;justify-content:space-between"><b>📜 {L("السجل","Logs")}</b><button class=btn-gold onclick="loadPage('logs')">{L("الكل","All")}</button></div>
+<div class=card style="margin-top:10px"><div style="display:flex;justify-content:space-between"><b>📜 """ + L("السجل","Logs") + f"""</b><button class=btn-gold onclick="loadPage('logs')">""" + L("الكل","All") + f"""</button></div>
 <table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>عمل</th><th>يوزر</th><th>تفصيل</th></tr></thead><tbody>{lh}</tbody></table>
 </div>
 </div>"""
@@ -533,12 +533,12 @@ def page_content(v):
         cards = ""
         for t in rs:
             tid = t.get('id'); tname = esc(t.get('name') or f'برج {tid}'); tarea = esc(t.get('area') or ''); lat = t.get('lat') or 35.1318; lng = t.get('lng') or 36.7578; cnt = t.get('cnt') or 0
-            cards += f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:38px;height:38px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px">🗼</div><div><b style="font-size:13px">{tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {tarea}</div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:8px"><button class="btn-circle edit" onclick="openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class="btn-circle del" onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button></div></div>'
-        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>🗼 الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">{cards}</div></div><script>
-window.openNewTowerPage = function() {{ let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); }};
-window.saveNewTowerPage = async function() {{ let d = {{ name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value }}; if(!d.name) return; let r = await fetch("/add_tower", {{ method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d) }}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('towers', true); }} }};
-window.openEditTowerPage = async function(id) {{ try {{ let r = await fetch('/api/tower_detail/' + id); let j = await r.json(); if(!j.ok) return; let t = j.tower; let b = document.getElementById("editBody"); b.innerHTML = '<input id=et_name value="' + (t.name || "") + '"><input id=et_area value="' + (t.area || "") + '"><div class=row><input id=et_lat value="' + (t.lat || "") + '"><input id=et_lng value="' + (t.lng || "") + '"></div><button class=btn-gold onclick="saveTowerPage(' + id + ')" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل برج"; document.getElementById("editModal").classList.add("show"); }} catch(e) {{ alert(e); }} }};
-window.saveTowerPage = async function(id) {{ let d = {{ name: document.getElementById("et_name").value, area: document.getElementById("et_area").value, lat: document.getElementById("et_lat").value, lng: document.getElementById("et_lng").value }}; let r = await fetch("/edit_tower/" + id, {{ method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d) }}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('towers', true); }} }};
+            cards += f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:38px;height:38px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px">🗼</div><div><b style="font-size:13px">{tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {tarea}</div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:8px"><button class=\"btn-circle edit\" onclick="openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class=\"btn-circle del\" onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button></div></div>'
+        return """<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>🗼 الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">""" + cards + """</div></div><script>
+window.openNewTowerPage = function() { let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); };
+window.saveNewTowerPage = async function() { let d = { name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value }; if(!d.name) return; let r = await fetch("/add_tower", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d) }); let j = await r.json(); if(j.ok) { closeEditModal(); loadPage('towers', true); } };
+window.openEditTowerPage = async function(id) { try { let r = await fetch('/api/tower_detail/' + id); let j = await r.json(); if(!j.ok) return; let t = j.tower; let b = document.getElementById("editBody"); b.innerHTML = '<input id=et_name value="' + (t.name || "") + '"><input id=et_area value="' + (t.area || "") + '"><div class=row><input id=et_lat value="' + (t.lat || "") + '"><input id=et_lng value="' + (t.lng || "") + '"></div><button class=btn-gold onclick="saveTowerPage(' + id + ')" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل برج"; document.getElementById("editModal").classList.add("show"); } catch(e) { alert(e); } };
+window.saveTowerPage = async function(id) { let d = { name: document.getElementById("et_name").value, area: document.getElementById("et_area").value, lat: document.getElementById("et_lat").value, lng: document.getElementById("et_lng").value }; let r = await fetch("/edit_tower/" + id, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d) }); let j = await r.json(); if(j.ok) { closeEditModal(); loadPage('towers', true); } };
 </script>"""
     if v == 'dishes':
         towers = qall("SELECT t.id, t.name, t.area, t.lat, t.lng, (SELECT COUNT(*) FROM dish_ips WHERE tower_id=t.id) as cnt FROM towers t ORDER BY t.name ASC")
@@ -562,44 +562,44 @@ window.saveTowerPage = async function(id) {{ let d = {{ name: document.getElemen
  </div>
  <div class="tower-accordion-body" id="tower-body-0" style="display:none;background:#0f1424"><div id="tower-content-0" style="padding:10px"></div></div>
 </div>'''
-        return f"""<div style="max-width:1100px;margin:0 auto">
+        return """<div style="max-width:1100px;margin:0 auto">
 <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>📡 الصحون</b><button class=btn-gold onclick="openNewTowerAcc()">+ برج</button></div>
-<div id=accordionContainer style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{accordion_html}</div>
+<div id=accordionContainer style="display:flex;flex-direction:column;gap:8px;margin-top:10px">""" + accordion_html + """</div>
 </div>
 <div id=addDishModal style="position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:2500"><div style="background:var(--card-bg);width:95%;max-width:400px;border-radius:14px;padding:18px"><b id=addDishTitle>+ صحن</b><input id=mName placeholder="اسم"><input id=mIp placeholder="IP"><input id=mLoc placeholder="موقع"><input type=hidden id=mTid><div class=row style="margin-top:10px"><button onclick="closeAddDishModal()" style="flex:1;padding:8px;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:8px">إلغاء</button><button onclick=saveDish() class=btn-gold style="flex:1;padding:8px">حفظ</button></div></div></div>
 <script>
-window.DISH_CACHE = {{}};
-window.openInChrome = function(ip) {{ if(!ip) return; let url = ip; if(!url.startsWith('http')) url = 'http://' + url; window.open(url, '_blank'); }};
-window.toggleAccordionLazy = async function(tid) {{
+window.DISH_CACHE = {};
+window.openInChrome = function(ip) { if(!ip) return; let url = ip; if(!url.startsWith('http')) url = 'http://' + url; window.open(url, '_blank'); };
+window.toggleAccordionLazy = async function(tid) {
     let body = document.getElementById('tower-body-' + tid); let acc = document.getElementById('tower-acc-' + tid);
     let isHidden = !body.classList.contains('open');
-    if(isHidden) {{ body.style.display = 'block'; body.classList.add('open');
-        if(acc.dataset.loaded === '0') {{
+    if(isHidden) { body.style.display = 'block'; body.classList.add('open');
+        if(acc.dataset.loaded === '0') {
             let content = document.getElementById('tower-content-' + tid);
-            try {{ let r = await fetch('/api/tower_detail/' + tid); let j = await r.json();
-                if(j.ok) {{ DISH_CACHE[tid] = j.dishes || []; acc.dataset.loaded = '1'; renderDishes(tid); }}
-            }} catch {{ content.innerHTML = 'خطأ'; }}
-        }}
-    }} else {{ body.classList.remove('open'); setTimeout(() => body.style.display = 'none', 300); }}
-}};
-window.renderDishes = function(tid) {{
+            try { let r = await fetch('/api/tower_detail/' + tid); let j = await r.json();
+                if(j.ok) { DISH_CACHE[tid] = j.dishes || []; acc.dataset.loaded = '1'; renderDishes(tid); }
+            } catch { content.innerHTML = 'خطأ'; }
+        }
+    } else { body.classList.remove('open'); setTimeout(() => body.style.display = 'none', 300); }
+};
+window.renderDishes = function(tid) {
     let dishes = DISH_CACHE[tid] || []; let content = document.getElementById('tower-content-' + tid);
     let h = '<div style="display:flex;flex-direction:column;gap:6px">';
-    dishes.forEach(d => {{ h += '<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:8px"><div><b>' + escHtml(d.dish_name) + '</b><br><span class=ip onclick="openInChrome(\\'' + d.ip + '\\')">' + d.ip + '</span></div><div style="display:flex;gap:4px"><button class="btn-circle view" onclick="openInChrome(\\'' + d.ip + '\\')">👁 عرض</button><button class="btn-circle edit" onclick="openEditDish(' + d.id + ')">✏ تعديل</button><button class="btn-circle del" onclick="openDeleteModal(\\'/del_dish/' + d.id + '\\', ' + d.id + ', \\'' + d.ip + '\\')">🗑 حذف</button></div></div>'; }});
+    dishes.forEach(d => { h += '<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:8px"><div><b>' + escHtml(d.dish_name) + '</b><br><span class=ip onclick="openInChrome(\\'' + d.ip + '\\')">' + d.ip + '</span></div><div style="display:flex;gap:4px"><button class="btn-circle view" onclick="openInChrome(\\'' + d.ip + '\\')">👁 عرض</button><button class="btn-circle edit" onclick="openEditDish(' + d.id + ')">✏ تعديل</button><button class="btn-circle del" onclick="openDeleteModal(\\'/del_dish/' + d.id + '\\', ' + d.id + ', \\'' + d.ip + '\\')">🗑 حذف</button></div></div>'; });
     h += '<button class=btn-gold onclick="openAddDish(' + tid + ')" style="width:100%;margin-top:6px">+ إضافة صحن</button></div>';
     content.innerHTML = h;
-}};
-window.openAddDish = function(tid) {{ document.getElementById('addDishModal').style.display = 'flex'; document.getElementById('mTid').value = tid; }};
-window.closeAddDishModal = function() {{ document.getElementById('addDishModal').style.display = 'none'; }};
-window.saveDish = async function() {{
+};
+window.openAddDish = function(tid) { document.getElementById('addDishModal').style.display = 'flex'; document.getElementById('mTid').value = tid; };
+window.closeAddDishModal = function() { document.getElementById('addDishModal').style.display = 'none'; };
+window.saveDish = async function() {
     let name = document.getElementById('mName').value.trim(); let ip = document.getElementById('mIp').value.trim(); let loc = document.getElementById('mLoc').value.trim(); let tid = document.getElementById('mTid').value;
-    if(!ip) return; let r = await fetch('/api/add_dish_to_tower', {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({ip: ip, dish_name: name || 'صحن', location: loc, tower_id: tid})}}); let j = await r.json();
-    if(j.ok) {{ closeAddDishModal(); document.getElementById('tower-acc-' + tid).dataset.loaded = '0'; toggleAccordionLazy(parseInt(tid)); }}
-}};
-window.openEditDish = async function(id) {{ try {{ let r = await fetch('/api/dish_detail/' + id); let j = await r.json(); if(!j.ok) return; let d = j.dish; let b = document.getElementById("editBody"); b.innerHTML = '<input id=ed_n value="' + d.dish_name + '"><input id=ed_i value="' + d.ip + '"><input id=ed_l value="' + (d.location || '') + '"><button class=btn-gold onclick="saveEditDish(' + id + ')" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل صحن"; document.getElementById("editModal").classList.add("show"); }} catch(e) {{ alert(e); }} }};
-window.saveEditDish = async function(id) {{ let d = {{dish_name: document.getElementById("ed_n").value, ip: document.getElementById("ed_i").value, location: document.getElementById("ed_l").value}}; let r = await fetch("/edit_dish/" + id, {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d)}}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
-window.openNewTowerAcc = function() {{ let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerAcc()" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); }};
-window.saveNewTowerAcc = async function() {{ let d = {{name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value}}; if(!d.name) return; let r = await fetch("/add_tower", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d)}}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
+    if(!ip) return; let r = await fetch('/api/add_dish_to_tower', {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ip: ip, dish_name: name || 'صحن', location: loc, tower_id: tid})}); let j = await r.json();
+    if(j.ok) { closeAddDishModal(); document.getElementById('tower-acc-' + tid).dataset.loaded = '0'; toggleAccordionLazy(parseInt(tid)); }
+};
+window.openEditDish = async function(id) { try { let r = await fetch('/api/dish_detail/' + id); let j = await r.json(); if(!j.ok) return; let d = j.dish; let b = document.getElementById("editBody"); b.innerHTML = '<input id=ed_n value="' + d.dish_name + '"><input id=ed_i value="' + d.ip + '"><input id=ed_l value="' + (d.location || '') + '"><button class=btn-gold onclick="saveEditDish(' + id + ')" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل صحن"; document.getElementById("editModal").classList.add("show"); } catch(e) { alert(e); } };
+window.saveEditDish = async function(id) { let d = {dish_name: document.getElementById("ed_n").value, ip: document.getElementById("ed_i").value, location: document.getElementById("ed_l").value}; let r = await fetch("/edit_dish/" + id, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d)}); let j = await r.json(); if(j.ok) { closeEditModal(); loadPage('dishes', true); } };
+window.openNewTowerAcc = function() { let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerAcc()" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); };
+window.saveNewTowerAcc = async function() { let d = {name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value}; if(!d.name) return; let r = await fetch("/add_tower", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d)}); let j = await r.json(); if(j.ok) { closeEditModal(); loadPage('dishes', true); } };
 </script>"""
     if v == 'map':
         return """<div class=card><div class=row><input id=mapSearch placeholder="بحث..."><button class=btn-gold onclick="loadTowersForMap()">تحديث</button></div><div id=map style="height:70vh;border-radius:10px;margin-top:10px"></div></div>
@@ -618,26 +618,26 @@ setTimeout(() => {
     if v == 'logs':
         rs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
         rows = "".join([f"<tr><td>{esc(r.get('time',''))}</td><td><b style='color:var(--accent)'>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td><small>{esc(r.get('detail',''))}</small></td></tr>" for r in rs]) or "<tr><td colspan=5>لا يوجد سجل</td></tr>"
-        return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل</b><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>المستخدم</th><th>عمل</th><th>الهدف</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs = async () => {{ if(!confirm("مسح؟")) return; await fetch("/api/clear_logs", {{method: "POST"}}); loadPage("logs", true); }};</script>"""
+        return """<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل</b><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>المستخدم</th><th>عمل</th><th>الهدف</th><th>تفصيل</th></tr></thead><tbody>""" + rows + """</tbody></table></div><script>window.clearLogs = async () => { if(!confirm("مسح؟")) return; await fetch("/api/clear_logs", {method: "POST"}); loadPage("logs", true); };</script>"""
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 50")
         rows = "".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{esc(r.get('phone') or '')}</td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑 حذف</button></td></tr>" for r in rs])
-        return f"""<div class=card><div class=row style="justify-content:space-between"><b>👥 المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ إضافة</button></div><form id=fSub class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=phone placeholder="رقم" style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
-<script>document.getElementById("fSub").addEventListener("submit", async e => {{ e.preventDefault(); let r = await fetch("/add_sub", {{method: "POST", body: new FormData(e.target)}}); let j = await r.json(); if(j.ok) loadPage('subs', true); }});</script>"""
+        return """<div class=card><div class=row style="justify-content:space-between"><b>👥 المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ إضافة</button></div><form id=fSub class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=phone placeholder="رقم" style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم</th><th>ملاحظة</th><th></th></tr></thead><tbody>""" + rows + """</tbody></table></div>
+<script>document.getElementById("fSub").addEventListener("submit", async e => { e.preventDefault(); let r = await fetch("/add_sub", {method: "POST", body: new FormData(e.target)}); let j = await r.json(); if(j.ok) loadPage('subs', true); });</script>"""
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 50")
         rows = "".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{r.get('amount')}</td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_ledger/{r.get('id')}',{r.get('id')},'حساب')\">🗑 حذف</button></td></tr>" for r in rs])
-        return f"""<div class=card><div class=row style="justify-content:space-between"><b>📒 الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div><form id=fLed class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
-<script>document.getElementById("fLed").addEventListener("submit", async e => {{ e.preventDefault(); let r = await fetch("/add_ledger", {{method: "POST", body: new FormData(e.target)}}); let j = await r.json(); if(j.ok) loadPage('ledger', true); }});</script>"""
+        return """<div class=card><div class=row style="justify-content:space-between"><b>📒 الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div><form id=fLed class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody>""" + rows + """</tbody></table></div>
+<script>document.getElementById("fLed").addEventListener("submit", async e => { e.preventDefault(); let r = await fetch("/add_ledger", {method: "POST", body: new FormData(e.target)}); let j = await r.json(); if(j.ok) loadPage('ledger', true); });</script>"""
     if v == 'network':
         dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC LIMIT 100")
         cards = "".join([f'''<div class="card ip-card" id="net-{d.get('id')}" data-ip="{esc(d.get('ip') or '')}"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">{esc(d.get('dish_name') or '')}</b></div><div style="margin-top:6px"><span class=ip onclick="window.open('http://{esc(d.get('ip') or '')}','_blank')">{esc(d.get('ip') or '')}</span> <span class="net-out" style="font-size:10px">...</span></div></div>''' for d in dishes])
-        return f"""<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة</b><button class=btn-gold onclick="checkAll()">فحص</button></div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px">{cards}</div></div>
-<script>window.checkAll = async () => {{ for(let c of document.querySelectorAll("[id^=net-]")) {{ try {{ let r = await fetch("/api/ping?ip=" + c.dataset.ip); let j = await r.json(); c.querySelector(".net-out").textContent = j.out; }} catch {{}} await new Promise(r => setTimeout(r, 50)); }} }};</script>"""
+        return """<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة</b><button class=btn-gold onclick="checkAll()">فحص</button></div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px">""" + cards + """</div></div>
+<script>window.checkAll = async () => { for(let c of document.querySelectorAll("[id^=net-]")) { try { let r = await fetch("/api/ping?ip=" + c.dataset.ip); let j = await r.json(); c.querySelector(".net-out").textContent = j.out; } catch {} await new Promise(r => setTimeout(r, 50)); } };</script>"""
     if v == 'settings':
         us = qall("SELECT * FROM users ORDER BY phone ASC")
         cards = "".join([f"<div class='card'><b>{esc(u.get('username') or u.get('phone') or '')}</b><br>{esc(u.get('phone') or '')} <span class=badge>{esc(u.get('role') or '')}</span></div>" for u in us])
-        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card><h4>🔑 تغيير كلمة المرور</h4><form id=formPass class=row><input name=newpass type=password placeholder="كلمة المرور الجديدة" required style="flex:1"><button class=btn-gold>حفظ</button></form></div><div class=card style="margin-top:12px"><b>👥 اليوزرات</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:8px">{cards}</div></div></div><script>document.getElementById("formPass").addEventListener("submit", async e => {{ e.preventDefault(); let r = await fetch("/change_pass", {{method: "POST", body: new FormData(e.target)}}); let j = await r.json(); if(j.ok) e.target.reset(); }});</script>"""
+        return """<div style="max-width:1100px;margin:0 auto"><div class=card><h4>🔑 تغيير كلمة المرور</h4><form id=formPass class=row><input name=newpass type=password placeholder="كلمة المرور الجديدة" required style="flex:1"><button class=btn-gold>حفظ</button></form></div><div class=card style="margin-top:12px"><b>👥 اليوزرات</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:8px">""" + cards + """</div></div></div><script>document.getElementById("formPass").addEventListener("submit", async e => { e.preventDefault(); let r = await fetch("/change_pass", {method: "POST", body: new FormData(e.target)}); let j = await r.json(); if(j.ok) e.target.reset(); });</script>"""
     return "<div class=card>404</div>"
 
 def layout(c, v='home'):
