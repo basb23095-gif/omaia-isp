@@ -36,7 +36,6 @@ _plock = threading.Lock()
 _sqlite_conn = None
 _slock = threading.Lock()
 
-# أيقونات مدمجة ومباشرة لسرعة خيالية بدون ملفات خارجية
 BTN_EDIT = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>"""
 BTN_DEL = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>"""
 
@@ -112,7 +111,8 @@ def put_conn(c):
         try: c.close()
         except Exception: pass
 
-def qall(q, a=()):
+# نظام ذكي لإعادة الاتصال بقاعدة البيانات عند توقفها وتفادي الـ SSL Error
+def qall(q, a=(), retries=2):
     cn = None
     try:
         cn = get_conn()
@@ -125,16 +125,15 @@ def qall(q, a=()):
         else:
             with _slock: return [dict(x) for x in cn.execute(q, a).fetchall()]
     except Exception as e:
-        if cn and USE_PG and hasattr(cn, 'closed'):
-            try: put_conn(cn)
-            except Exception: pass
+        if cn and USE_PG:
+            try: cn.close() # إغلاق الاتصال الميت فوراً
+            except: pass
+        if retries > 0:
+            time.sleep(0.1)
+            return qall(q, a, retries - 1)
         return []
 
-def qone(q, a=()):
-    r = qall(q, a)
-    return r[0] if r else None
-
-def qexec(q, a=()):
+def qexec(q, a=(), retries=2):
     cn = None
     try:
         cn = get_conn()
@@ -143,14 +142,15 @@ def qexec(q, a=()):
             cur.execute(q.replace("?", "%s"), a)
             cn.commit(); cur.close(); put_conn(cn)
         else:
-            with _slock: 
-                cn.execute(q, a)
+            with _slock: cn.execute(q, a); cn.commit()
         return True
     except Exception as e:
-        print(f"DB Error: {e}")
-        if cn and USE_PG and hasattr(cn, 'closed'):
-            try: cn.rollback(); put_conn(cn)
-            except Exception: pass
+        if cn and USE_PG:
+            try: cn.rollback(); cn.close() # إغلاق الاتصال الميت فوراً
+            except: pass
+        if retries > 0:
+            time.sleep(0.1)
+            return qexec(q, a, retries - 1)
         return False
 
 def get_data(req):
@@ -166,12 +166,17 @@ def add_log(phone, action, target='', detail='', username=''):
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not username:
             try: username = session.get('username') or session.get('phone') or phone or 'sys'
-            except Exception: username = phone or 'sys'
+            except: username = phone or 'sys'
+        
         ok = qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
-                   (phone or 'sys', username, action, str(target)[:300], str(detail)[:500], now))
+                   (str(phone or 'sys'), str(username), str(action), str(target)[:300], str(detail)[:500], now))
+        
+        # معالجة ذكية للسجل: إذا فشل بسبب نقص الجداول القديمة، قم بإضافتها والمحاولة مجدداً
         if not ok:
-            qexec("INSERT INTO logs(user_phone,action,detail,time) VALUES(?,?,?,?)",
-                  (phone or 'sys', action, str((detail or target))[:500], now))
+            qexec("ALTER TABLE logs ADD COLUMN username TEXT")
+            qexec("ALTER TABLE logs ADD COLUMN target TEXT")
+            qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
+                   (str(phone or 'sys'), str(username), str(action), str(target)[:300], str(detail)[:500], now))
     except Exception: pass
 
 def get_counts():
@@ -194,7 +199,6 @@ def init_db():
     if USE_PG: ss = [s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
     
-    # تحديثات ذكية للجداول القديمة عشان ما يعلق الحفظ أبداً
     alters = [
         "ALTER TABLE dish_ips ADD COLUMN tower_id INTEGER",
         "ALTER TABLE towers ADD COLUMN created_at TEXT",
@@ -517,7 +521,6 @@ def login():
     except Exception:
         tr = TR['ar']
     return f"""<html dir="rtl"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 *{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%,#1a2344,#0a0e2a 60%);display:flex;align-items:center;justify-content:center;color:#fff}}
 .card{{background:rgba(20, 25, 45, 0.6);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.15);padding:24px;border-radius:16px;width:92%;max-width:350px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}}
@@ -533,11 +536,6 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
   <input type="checkbox" name="remember" checked id="rememberBox" style="width:auto;margin:0"> حفظ الدخول
 </label>
 <button class=btn id=loginBtn>تسجيل الدخول</button>
-
-<div style="display: flex; justify-content: center; gap: 20px; margin-top: 15px;">
-  <a href="https://wa.me/905344851045" target="_blank" style="font-size: 22px; text-decoration: none; color:#25d366;" title="واتساب"><i class="fa-brands fa-whatsapp"></i></a>
-  <a href="https://instagram.com/af_20_1999" target="_blank" style="font-size: 22px; text-decoration: none; color:#e1306c;" title="انستغرام"><i class="fa-brands fa-instagram"></i></a>
-</div>
 
 <div id=msg style='text-align:center;color:#ff6b6b;font-size:12px;margin-top:10px;font-weight:bold'></div>
 </form>
@@ -607,8 +605,7 @@ def page_content(v):
 <div class="card" style="margin-top:12px;padding:14px;display:flex;justify-content:space-between;align-items:center">
   <div><b style="font-size:13px;color:#ffbe4d">💬 {tr['support']}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">تواصل معنا عبر القنوات الرسمية</div></div>
   <div style="display:flex;gap:10px">
-    <a href="https://wa.me/905344851045" target="_blank" class="sq-btn view" style="background:#25d366;text-decoration:none;padding:6px 10px"><i class="fa-brands fa-whatsapp"></i> واتساب</a>
-    <a href="https://instagram.com/af_20_1999" target="_blank" class="sq-btn edit" style="background:#e1306c;text-decoration:none;padding:6px 10px"><i class="fa-brands fa-instagram"></i> انستغرام</a>
+    <a href="https://wa.me/905344851045" target="_blank" class="sq-btn view" style="background:#25d366;text-decoration:none;padding:6px 10px">واتساب</a>
   </div>
 </div>
 
@@ -1169,7 +1166,6 @@ input:focus,select:focus{{border-color:#ffbe4d}}
 let cur='{v}';
 const MSG_SURE = "{tr['sure']}";
 
-// 🛡️ دالة ذكية مركزية للتعامل مع حفظ البيانات لتفادي تجميد الموقع نهائياً
 window.apiPost = async function(url, data) {{
     let b = document.activeElement;
     let oldTxt = "";
@@ -1236,7 +1232,7 @@ async function loadPage(v, force=false){{
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
   let mn=document.getElementById('mn'); 
-  mn.style.opacity = '0.3'; // SPA smooth transition effect
+  mn.style.opacity = '0.3';
   try{{
     let r=await fetch('/api/page?v='+v);
     if(r.status===401){{ location.replace('/login'); return; }}
@@ -1252,7 +1248,6 @@ async function loadPage(v, force=false){{
 }}
 
 function execScripts(){{
-    // تنظيف السكربتات القديمة لمنع تداخلها
     document.querySelectorAll('.dyn-script').forEach(e => e.remove());
     document.getElementById('mn').querySelectorAll('script').forEach(o=>{{
         let s=document.createElement('script'); 
