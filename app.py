@@ -15,7 +15,8 @@ from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "omaia_isp_fixed_secret_token_2026_xyz")
-app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
+# تعديل مدة الجلسة لتنتهي بإغلاق المتصفح أو حسب الرغبة لمنع ثبات تسجيل الدخول بشكل دائم
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=8)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -498,7 +499,7 @@ input:focus{{border-color:#ffbe4d}}
 <input name=userin placeholder='{tr.get('phone', 'اسم الدخول/الهاتف')}' required autofocus>
 <input name=password type=password placeholder='***' required>
 <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:10px;cursor:pointer">
-  <input type="checkbox" name="remember" checked id="rememberBox" style="width:auto;margin:0"> حفظ الدخول
+  <input type="checkbox" name="remember" id="rememberBox" style="width:auto;margin:0"> حفظ الدخول
 </label>
 <button class=btn id=loginBtn>تسجيل الدخول</button>
 <div id=msg style='text-align:center;color:#ef4444;font-size:13px;margin-top:10px;font-weight:bold'></div>
@@ -633,94 +634,110 @@ window.delMk=async function(e, id){{
         for d in all_dishes:
             dishes_by_tower[d.get('tower_id') or 0].append(d)
 
-        accordion_html = ""
+        towers_grid_html = ""
         t_opts = "<option value='0'>---</option>"
 
         for idx, t in enumerate(all_towers):
             tid = t['id']
             tname = esc(t['name'])
+            tare = esc(t.get('area') or '')
             t_opts += f"<option value='{tid}'>{tname}</option>"
             
             t_dishes = dishes_by_tower[tid]
             cnt = len(t_dishes)
             
-            dishes_html = "".join([f"""
-            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
-                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
-                <div style="display:flex;gap:6px">
+            dishes_list_html = "".join([f"""
+            <div class="dish-item" style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:10px 12px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(255,255,255,0.03)">
+                <div>
+                    <b style="font-size:13px;color:#fff">{esc(d.get('dish_name') or '--')}</b>
+                    <div style="margin-top:4px"><span class="ip" style="cursor:pointer;font-size:11px;padding:3px 8px;" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:11px">{esc(d.get('location') or '')}</small></div>
+                </div>
+                <div style="display:flex;gap:4px">
                     <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
                     <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
                 </div>
-            </div>""" for d in t_dishes]) or f'<div style="color:#666;font-size:11px;text-align:center;padding:10px">{tr["empty"]}</div>'
-            
-            dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:12px;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>"""
+            </div>""" for d in t_dishes]) or f'<div style="color:#666;font-size:12px;text-align:center;padding:15px">{tr["empty"]}</div>'
 
             is_fixed_tower = (idx == 0)
-            edit_tower_btn = ""
+            edit_tower_btns = ""
             if not is_fixed_tower:
-                edit_tower_btn = f"""<button class="btn-glass btn-edit" style="flex:1" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">{BTN_EDIT} {tr['edit']}</button>"""
-            
-            if v == 'towers':
-                accordion_html += f"""
-                <div class="card tower-card" id="tower-{tid}" style="padding:14px;transition:all 0.3s ease">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:4px">📍 {esc(t.get('area') or '...')}</div></div>
-                        <div style="display:flex;gap:8px;align-items:center">
-                            <span class=badge style="padding:4px 8px;font-size:11px;cursor:pointer;box-shadow:0 0 10px rgba(255,190,77,0.2)" onclick="toggleAcc({tid})">{cnt}</span>
+                edit_tower_btns = f"""
+                <button class="btn-glass btn-edit" style="flex:1" onclick="openEditTower({tid}, '{tname}', '{tare}')">{BTN_EDIT} {tr['edit']}</button>
+                <button class="btn-glass btn-del" style="flex:1" onclick="delTower(event, {tid})">{BTN_DEL} {tr['delete']}</button>
+                """
+
+            towers_grid_html += f"""
+            <div class="card tower-card" style="display:flex;flex-direction:column;justify-content:space-between;padding:16px;">
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
+                        <div>
+                            <b style="font-size:15px;color:#38bdf8">🗼 {tname}</b>
+                            <div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tare || 'حلب/سوريا'}</div>
                         </div>
+                        <span class="badge" style="background:rgba(255,190,77,0.2);color:#ffbe4d;font-size:12px;padding:4px 10px">{cnt}</span>
                     </div>
-                    <div id="tower-body-{tid}" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">{dishes_html}</div>
-                    <div style="display:flex;gap:8px;margin-top:14px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px">
-                        {edit_tower_btn}
-                        <button class="btn-glass btn-del" style="flex:1" onclick="delTower(event, {tid})">{BTN_DEL} {tr['delete']}</button>
-                    </div>
-                </div>"""
-            else:
-                accordion_html += f"""
-                <div class="card tower-accordion" id="tower-acc-{tid}" style="padding:14px;transition:all 0.3s ease">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b> <span class="badge" style="font-size:11px;padding:4px 8px;">{cnt}</span></div>
-                    </div>
-                    <div id="tower-body-{tid}" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">{dishes_html}</div>
-                </div>"""
-
-        if v == 'dishes':
-            u_dishes = dishes_by_tower[0]
-            u_cnt = len(u_dishes)
-            u_dishes_html = "".join([f"""
-            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
-                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
-                <div style="display:flex;gap:6px">
-                    <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
-                    <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
+                    <div style="max-height:220px;overflow-y:auto;margin-bottom:10px">{dishes_list_html}</div>
                 </div>
-            </div>""" for d in u_dishes]) or f'<div style="color:#666;font-size:11px;text-align:center;padding:10px">{tr["empty"]}</div>'
-            u_dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:12px;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>"""
-            
-            accordion_html += f"""
-            <div class="card tower-accordion" id="tower-acc-0" style="border:1px solid rgba(239,68,68,0.3);padding:14px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div onclick="toggleAcc(0)" style="cursor:pointer;flex:1"><b style="font-size:14px;color:#ef4444">{un_name}</b> <span class="badge" style="background:#ef4444;font-size:11px;padding:4px 8px;">{u_cnt}</span></div>
-                    <div style="display:flex;gap:12px;align-items:center">
-                        <button class="btn-glass btn-edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.1);width:28px;height:28px;" onclick="editUnassignedName()">{BTN_EDIT}</button>
-                        <div onclick="toggleAcc(0)" style="cursor:pointer;font-size:16px;color:#888">▼</div>
+                <div>
+                    <button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-bottom:8px;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
+                    <div style="display:flex;gap:6px">{edit_tower_btns}</div>
+                </div>
+            </div>
+            """
+
+        # Unassigned Section
+        u_dishes = dishes_by_tower[0]
+        u_cnt = len(u_dishes)
+        u_dishes_list = "".join([f"""
+        <div class="dish-item" style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:10px 12px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(255,255,255,0.03)">
+            <div>
+                <b style="font-size:13px;color:#fff">{esc(d.get('dish_name') or '--')}</b>
+                <div style="margin-top:4px"><span class="ip" style="cursor:pointer;font-size:11px;padding:3px 8px;" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:11px">{esc(d.get('location') or '')}</small></div>
+            </div>
+            <div style="display:flex;gap:4px">
+                <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
+                <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
+            </div>
+        </div>""" for d in u_dishes]) or f'<div style="color:#666;font-size:12px;text-align:center;padding:15px">{tr["empty"]}</div>'
+
+        unassigned_card = f"""
+        <div class="card tower-card" style="display:flex;flex-direction:column;justify-content:space-between;padding:16px;border:1px solid rgba(239,68,68,0.3)">
+            <div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
+                    <div>
+                        <b style="font-size:15px;color:#ef4444">{un_name}</b>
+                        <div style="font-size:11px;color:#94a3b8;margin-top:2px">غير مصنف</div>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <span class="badge" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px">{u_cnt}</span>
+                        <button class="btn-glass btn-edit icon-only" style="width:26px;height:26px" onclick="editUnassignedName()">{BTN_EDIT}</button>
                     </div>
                 </div>
-                <div id="tower-body-0" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">{u_dishes_html}</div>
-            </div>"""
+                <div style="max-height:220px;overflow-y:auto;margin-bottom:10px">{u_dishes_list}</div>
+            </div>
+            <div>
+                <button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
+            </div>
+        </div>
+        """
 
-        if v == 'towers':
-            return f"""
-<div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['towers']}</b><button class=btn-gold onclick="openNewTower()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_tower']}</button></div>
+        return f"""
+<div style="max-width:1300px;margin:0 auto">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;">
+    <b>{tr['towers']} & {tr['dishes']}</b>
+    <div style="display:flex;gap:10px">
+        <button class=btn-gold onclick="openNewTower()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_tower']}</button>
+        <button class=btn-gold onclick="openDishModal(0,0,'','','')" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
+    </div>
+  </div>
   <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
-  <div class=grid-small id=towersGrid style="margin-top:12px">{accordion_html or f"<div class=card style='text-align:center;color:#666'>{tr['empty']}</div>"}</div>
+  
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin-top:12px">
+    {towers_grid_html}
+    {unassigned_card}
+  </div>
 </div>
 <script>
-window.toggleAcc = function(tid) {{
-  let b = document.getElementById('tower-body-' + tid);
-  if(b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
-}};
 window.openNewTower=function(){{
   document.getElementById("editBody").innerHTML=`<input id=nt_name placeholder="Name"><input id=nt_area placeholder="Area"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
   document.getElementById("editModalTitle").textContent="{tr['add_tower']}"; document.getElementById("editModal").classList.add("show");
@@ -740,46 +757,10 @@ window.delTower=async function(e, id){{
   let card = e.currentTarget.closest('.card');
   if(await window.apiPost('/del_tower/'+id, {{}})) card.remove();
 }};
-window.openDishModal=function(id, tid, name, ip, loc){{
-  document.getElementById("editBody").innerHTML=`
-    <input id="dish_name" placeholder="{tr['name']}" value="${{name}}">
-    <input id="dish_ip" placeholder="IP / Domain" value="${{ip}}">
-    <input id="dish_loc" placeholder="Location/Note" value="${{loc}}">
-    <select id="dish_tid" style="font-weight:bold">{t_opts}</select>
-    <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
-  `;
-  document.getElementById("dish_tid").value = tid;
-  document.getElementById("editModalTitle").textContent = id===0 ? "{tr['add']}" : "{tr['edit']}";
-  document.getElementById("editModal").classList.add("show");
-}};
-window.saveDish=async function(id){{
-  let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
-  if(!d.ip) return alert('يرجى كتابة الآي بي أو الدومين');
-  let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
-  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage(cur, true); }}
-}};
-window.delDish=async function(e, id){{
-  if(!confirm(MSG_SURE)) return;
-  let row = e.currentTarget.closest('.dish-row');
-  if(await window.apiPost('/del_dish/'+id, {{}})) row.remove();
-}};
-</script>"""
-        else:
-            return f"""
-<div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['dishes']}</b><button class=btn-gold onclick="openDishModal(0,0,'','','')" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button></div>
-  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
-  <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{accordion_html}</div>
-</div>
-<script>
-window.toggleAcc = function(tid) {{
-  let b = document.getElementById('tower-body-' + tid);
-  if(b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
-}};
 window.editUnassignedName = async function() {{
     let newName = prompt("{tr['unassigned_edit']}");
     if(newName) {{
-        if(await window.apiPost('/api/set_config', {{key:'unassigned_name', value:newName}})) loadPage('dishes', true);
+        if(await window.apiPost('/api/set_config', {{key:'unassigned_name', value:newName}})) loadPage('towers', true);
     }}
 }};
 window.openDishModal=function(id, tid, name, ip, loc){{
@@ -802,7 +783,7 @@ window.saveDish=async function(id){{
 }};
 window.delDish=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
-  let row = e.currentTarget.closest('.dish-row');
+  let row = e.currentTarget.closest('.dish-item');
   if(await window.apiPost('/del_dish/'+id, {{}})) row.remove();
 }};
 </script>"""
@@ -1047,7 +1028,7 @@ body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidde
 
 .sidebar {{
     position: fixed; top: 0; bottom: 0; right: 0; width: 260px;
-    background: rgba(15, 23, 42, 0.2) !important; 
+    background: rgba(15, 23, 42, 0.95) !important; 
     backdrop-filter: blur(35px) saturate(200%); -webkit-backdrop-filter: blur(35px) saturate(200%);
     border-left: 1px solid rgba(255, 255, 255, 0.05);
     box-shadow: -10px 0 40px rgba(0,0,0,0.5); z-index: 1004; padding: 24px 16px;
@@ -1107,8 +1088,11 @@ input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
 <a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙️ <span>{tr['settings']}</span></a>
+
+<!-- زر تسجيل الخروج الرسمي الواضح -->
 <div style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.05);padding-top:16px;display:flex;flex-direction:column;gap:8px">
-  <div style="display:flex;justify-content:space-around">
+  <a href="/logout" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);text-align:center;justify-content:center;border-radius:12px;padding:12px;font-weight:bold;text-decoration:none;">🚪 {tr['logout']}</a>
+  <div style="display:flex;justify-content:space-around;margin-top:6px">
     <a href="https://wa.me/905344851045" target="_blank" style="padding:8px 12px;font-size:12px;background:rgba(37,211,102,0.15);color:#25d366;border-radius:10px;text-decoration:none;">واتساب</a>
     <a href="https://instagram.com/af_20_1999" target="_blank" style="padding:8px 12px;font-size:12px;background:rgba(225,48,108,0.15);color:#e1306c;border-radius:10px;text-decoration:none;">انستغرام</a>
   </div>
