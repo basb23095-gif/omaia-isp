@@ -563,7 +563,7 @@ def page_content(v):
         cards=""
         for t in rs:
             tid=t.get('id'); tname=esc(t.get('name') or f'برج {tid}'); tarea=esc(t.get('area') or ''); lat=t.get('lat') or 35.1318; lng=t.get('lng') or 36.7578; cnt=t.get('cnt') or 0
-            cards+=f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">{tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tarea}</div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:10px"><button class=\"btn-circle edit\" onclick="openEditTowerPage({tid})" title="تعديل">✏</button><button class=\"btn-circle del\" onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')">🗑</button></div></div>'
+            cards+=f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">{tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tarea}</div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:10px"><button class=\"btn-circle edit\" onclick="openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class=\"btn-circle del\" onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button></div></div>'
         return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>🗼 الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid>{cards}</div></div><script>
 window.openNewTowerPage=function(){let b=document.getElementById("editBody"); b.innerHTML='<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%">حفظ</button>'; document.getElementById("editModalTitle").textContent="إضافة برج"; document.getElementById("editModal").classList.add("show");};
 window.saveNewTowerPage=async function(){let d={name:document.getElementById("nt_name").value,area:document.getElementById("nt_area").value,lat:document.getElementById("nt_lat").value,lng:document.getElementById("nt_lng").value}; if(!d.name) return; let r=await fetch("/add_tower",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}); let j=await r.json(); if(j.ok){closeEditModal(); loadPage('towers',true);}};
@@ -580,7 +580,7 @@ window.saveTowerPage=async function(id){let d={name:document.getElementById("et_
 <div class="card tower-accordion" id="tower-acc-{tid}" data-name="{tname.lower()}" data-area="{tarea.lower()}" data-loaded="0">
  <div class="tower-accordion-header" onclick="toggleAccordionLazy({tid})" style="padding:14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer">
   <div style="display:flex;align-items:center;gap:12px;flex:1"><div style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">{tname}</b><div style="font-size:11px;color:#94a3b8">📍 {tarea}</div></div></div>
-  <div style="display:flex;gap:8px;align-items:center"><span class=badge>{cnt} IP</span><button class="btn-circle edit" onclick="event.stopPropagation();openEditTowerPage({tid})" title="تعديل">✏</button><button class="btn-circle del" onclick="event.stopPropagation();openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑</button><div id="arrow-{tid}">▼</div></div>
+  <div style="display:flex;gap:8px;align-items:center"><span class=badge>{cnt} IP</span><button class="btn-circle edit" onclick="event.stopPropagation();openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class="btn-circle del" onclick="event.stopPropagation();openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button><div id="arrow-{tid}">▼</div></div>
  </div>
  <div class="tower-accordion-body" id="tower-body-{tid}" style="display:none;background:#0f1424"><div id="tower-content-{tid}" style="padding:12px">جاري التحميل...</div></div>
 </div>'''
@@ -615,7 +615,7 @@ window.toggleAccordionLazy=async function(tid){
 window.renderDishes=function(tid){
  let dishes=DISH_CACHE[tid]||[]; let content=document.getElementById('tower-content-'+tid);
  let h='<div style="display:flex;flex-direction:column;gap:6px">';
- dishes.forEach(d=>{ h+='<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:10px"><div><b>'+escHtml(d.dish_name)+'</b><br><span class=ip onclick="openInChrome(\\''+d.ip+'\\')">'+d.ip+'</span></div><div style="display:flex;gap:6px"><button class="btn-circle view" onclick="openInChrome(\\''+d.ip+'\\')">👁</button><button class="btn-circle edit" onclick="openEditDish('+d.id+')">✏</button><button class="btn-circle del" onclick="openDeleteModal(\\'/del_dish/'+d.id+'\\', '+d.id+', \\''+d.ip+'\\')">🗑</button></div></div>'; });
+ dishes.forEach(d=>{ h+='<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:10px"><div><b>'+escHtml(d.dish_name)+'</b><br><span class=ip onclick="openInChrome(\\''+d.ip+'\\')">'+d.ip+'</span></div><div style="display:flex;gap:6px"><button class="btn-circle view" onclick="openInChrome(\\''+d.ip+'\\')">👁 عرض</button><button class="btn-circle edit" onclick="openEditDish('+d.id+')">✏ تعديل</button><button class="btn-circle del" onclick="openDeleteModal(\\'/del_dish/'+d.id+'\\', '+d.id+', \\''+d.ip+'\\')">🗑 حذف</button></div></div>'; });
  h+='<button class=btn-gold onclick="openAddDish('+tid+')" style="width:100%;margin-top:8px">+ إضافة صحن</button></div>';
  content.innerHTML=h;
 };
@@ -653,12 +653,12 @@ setTimeout(()=>{
         return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل</b><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>المستخدم</th><th>عمل</th><th>الهدف</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs=async()=>{if(!confirm("مسح؟")) return; await fetch("/api/clear_logs",{method:"POST"}); loadPage("logs",true);};</script>"""
     if v=='subs':
         rs=qall("SELECT * FROM subs ORDER BY name ASC LIMIT 50")
-        rows="".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{esc(r.get('phone') or '')}</td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑</button></td></tr>" for r in rs])
+        rows="".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{esc(r.get('phone') or '')}</td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑 حذف</button></td></tr>" for r in rs])
         return f"""<div class=card><div class=row style="justify-content:space-between"><b>👥 المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ إضافة</button></div><form id=fSub class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=phone placeholder="رقم" style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
 <script>document.getElementById("fSub").addEventListener("submit",async e=>{e.preventDefault(); let r=await fetch("/add_sub",{method:"POST",body:new FormData(e.target)}); let j=await r.json(); if(j.ok) loadPage('subs',true);});</script>"""
     if v=='ledger':
         rs=qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 50")
-        rows="".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{r.get('amount')}</td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_ledger/{r.get('id')}',{r.get('id')},'حساب')\">🗑</button></td></tr>" for r in rs])
+        rows="".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{r.get('amount')}</td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_ledger/{r.get('id')}',{r.get('id')},'حساب')\">🗑 حذف</button></td></tr>" for r in rs])
         return f"""<div class=card><div class=row style="justify-content:space-between"><b>📒 الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div><form id=fLed class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
 <script>document.getElementById("fLed").addEventListener("submit",async e=>{e.preventDefault(); let r=await fetch("/add_ledger",{method:"POST",body:new FormData(e.target)}); let j=await r.json(); if(j.ok) loadPage('ledger',true);});</script>"""
     if v=='network':
@@ -702,16 +702,17 @@ body{{background:var(--bg);color:var(--text);overflow-x:hidden}}
 .row{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}}
 .btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:7px 12px;border:0;border-radius:8px;font-weight:700;font-size:11px;cursor:pointer}}
 
-/* === تعديل أيقونات الحذف، التعديل، والعرض (نصف دائرة / كبسولة زجاجية متوهجة) === */
+/* === أزرار الحذف والتعديل والعرض (نصف دائرة / كبسولة زجاجية متوهجة) === */
 .btn-circle{{
   background: rgba(255, 255, 255, 0.08) !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
   border: 1px solid rgba(255, 255, 255, 0.18) !important;
   color: var(--text) !important;
-  padding: 4px 10px !important;
+  padding: 6px 12px !important;
   border-radius: 20px !important;
   font-size: 11px !important;
+  font-weight: 600 !important;
   cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
@@ -815,7 +816,7 @@ window.openDeleteModal=function(url,id,name){
 };
 window.toggleLangFast=async()=>{try{let r=await fetch('/toggle_lang'); let j=await r.json(); location.reload();}catch{}};
 window.toggleThemeFast=async()=>{try{let r=await fetch('/toggle_theme'); let j=await r.json(); document.body.className=j.theme;}catch{}};
-window.logoutFast=async()=>{try{await fetch('/api/logout',{method:'POST'});}catch{} location.replace('/login');};
+window.logoutFast=async()=>{try{let r=await fetch('/api/logout',{method:'POST'});}catch{} location.replace('/login');};
 loadPage(cur,true);
 </script></body></html>"""
 
