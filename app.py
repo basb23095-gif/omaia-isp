@@ -1,4 +1,4 @@
-\# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response, make_response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
