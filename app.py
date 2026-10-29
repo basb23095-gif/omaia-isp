@@ -35,8 +35,6 @@ _pg_pool = None
 _plock = threading.Lock()
 _sqlite_conn = None
 _slock = threading.Lock()
-_cache = {}
-_clock = threading.Lock()
 
 # قاموس اللغات (عربي / إنجليزي)
 TR = {
@@ -236,7 +234,7 @@ def is_valid_ip(h):
 
 @app.after_request
 def after(r):
-    r.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     r.headers['Pragma'] = 'no-cache'
     return r
 
@@ -518,9 +516,10 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
 </label>
 <button class=btn id=loginBtn>تسجيل الدخول</button>
 
-<div style="display:flex;justify-content:center;gap:20px;margin-top:15px;align-items:center">
-  <a href="https://wa.me/905344851045" target="_blank" style="color:#25D366;text-decoration:none;font-size:14px;font-weight:bold;display:flex;align-items:center;gap:5px;">💬 واتساب</a>
-  <a href="https://instagram.com/Af_20_1999" target="_blank" style="color:#E1306C;text-decoration:none;font-size:14px;font-weight:bold;display:flex;align-items:center;gap:5px;">📸 انستغرام</a>
+<!-- أزرار الدعم الفني كأيقونات مباشرة -->
+<div style="display: flex; justify-content: center; gap: 20px; margin-top: 15px;">
+  <a href="https://wa.me/905344851045" target="_blank" style="font-size: 22px; text-decoration: none;" title="واتساب">💬</a>
+  <a href="https://instagram.com/your_account" target="_blank" style="font-size: 22px; text-decoration: none;" title="انستغرام">📸</a>
 </div>
 
 <div id=msg style='text-align:center;color:#ff6b6b;font-size:12px;margin-top:10px;font-weight:bold'></div>
@@ -535,7 +534,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {{
   let payload = {{
       userin: e.target.userin.value,
       password: e.target.password.value,
-      remember: document.getElementById('rememberBox').checked
+      remember: document.getElementById('rememberBox'].checked
   }};
   
   try {{
@@ -666,66 +665,66 @@ window.fetchMikrotikStatus=async function(id){{
             cnt = len(t_dishes)
             
             dishes_html = "".join([f"""
-            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff11">
-                <div><b style="font-size:13px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:13px;padding:4px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8">{esc(d.get('location') or '')}</small></div>
-                <div style="display:flex;gap:6px">
-                    <button class="sq-btn edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">✏️</button>
-                    <button class="sq-btn del icon-only" onclick="delDish(event, {d['id']})">🗑️</button>
+            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ffffff11">
+                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px;margin-top:2px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
+                <div style="display:flex;gap:4px">
+                    <button class="sq-btn edit icon-only" style="width:26px;height:26px;font-size:11px;" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">✏️</button>
+                    <button class="sq-btn del icon-only" style="width:26px;height:26px;font-size:11px;" onclick="delDish(event, {d['id']})">🗑️</button>
                 </div>
-            </div>""" for d in t_dishes]) or f'<div style="color:#888;font-size:12px;text-align:center;padding:10px">{tr["empty"]}</div>'
+            </div>""" for d in t_dishes]) or f'<div style="color:#888;font-size:11px;text-align:center;padding:6px">{tr["empty"]}</div>'
             
-            dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:12px">{tr['add_dish']}</button>"""
+            dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:8px;padding:6px;font-size:11px;">{tr['add_dish']}</button>"""
 
             if v == 'towers':
                 accordion_html += f"""
-                <div class="card tower-card" id="tower-{tid}">
+                <div class="card tower-card" id="tower-{tid}" style="padding:10px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleAcc({tid})">
-                        <div><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:4px">📍 {esc(t.get('area') or '...')}</div></div>
-                        <span class=badge style="padding:4px 8px;font-size:11px">{cnt}</span>
+                        <div><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {esc(t.get('area') or '...')}</div></div>
+                        <span class=badge style="padding:2px 6px;font-size:10px">{cnt}</span>
                     </div>
-                    <div id="tower-body-{tid}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22">{dishes_html}</div>
-                    <div style="display:flex;gap:6px;margin-top:12px;border-top:1px solid #ffffff11;padding-top:8px">
-                        <button class="sq-btn edit" style="flex:1" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">✏️ {tr['edit']}</button>
-                        <button class="sq-btn del" style="flex:1" onclick="delTower(event, {tid})">🗑️ {tr['delete']}</button>
+                    <div id="tower-body-{tid}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{dishes_html}</div>
+                    <div style="display:flex;gap:4px;margin-top:8px;border-top:1px solid #ffffff11;padding-top:6px">
+                        <button class="sq-btn edit" style="flex:1;padding:4px;font-size:11px;" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">✏️ {tr['edit']}</button>
+                        <button class="sq-btn del" style="flex:1;padding:4px;font-size:11px;" onclick="delTower(event, {tid})">🗑️ {tr['delete']}</button>
                     </div>
                 </div>"""
             else:
                 accordion_html += f"""
-                <div class="card tower-accordion" id="tower-acc-{tid}">
-                    <div onclick="toggleAcc({tid})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b> <span class="badge">{cnt}</span></div><div style="font-size:18px">▼</div></div>
-                    <div id="tower-body-{tid}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22">{dishes_html}</div>
+                <div class="card tower-accordion" id="tower-acc-{tid}" style="padding:10px;">
+                    <div onclick="toggleAcc({tid})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b> <span class="badge" style="font-size:10px;padding:2px 6px;">{cnt}</span></div><div style="font-size:14px">▼</div></div>
+                    <div id="tower-body-{tid}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{dishes_html}</div>
                 </div>"""
 
         if v == 'dishes':
             u_dishes = dishes_by_tower[0]
             u_cnt = len(u_dishes)
             u_dishes_html = "".join([f"""
-            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff11">
-                <div><b style="font-size:13px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:13px;padding:4px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8">{esc(d.get('location') or '')}</small></div>
-                <div style="display:flex;gap:6px">
-                    <button class="sq-btn edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">✏️</button>
-                    <button class="sq-btn del icon-only" onclick="delDish(event, {d['id']})">🗑️</button>
+            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #ffffff11">
+                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px;margin-top:2px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
+                <div style="display:flex;gap:4px">
+                    <button class="sq-btn edit icon-only" style="width:26px;height:26px;font-size:11px;" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">✏️</button>
+                    <button class="sq-btn del icon-only" style="width:26px;height:26px;font-size:11px;" onclick="delDish(event, {d['id']})">🗑️</button>
                 </div>
-            </div>""" for d in u_dishes]) or f'<div style="color:#888;font-size:12px;text-align:center;padding:10px">{tr["empty"]}</div>'
-            u_dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:12px">{tr['add_dish']}</button>"""
+            </div>""" for d in u_dishes]) or f'<div style="color:#888;font-size:11px;text-align:center;padding:6px">{tr["empty"]}</div>'
+            u_dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:8px;padding:6px;font-size:11px;">{tr['add_dish']}</button>"""
             
             accordion_html += f"""
-            <div class="card tower-accordion" id="tower-acc-0" style="border:1px solid rgba(239,68,68,0.4)">
+            <div class="card tower-accordion" id="tower-acc-0" style="border:1px solid rgba(239,68,68,0.4);padding:10px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div onclick="toggleAcc(0)" style="cursor:pointer;flex:1"><b style="font-size:14px;color:#ef4444">{un_name}</b> <span class="badge" style="background:#ef4444">{u_cnt}</span></div>
-                    <div style="display:flex;gap:10px;align-items:center">
-                        <button class="sq-btn edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.2)" onclick="editUnassignedName()">✏️</button>
-                        <div onclick="toggleAcc(0)" style="cursor:pointer;font-size:18px">▼</div>
+                    <div onclick="toggleAcc(0)" style="cursor:pointer;flex:1"><b style="font-size:13px;color:#ef4444">{un_name}</b> <span class="badge" style="background:#ef4444;font-size:10px;padding:2px 6px;">{u_cnt}</span></div>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <button class="sq-btn edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.2);width:24px;height:24px;font-size:11px;" onclick="editUnassignedName()">✏️</button>
+                        <div onclick="toggleAcc(0)" style="cursor:pointer;font-size:14px">▼</div>
                     </div>
                 </div>
-                <div id="tower-body-0" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22">{u_dishes_html}</div>
+                <div id="tower-body-0" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{u_dishes_html}</div>
             </div>"""
 
         if v == 'towers':
             return f"""
 <div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['towers']}</b><button class=btn-gold onclick="openNewTower()">{tr['add_tower']}</button></div>
-  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['towers']}</b><button class=btn-gold onclick="openNewTower()" style="padding:6px 12px;font-size:11px;">{tr['add_tower']}</button></div>
+  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;">
   <div class=grid-small id=towersGrid style="margin-top:8px">{accordion_html or f"<div class=card>{tr['empty']}</div>"}</div>
 </div>
 <script>
@@ -778,11 +777,11 @@ window.delDish=async function(e, id){{
   if((await r.json()).ok) e.target.closest('.dish-row').remove();
 }};
 </script>"""
-        else:
+        else: # dishes page
             return f"""
 <div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['dishes']}</b><button class=btn-gold onclick="openDishModal(0,0,'','','')">{tr['add_dish']}</button></div>
-  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['dishes']}</b><button class=btn-gold onclick="openDishModal(0,0,'','','')" style="padding:6px 12px;font-size:11px;">{tr['add_dish']}</button></div>
+  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;">
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{accordion_html}</div>
 </div>
 <script>
@@ -836,11 +835,11 @@ window.runPing=async function(){{
 
     if v == 'network':
         dishes = qall("SELECT id, dish_name, ip, location FROM dish_ips ORDER BY dish_name ASC LIMIT 100")
-        cards = "".join([f"""<div class="card net-card" id="net-card-{d['id']}"><div style="display:flex;justify-content:space-between"><b style="font-size:13px">{esc(d.get('dish_name') or '--')}</b></div><div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center"><span class="ip" style="cursor:pointer;font-size:12px" onclick="openLink('{esc(d.get('ip') or '')}')">{esc(d.get('ip') or '')}</span><span class="net-status badge" id="net-status-{d['id']}" style="background:#ffffff22;color:#fff">-</span></div></div>""" for d in dishes])
+        cards = "".join([f"""<div class="card net-card" id="net-card-{d['id']}" style="padding:10px;"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b></div><div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center"><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip') or '')}')">{esc(d.get('ip') or '')}</span><span class="net-status badge" id="net-status-{d['id']}" style="background:#ffffff22;color:#fff;font-size:10px;padding:2px 6px;">-</span></div></div>""" for d in dishes])
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['network']}</b><button class=btn-gold onclick="pingAllNetwork()">Ping All</button></div>
-<input id="searchNetwork" onkeyup="filterCards('searchNetwork', '.net-card')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 120px),1fr));gap:8px;margin-top:10px">{cards or f"<div class=card>{tr['empty']}</div>"}</div>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['network']}</b><button class=btn-gold onclick="pingAllNetwork()" style="padding:6px 12px;font-size:11px;">Ping All</button></div>
+<input id="searchNetwork" onkeyup="filterCards('searchNetwork', '.net-card')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;">
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:8px;margin-top:10px">{cards or f"<div class=card>{tr['empty']}</div>"}</div>
 <script>
 window.pingAllNetwork=async function(){{
   let cards=document.querySelectorAll(".net-card");
@@ -861,11 +860,11 @@ window.pingAllNetwork=async function(){{
 
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 100")
-        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" onclick=\"delSub(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"delSub(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['subs']}</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ {tr['add']}</button></div>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['subs']}</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'" style="padding:6px 12px;font-size:11px;">+ {tr['add']}</button></div>
 <form id=fSub style="display:none;gap:6px;margin-top:8px"><input name=name placeholder="{tr['name']}" required><input name=phone placeholder="{tr['phone']}" required><input name=note placeholder="Note"><button class=btn-gold>{tr['save']}</button></form>
-<input id="searchSubs" onkeyup="filterTable('searchSubs', 'subsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
+<input id="searchSubs" onkeyup="filterTable('searchSubs', 'subsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;">
 <table id="subsTable" style="width:100%;margin-top:10px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>Note</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});if((await r.json()).ok)loadPage('subs',true);}});
@@ -874,11 +873,11 @@ window.delSub=async function(e, id){{if(!confirm(MSG_SURE))return; let r=await f
 
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
-        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:14px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" onclick=\"delLedger(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:13px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"delLedger(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['ledger']}</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ {tr['add']}</button></div>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['ledger']}</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'" style="padding:6px 12px;font-size:11px;">+ {tr['add']}</button></div>
 <form id=fLed style="display:none;gap:6px;margin-top:8px"><input name=name placeholder="Details" required><input name=amount type=number step=0.01 placeholder="Amount" required><input name=note placeholder="Note"><select name=currency style="width:80px"><option>USD</option><option>SYP</option></select><button class=btn-gold>{tr['save']}</button></form>
-<input id="searchLedger" onkeyup="filterTable('searchLedger', 'ledgerTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
+<input id="searchLedger" onkeyup="filterTable('searchLedger', 'ledgerTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;">
 <table id="ledgerTable" style="width:100%;margin-top:10px"><thead><tr><th>Details</th><th>Amount</th><th>Note</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fLed').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_ledger',{{method:'POST',body:new FormData(e.target)}});if((await r.json()).ok)loadPage('ledger',true);}});
@@ -887,11 +886,11 @@ window.delLedger=async function(e, id){{if(!confirm(MSG_SURE))return; let r=awai
 
     if v == 'logs':
         rs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
-        rows = "".join([f"<tr><td><small style='color:#94a3b8'>{esc(r.get('time',''))}</small></td><td><b>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge style='background:#38bdf8;color:#000;padding:4px 8px'>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td><small style='color:#cbd5e1'>{esc(r.get('detail',''))}</small></td></tr>" for r in rs])
-        clear_btn = f"""<button class=btn-gold onclick="clearAllLogs()" style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.5)">🗑 Clear Logs</button>""" if is_manager() else ""
+        rows = "".join([f"<tr><td><small style='color:#94a3b8'>{esc(r.get('time',''))}</small></td><td><b>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge style='background:#38bdf8;color:#000;padding:2px 6px'>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td><small style='color:#cbd5e1'>{esc(r.get('detail',''))}</small></td></tr>" for r in rs])
+        clear_btn = f"""<button class=btn-gold onclick="clearAllLogs()" style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.5);padding:6px 12px;font-size:11px;">🗑 Clear Logs</button>""" if is_manager() else ""
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['logs']}</b>{clear_btn}</div>
-<input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['logs']}</b>{clear_btn}</div>
+<input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;">
 <div style="overflow-x:auto; margin-top:10px"><table id="logsTable" style="width:100%;min-width:500px"><thead><tr><th>{tr['time']}</th><th>{tr['users']}</th><th>{tr['action']}</th><th>{tr['target']}</th><th>{tr['detail']}</th></tr></thead><tbody>{rows or '<tr><td colspan=5>Empty</td></tr>'}</tbody></table></div>
 <script>
 window.clearAllLogs=async function(){{
@@ -906,30 +905,30 @@ window.clearAllLogs=async function(){{
         users_html = ""
         if is_manager():
             rs = qall("SELECT * FROM users ORDER BY username ASC")
-            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid #ffffff22;color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.2);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:6px'><button class=\"sq-btn edit icon-only\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">✏️</button><button class=\"sq-btn del icon-only\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">🗑️</button></td></tr>" for r in rs])
+            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid #ffffff22;color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.2);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:4px'><button class=\"sq-btn edit icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">✏️</button><button class=\"sq-btn del icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">🗑️</button></td></tr>" for r in rs])
             users_html = f"""
-            <div class=card style="margin-top:10px;border-color:rgba(255,190,77,0.3)">
-              <div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#ffbe4d">👥 {tr['users']} (Admin)</b><button class=btn-gold onclick="openAddUser()">+ {tr['add']}</button></div>
-              <table style="width:100%;margin-top:12px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>{tr['role']}</th><th></th></tr></thead><tbody>{u_rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
+            <div class=card style="margin-top:10px;border-color:rgba(255,190,77,0.3);padding:12px;">
+              <div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#ffbe4d">👥 {tr['users']} (Admin)</b><button class=btn-gold onclick="openAddUser()" style="padding:6px 12px;font-size:11px;">+ {tr['add']}</button></div>
+              <table style="width:100%;margin-top:10px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>{tr['role']}</th><th></th></tr></thead><tbody>{u_rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
             </div>"""
 
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   {users_html}
-  <div class=card style="margin-top:10px">
+  <div class=card style="margin-top:10px;padding:12px;">
     <b>🔒 Change Password</b>
-    <form id=formPass style="display:flex;gap:8px;margin-top:10px">
-      <input name=newpass type=password placeholder="New Password" required style="flex:1;margin:0">
-      <button class=btn-gold style="margin:0">{tr['save']}</button>
+    <form id=formPass style="display:flex;gap:8px;margin-top:8px">
+      <input name=newpass type=password placeholder="New Password" required style="flex:1;margin:0;padding:8px;font-size:12px;">
+      <button class=btn-gold style="margin:0;padding:8px 14px;font-size:11px;">{tr['save']}</button>
     </form>
   </div>
-  <div class=card style="margin-top:10px">
+  <div class=card style="margin-top:10px;padding:12px;">
     <b>🖥️ UI Settings</b>
-    <div style="display:flex;gap:8px;margin-top:10px">
-      <input id="cSize" type="number" placeholder="e.g. 120" value="{cfg.get('card_size','120')}" style="flex:1;margin:0">
-      <button class=btn-gold onclick="saveCardSize()" style="margin:0">{tr['save']}</button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <input id="cSize" type="number" placeholder="e.g. 120" value="{cfg.get('card_size','110')}" style="flex:1;margin:0;padding:8px;font-size:12px;">
+      <button class=btn-gold onclick="saveCardSize()" style="margin:0;padding:8px 14px;font-size:11px;">{tr['save']}</button>
     </div>
-    <small style="color:#94a3b8;display:block;margin-top:8px">Grid Card Size in px (Network & Towers pages).</small>
+    <small style="color:#94a3b8;display:block;margin-top:6px;font-size:11px;">Grid Card Size in px (Network & Towers pages).</small>
   </div>
 </div>
 <script>
@@ -946,7 +945,7 @@ window.openAddUser=function(){{
     <input id=u_phone placeholder="Login Username / Phone">
     <input id=u_pass type=password placeholder="Password">
     <select id=u_role><option value="tech">Tech (View & Edit limits)</option><option value="manager">Manager (Full Admin)</option></select>
-    <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:12px">{tr['save']}</button>`;
+    <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:8px">{tr['save']}</button>`;
   document.getElementById("editModalTitle").textContent="{tr['add']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.openEditUser=function(phone, name, role){{
@@ -955,7 +954,7 @@ window.openEditUser=function(phone, name, role){{
     <input id=u_phone value="${{phone}}" disabled style="opacity:0.5;cursor:not-allowed">
     <input id=u_pass type=password placeholder="New Password (Optional)">
     <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
-    <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:12px">{tr['save']}</button>`;
+    <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:8px">{tr['save']}</button>`;
   document.getElementById("u_role").value = role;
   document.getElementById("editModalTitle").textContent="{tr['edit']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
 }};
@@ -979,61 +978,51 @@ def layout(c, v='home'):
     l = request.cookies.get('lang', 'ar'); tr = TR.get(l, TR['ar'])
     cur_user = qone("SELECT * FROM users WHERE phone=?", (session.get('phone') or '',)) or {}
     cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
-    c_size = cfg.get('card_size', '120')
-
-    users_link = f"""<a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>👥 <span>{tr['users']}</span></a>""" if is_manager() else ""
+    c_size = cfg.get('card_size', '110')
 
     return f"""<html dir="{tr['dir']}" lang="{l}"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
 *{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
-body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%);color:#fff;overflow-x:hidden; --cs: {c_size}px; transition: background 0.3s, color 0.3s;}}
-body.light-theme{{background:radial-gradient(120% 120% at 10% 10%, #f0f4f8 0%, #d9e2ec 60%, #bcccdc 100%);color:#102a43;}}
-body.light-theme .card{{background:rgba(255, 255, 255, 0.7);color:#102a43;border:1px solid rgba(0,0,0,0.1);box-shadow:0 4px 15px rgba(0,0,0,0.05);}}
-body.light-theme .sidebar{{background:rgba(255, 255, 255, 0.6);border-inline-end:1px solid rgba(0,0,0,0.1);}}
-body.light-theme .sidebar a{{color:#334e68;}}
-body.light-theme .sidebar a:hover{{background:rgba(0,0,0,0.05);color:#102a43;}}
-body.light-theme .top{{background:rgba(255, 255, 255, 0.8);border-bottom:1px solid rgba(0,0,0,0.1);color:#102a43;}}
-body.light-theme input, body.light-theme select{{background:rgba(255,255,255,0.8);color:#102a43;border:1px solid rgba(0,0,0,0.2);}}
-
-.card{{background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:#fff;padding:16px;border-radius:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 15px rgba(0,0,0,0.2)}}
-.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:8px 16px;border:0;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer;transition:transform 0.2s}}
+body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%);color:#fff;overflow-x:hidden; --cs: {c_size}px;}}
+.card{{background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:#fff;padding:12px;border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 3px 10px rgba(0,0,0,0.15)}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:6px;font-weight:800;font-size:11px;cursor:pointer;transition:transform 0.2s}}
 .btn-gold:hover{{transform:translateY(-1px)}}
-.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 120px),1fr));gap:10px}}
-.top{{position:fixed;top:0;left:0;right:0;height:55px;background:rgba(15,20,36,0.8);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.1)}}
-.sidebar{{position:fixed;top:0;bottom:0;width:260px;background:rgba(20, 25, 45, 0.35);backdrop-filter:blur(25px);-webkit-backdrop-filter:blur(25px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 30px rgba(0,0,0,0.5);z-index:1004;padding:20px 14px;transition:transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275);overflow-y:auto}}
-html[dir="rtl"] .sidebar{{transform:translateX(110%);right:0;border-radius:24px 0 0 24px}}
+.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:8px}}
+.top{{position:fixed;top:0;left:0;right:0;height:50px;background:rgba(15,20,36,0.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.1)}}
+.sidebar{{position:fixed;top:0;bottom:0;width:240px;background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 25px rgba(0,0,0,0.4);z-index:1004;padding:16px 10px;transition:transform 0.3s ease;overflow-y:auto}}
+html[dir="rtl"] .sidebar{{transform:translateX(110%);right:0;border-radius:20px 0 0 20px}}
 html[dir="rtl"] .sidebar.active{{transform:translateX(0)}}
-html[dir="ltr"] .sidebar{{transform:translateX(-110%);left:0;border-radius:0 24px 24px 0}}
+html[dir="ltr"] .sidebar{{transform:translateX(-110%);left:0;border-radius:0 20px 20px 0}}
 html[dir="ltr"] .sidebar.active{{transform:translateX(0)}}
-.sidebar a{{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px;color:#cbd5e1;text-decoration:none;border-radius:10px;font-size:14px;font-weight:600;transition:all 0.2s ease}}
+.sidebar a{{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;color:#cbd5e1;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;transition:all 0.2s ease}}
 .sidebar a:hover{{background:rgba(255,255,255,0.1);color:#fff}}
 .sidebar a.active{{background:rgba(255,190,77,0.15);color:#ffbe4d;border:1px solid rgba(255,190,77,0.3)}}
-#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);z-index:1001;display:none;opacity:0;transition:opacity 0.3s}} 
+#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:1001;display:none;opacity:0;transition:opacity 0.2s}} 
 #overlay.show{{display:block;opacity:1}}
-.main{{margin-top:65px;padding:12px;min-height:90vh}}
+.main{{margin-top:55px;padding:10px;min-height:90vh}}
 
-.sq-btn{{display:inline-flex;align-items:center;justify-content:center;gap:4px;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;border:none;color:#fff;transition:transform 0.2s ease, filter 0.2s ease;}}
-.sq-btn:hover{{transform:translateY(-2px); filter:brightness(1.1);}}
-.sq-btn.edit{{background:#f59e0b; box-shadow:0 4px 10px rgba(245,158,11,0.3);}}
-.sq-btn.del{{background:#ef4444; box-shadow:0 4px 10px rgba(239,68,68,0.3);}}
-.sq-btn.view{{background:#10b981; box-shadow:0 4px 10px rgba(16,185,129,0.3);}}
-.sq-btn.icon-only{{width:32px;height:32px;padding:0;font-size:14px;}}
+.sq-btn{{display:inline-flex;align-items:center;justify-content:center;gap:3px;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;border:none;color:#fff;transition:transform 0.15s ease, filter 0.15s ease;}}
+.sq-btn:hover{{transform:translateY(-1px); filter:brightness(1.1);}}
+.sq-btn.edit{{background:#f59e0b; box-shadow:0 2px 6px rgba(245,158,11,0.3);}}
+.sq-btn.del{{background:#ef4444; box-shadow:0 2px 6px rgba(239,68,68,0.3);}}
+.sq-btn.view{{background:#10b981; box-shadow:0 2px 6px rgba(16,185,129,0.3);}}
+.sq-btn.icon-only{{width:26px;height:26px;padding:0;font-size:12px;}}
 
-.ip{{background:#000;color:#ffbe4d;padding:4px 8px;border-radius:6px;font-family:monospace;font-size:12px}}
-.badge{{background:#ffbe4d;color:#111;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:800}}
-table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.05);padding:10px;text-align:start;font-size:13px;border-bottom:2px solid rgba(255,255,255,0.1)}} td{{padding:10px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px}}
-#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:2005;backdrop-filter:blur(5px);opacity:0;transition:opacity 0.3s}}
+.ip{{background:#000;color:#ffbe4d;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px}}
+.badge{{background:#ffbe4d;color:#111;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:800}}
+table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.05);padding:8px;text-align:start;font-size:12px;border-bottom:2px solid rgba(255,255,255,0.1)}} td{{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px}}
+#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:2005;backdrop-filter:blur(4px);opacity:0;transition:opacity 0.2s}}
 #editModal.show{{display:flex;opacity:1}}
-#editBox{{background:rgba(20, 25, 45, 0.9);border:1px solid rgba(255,255,255,0.2);border-radius:16px;padding:20px;width:92%;max-width:400px;box-shadow:0 15px 40px rgba(0,0,0,0.6);transform:translateY(20px);transition:transform 0.3s}}
+#editBox{{background:rgba(20, 25, 45, 0.95);border:1px solid rgba(255,255,255,0.2);border-radius:12px;padding:16px;width:90%;max-width:380px;box-shadow:0 10px 30px rgba(0,0,0,0.5);transform:translateY(15px);transition:transform 0.2s}}
 #editModal.show #editBox{{transform:translateY(0)}}
-input,select{{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;margin-bottom:10px;font-size:14px;outline:none;transition:border 0.2s}}
+input,select{{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;margin-bottom:8px;font-size:13px;outline:none;transition:border 0.2s}}
 input:focus,select:focus{{border-color:#ffbe4d}}
-.stat{{text-align:center;cursor:pointer;padding:16px 4px}} .stat h4{{margin:6px 0;font-size:13px;color:#cbd5e1}} .stat h3{{margin:6px 0;font-size:20px;font-weight:900}} .ico{{font-size:28px}}
+.stat{{text-align:center;cursor:pointer;padding:12px 2px}} .stat h4{{margin:4px 0;font-size:12px;color:#cbd5e1}} .stat h3{{margin:4px 0;font-size:18px;font-weight:900}} .ico{{font-size:24px}}
 </style>
 </head><body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
-<div style='padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:16px;text-align:center'><b style="font-size:20px;font-weight:900;letter-spacing:1px">OMAIA <span style='color:#ffbe4d'>ISP</span></b><br><span class="badge" style="background:rgba(255,255,255,0.1);color:#cbd5e1;margin-top:8px;display:inline-block">👋 {esc(cur_user.get('username') or '')}</span></div>
+<div style='padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:12px;text-align:center'><b style="font-size:18px;font-weight:900;letter-spacing:1px">OMAIA <span style='color:#ffbe4d'>ISP</span></b><br><span class="badge" style="background:rgba(255,255,255,0.1);color:#cbd5e1;margin-top:6px;display:inline-block">👋 {esc(cur_user.get('username') or '')}</span></div>
 <a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home>🏠 <span>{tr['home']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('mikrotik')" id=nav-mikrotik>🖧 <span>{tr['mikrotik']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers>🗼 <span>{tr['towers']}</span></a>
@@ -1044,35 +1033,27 @@ input:focus,select:focus{{border-color:#ffbe4d}}
 <a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙ <span>{tr['settings']}</span></a>
-
-<!-- روابط الدعم الفني كأيقونات في القائمة -->
-<div style="margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-around;align-items:center;">
-  <a href="https://wa.me/905344851045" target="_blank" style="padding:8px;background:rgba(37,211,102,0.15);border-radius:50%;color:#25D366;font-size:18px;text-decoration:none;" title="WhatsApp">💬</a>
-  <a href="https://instagram.com/Af_20_1999" target="_blank" style="padding:8px;background:rgba(225,48,108,0.15);border-radius:50%;color:#E1306C;font-size:18px;text-decoration:none;" title="Instagram">📸</a>
-</div>
-
-<div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px">
-  <a href="/logout" style="background:rgba(239,68,68,0.15);color:#ff6b6b;border:1px solid rgba(239,68,68,0.3)">🚪 <span>{tr['logout']}</span></a>
+<div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;display:flex;justify-content:space-around">
+  <a href="/api/set_lang/{tr['toggle_code']}" style="padding:6px 10px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:6px;">🌐 {tr['lang_toggle']}</a>
+  <a href="/logout" style="padding:6px 10px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:6px;">🚪</a>
 </div>
 </div>
 
 <div class=top>
-<div style="display:flex;align-items:center;gap:16px">
-  <span onclick="toggleSb()" style='font-size:26px;cursor:pointer;text-shadow:0 2px 4px rgba(0,0,0,0.5)'>☰</span> 
-  <b style="font-size:18px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
+<div style="display:flex;align-items:center;gap:12px">
+  <span onclick="toggleSb()" style='font-size:22px;cursor:pointer;'>☰</span> 
+  <b style="font-size:16px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
 </div>
-<div style="display:flex;align-items:center;gap:12px;">
-  <div style="position:relative;">
-    <input type="text" id="globalSearchInput" placeholder="{tr['search']}" onkeyup="globalSearch(event)" style="padding:6px 12px;font-size:12px;margin:0;width:130px;border-radius:20px;">
-  </div>
-  <a href="/api/set_lang/{tr['toggle_code']}" style="background:rgba(255,255,255,0.1);padding:6px 10px;border-radius:50%;text-decoration:none;font-size:14px;" title="Language">🌐</a>
-  <span onclick="toggleTheme()" style="background:rgba(255,255,255,0.1);padding:6px 10px;border-radius:50%;cursor:pointer;font-size:14px;" title="Theme">🌓</span>
+<div style="display:flex;align-items:center;gap:8px;">
+  <a href="https://wa.me/905344851045" target="_blank" style="font-size:18px;text-decoration:none;" title="واتساب">💬</a>
+  <a href="https://instagram.com/your_account" target="_blank" style="font-size:18px;text-decoration:none;" title="انستغرام">📸</a>
+  <span onclick="toggleSb()" style="font-size:16px;cursor:pointer;" title="بحث">🔍</span>
 </div>
 </div>
 
 <div class=main id=mn>{c}</div>
 
-<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px'><b id=editModalTitle style="font-size:16px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:20px;line-height:1'>✕</button></div><div id=editBody></div></div></div>
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:8px'><b id=editModalTitle style="font-size:14px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:18px;'>✕</button></div><div id=editBody></div></div></div>
 
 <script>
 let cur='{v}';
@@ -1082,27 +1063,6 @@ window.openLink = function(ip) {{
   if(!ip) return; let u = ip.trim();
   if(!u.startsWith('http://') && !u.startsWith('https://')) u = 'http://' + u;
   window.open(u, '_blank');
-}};
-
-window.toggleTheme = function() {{
-  document.body.classList.toggle('light-theme');
-  let isLight = document.body.classList.contains('light-theme');
-  localStorage.setItem('theme', isLight ? 'light' : 'dark');
-}};
-
-if(localStorage.getItem('theme') === 'light') {{
-  document.body.classList.add('light-theme');
-}};
-
-window.globalSearch = function(e) {{
-  let val = e.target.value;
-  let activeTable = document.querySelector('table');
-  if(activeTable) {{
-    let rows = activeTable.querySelectorAll('tbody tr');
-    rows.forEach(r => {{
-      r.style.display = r.textContent.toLowerCase().includes(val.toLowerCase()) ? '' : 'none';
-    }});
-  }}
 }};
 
 window.filterTable = function(inpId, tblId) {{
@@ -1123,14 +1083,14 @@ function toggleSb(f){{
   let sb=document.getElementById('sb'), ov=document.getElementById('overlay'); 
   let o = f!==undefined ? f : !sb.classList.contains('active'); 
   if(o) {{ ov.classList.add('show'); setTimeout(()=>sb.classList.add('active'), 10); }}
-  else {{ sb.classList.remove('active'); setTimeout(()=>ov.classList.remove('show'), 300); }}
+  else {{ sb.classList.remove('active'); setTimeout(()=>ov.classList.remove('show'), 200); }}
 }}
 
 async function loadPage(v,force=false){{
   cur=v; toggleSb(false);
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
-  let mn=document.getElementById('mn'); mn.innerHTML="<div class=card style='text-align:center;padding:40px'>⏳ Loading...</div>";
+  let mn=document.getElementById('mn'); mn.innerHTML="<div class=card style='text-align:center;padding:30px'>⏳ Loading...</div>";
   try{{
     let r=await fetch('/api/page?v='+v);
     if(r.status===401){{ location.replace('/login'); return; }}
@@ -1145,14 +1105,7 @@ function execScripts(){{document.getElementById('mn').querySelectorAll('script')
 window.closeEditModal=()=>{{
   let md = document.getElementById('editModal');
   md.style.opacity = '0';
-  setTimeout(() => md.classList.remove('show'), 300);
-}};
-const origAdd = DOMTokenList.prototype.add;
-DOMTokenList.prototype.add = function(...args) {{
-  origAdd.apply(this, args);
-  if(args.includes('show') && this.contains('show') && this[0]==='show' || this.value.includes('editModal')) {{
-    setTimeout(() => document.getElementById('editModal').style.opacity = '1', 10);
-  }}
+  setTimeout(() => md.classList.remove('show'), 200);
 }};
 loadPage(cur,true);
 </script></body></html>"""
