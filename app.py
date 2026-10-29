@@ -196,7 +196,7 @@ def init_db():
     qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
           (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
 
-    defaults = [('card_size', '120'), ('unassigned_name', 'بدون برج / Unassigned')]
+    defaults = [('card_size', '110'), ('unassigned_name', 'بدون برج / Unassigned')]
     for k, v in defaults:
         if not qone("SELECT * FROM system_config WHERE key=?", (k,)):
             qexec("INSERT INTO system_config(key,value) VALUES(?,?)", (k, v))
@@ -516,7 +516,6 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
 </label>
 <button class=btn id=loginBtn>تسجيل الدخول</button>
 
-<!-- أزرار الدعم الفني كأيقونات مباشرة -->
 <div style="display: flex; justify-content: center; gap: 20px; margin-top: 15px;">
   <a href="https://wa.me/905344851045" target="_blank" style="font-size: 22px; text-decoration: none;" title="واتساب">💬</a>
   <a href="https://instagram.com/your_account" target="_blank" style="font-size: 22px; text-decoration: none;" title="انستغرام">📸</a>
@@ -534,7 +533,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {{
   let payload = {{
       userin: e.target.userin.value,
       password: e.target.password.value,
-      remember: document.getElementById('rememberBox'].checked
+      remember: document.getElementById('rememberBox').checked
   }};
   
   try {{
@@ -768,7 +767,7 @@ window.saveDish=async function(id){{
   let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
   if(!d.ip) return;
   let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
-  let r=await fetch(url, {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
+  let r=await fetch(url, {{method:'POST',headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
   if((await r.json()).ok){{ closeEditModal(); loadPage('towers',true); }}
 }};
 window.delDish=async function(e, id){{
@@ -812,7 +811,7 @@ window.saveDish=async function(id){{
   let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
   if(!d.ip) return;
   let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
-  let r=await fetch(url, {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
+  let r=await fetch(url, {{method:'POST',headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
   if((await r.json()).ok){{ closeEditModal(); loadPage('dishes',true); }}
 }};
 window.delDish=async function(e, id){{
@@ -962,7 +961,7 @@ window.saveUser=async function(isNew){{
   let d={{username:document.getElementById('u_name').value, phone:document.getElementById('u_phone').value, password:document.getElementById('u_pass').value, role:document.getElementById('u_role').value}};
   if(isNew && (!d.phone || !d.password)) return alert('Missing info');
   let url = isNew ? '/api/users/add' : '/api/users/edit';
-  let r=await fetch(url, {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
+  let r=await fetch(url, {{method:'POST',headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
   let j=await r.json(); if(j.ok) {{closeEditModal(); loadPage('settings',true);}} else alert(j.msg||'Error');
 }};
 window.delUser=async function(e, phone){{
@@ -992,7 +991,7 @@ body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, 
 .sidebar{{position:fixed;top:0;bottom:0;width:240px;background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 25px rgba(0,0,0,0.4);z-index:1004;padding:16px 10px;transition:transform 0.3s ease;overflow-y:auto}}
 html[dir="rtl"] .sidebar{{transform:translateX(110%);right:0;border-radius:20px 0 0 20px}}
 html[dir="rtl"] .sidebar.active{{transform:translateX(0)}}
-html[dir="ltr"] .sidebar{{transform:translateX(-110%);left:0;border-radius:0 20px 20px 0}}
+html[dir="ltr"] .sidebar{{transform:translateX(-110%);left:0;border-radius:0 24px 24px 0}}
 html[dir="ltr"] .sidebar.active{{transform:translateX(0)}}
 .sidebar a{{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;color:#cbd5e1;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;transition:all 0.2s ease}}
 .sidebar a:hover{{background:rgba(255,255,255,0.1);color:#fff}}
@@ -1044,10 +1043,9 @@ input:focus,select:focus{{border-color:#ffbe4d}}
   <span onclick="toggleSb()" style='font-size:22px;cursor:pointer;'>☰</span> 
   <b style="font-size:16px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
 </div>
-<div style="display:flex;align-items:center;gap:8px;">
+<div style="display:flex;align-items:center;gap:10px;">
   <a href="https://wa.me/905344851045" target="_blank" style="font-size:18px;text-decoration:none;" title="واتساب">💬</a>
   <a href="https://instagram.com/your_account" target="_blank" style="font-size:18px;text-decoration:none;" title="انستغرام">📸</a>
-  <span onclick="toggleSb()" style="font-size:16px;cursor:pointer;" title="بحث">🔍</span>
 </div>
 </div>
 
