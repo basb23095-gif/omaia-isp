@@ -15,7 +15,7 @@ from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "omaia_isp_fixed_secret_token_2026_xyz")
-app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=8)
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=2) # تقليل مدة الجلسة لعدم تثبيت الدخول تلقائياً
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
@@ -37,7 +37,7 @@ BTN_DEL = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" view
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
-        'home': 'الرئيسية', 'towers': 'الأبراج والآيبيهات', 'dishes': 'الصحون والآيبيهات',
+        'home': 'الرئيسية', 'towers': 'الأبراج', 'dishes': 'الصحون والآيبيهات',
         'ping': 'البنج (Ping)', 'network': 'الشبكة', 'subs': 'المشتركين', 'ledger': 'الحسابات',
         'users': 'المستخدمين', 'logs': 'السجل', 'settings': 'الإعدادات', 'logout': 'تسجيل خروج',
         'add': 'إضافة', 'edit': 'تعديل', 'delete': 'حذف', 'save': 'حفظ',
@@ -48,7 +48,7 @@ TR = {
     },
     'en': {
         'dir': 'rtl', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
-        'home': 'Home', 'towers': 'Towers & Dishes', 'dishes': 'Dishes & IPs',
+        'home': 'Home', 'towers': 'Towers', 'dishes': 'Dishes & IPs',
         'ping': 'Ping Check', 'network': 'Network', 'subs': 'Subscribers', 'ledger': 'Ledger',
         'users': 'Users', 'logs': 'Logs', 'settings': 'Settings', 'logout': 'Logout',
         'add': 'Add', 'edit': 'Edit', 'delete': 'Delete', 'save': 'Save',
@@ -245,7 +245,8 @@ def api_mikrotik_edit(mid):
     name, host, user, pwd, port = d.get('name','').strip(), d.get('host','').strip(), d.get('username','').strip(), d.get('password','').strip(), int(d.get('port') or 8728)
     if not host or not user: return jsonify(ok=False, msg='بيانات ناقصة'), 400
     if pwd:
-        ok = qexec("UPDATE mikrotik_servers SET name=?, host=?, username=?, password=?, port=? WHERE id=?", (name or host, host, user, pwd, port, mid))
+        hashed_pwd = generate_password_hash(pwd, method='pbkdf2:sha256:1000') if pwd else ''
+        ok = qexec("UPDATE mikrotik_servers SET name=?, host=?, username=?, password=?, port=? WHERE id=?", (name or host, host, user, hashed_pwd, port, mid))
     else:
         ok = qexec("UPDATE mikrotik_servers SET name=?, host=?, username=?, port=? WHERE id=?", (name or host, host, user, port, mid))
     if ok: add_log(session.get('phone'), 'تعديل ميكروتك', name or host)
@@ -1111,7 +1112,7 @@ body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidde
 table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.03);padding:12px 10px;text-align:start;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,0.1);color:#cbd5e1}} td{{padding:12px 10px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px}}
 #editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:2005;backdrop-filter:blur(8px);opacity:0;transition:opacity 0.2s}}
 #editModal.show{{display:flex;opacity:1}}
-#editBox{{background:rgba(15, 23, 42, 0.95);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:24px;width:92%;max-width:380px;box-shadow:0 20px 50px rgba(0,0,0,0.7);transform:translateY(20px);transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)}}
+#editBox{{background:rgba(15, 23, 42, 0.95);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:24px;width:92%;max-width:45vw;box-shadow:0 20px 50px rgba(0,0,0,0.7);transform:translateY(20px);transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)}}
 #editModal.show #editBox{{transform:translateY(0)}}
 input,select{{width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#fff;margin-bottom:10px;font-size:13.5px;outline:none;transition:border 0.2s, background 0.2s}}
 input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
@@ -1154,7 +1155,7 @@ input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
 
 <div class=main id=mn>{c}</div>
 
-<div id=editModal><div id=editBox style="max-width:50vw;width:95%"><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px'><b id=editModalTitle style="font-size:15px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:20px;'>✕</button></div><div id=editBody></div></div></div>
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px'><b id=editModalTitle style="font-size:15px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:20px;'>✕</button></div><div id=editBody></div></div></div>
 
 <script>
 let cur='{v}';
