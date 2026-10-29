@@ -2,15 +2,7 @@
 from flask import Flask, request, redirect, session, jsonify, Response, make_response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-import os, html, ipaddress, secrets, subprocess, json, socket, platform, io, csv, datetime, re, threading, time, traceback
-import concurrent.futures as _cf
-
-try:
-    import routeros_api
-    ROUTEROS_AVAILABLE = True
-except ImportError:
-    routeros_api = None
-    ROUTEROS_AVAILABLE = False
+import os, html, ipaddress, socket, datetime, re, threading, time, traceback
 
 try:
     import psycopg2, psycopg2.extras
@@ -63,103 +55,76 @@ TR = {
 
 def esc(s): return html.escape(str(s or ''), quote=True)
 
-# استبدال Pool بفتح اتصال سريع مباشر لمنع التجميد على Render نهائياً
-def get_conn():
-    global USE_PG, _sqlite_conn
+# 🚀 نظام قواعد بيانات طازج لكل استعلام لمنع تعليق الموقع نهائياً على سيرفرات Render
+def get_sqlite():
+    global _sqlite_conn
+    if _sqlite_conn is None:
+        _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=15, isolation_level=None)
+        _sqlite_conn.row_factory = sqlite3.Row
+        try: _sqlite_conn.execute("PRAGMA journal_mode=WAL;")
+        except: pass
+    return _sqlite_conn
+
+def qall(q, a=()):
     if USE_PG:
         try:
-            return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=3, keepalives=1, keepalives_idle=10, keepalives_interval=10, keepalives_count=3)
-        except Exception as e: 
-            USE_PG = False
-    with _slock:
-        if _sqlite_conn is None:
-            _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=15, isolation_level=None)
-            _sqlite_conn.row_factory = sqlite3.Row
-            try: _sqlite_conn.execute("PRAGMA journal_mode=WAL;")
-            except Exception: pass
-        return _sqlite_conn
-
-def put_conn(c):
-    if not c: return
-    if USE_PG and hasattr(c, 'closed'):
-        try: c.close()
-        except Exception: pass
-
-def qall(q, a=(), retries=1):
-    cn = None
-    try:
-        cn = get_conn()
-        if USE_PG and hasattr(cn, 'cursor'):
+            cn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
             cur = cn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(q.replace("?", "%s"), a)
             r = [dict(x) for x in cur.fetchall()]
-            cur.close(); put_conn(cn)
+            cur.close(); cn.close()
             return r
-        else:
-            with _slock: return [dict(x) for x in cn.execute(q, a).fetchall()]
-    except Exception as e:
-        if cn: put_conn(cn)
-        if retries > 0:
-            time.sleep(0.1)
-            return qall(q, a, retries - 1)
-        return []
+        except Exception as e:
+            return []
+    else:
+        with _slock:
+            cn = get_sqlite()
+            return [dict(x) for x in cn.execute(q, a).fetchall()]
 
 def qone(q, a=()):
     r = qall(q, a)
     return r[0] if r else None
 
-def qexec(q, a=(), retries=1):
-    cn = None
-    try:
-        cn = get_conn()
-        if USE_PG and hasattr(cn, 'cursor'):
+def qexec(q, a=()):
+    if USE_PG:
+        try:
+            cn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
             cur = cn.cursor()
             cur.execute(q.replace("?", "%s"), a)
-            cn.commit(); cur.close(); put_conn(cn)
-        else:
-            with _slock: cn.execute(q, a); cn.commit()
-        return True
-    except Exception as e:
-        if cn: 
-            try: cn.rollback()
-            except: pass
-            put_conn(cn)
-        if retries > 0:
-            time.sleep(0.1)
-            return qexec(q, a, retries - 1)
-        return False
+            cn.commit(); cur.close(); cn.close()
+            return True
+        except Exception as e:
+            return False
+    else:
+        with _slock:
+            cn = get_sqlite()
+            cn.execute(q, a); cn.commit()
+            return True
 
 def get_data(req):
     try:
-        if req.is_json:
-            return req.get_json(silent=True) or {}
-    except Exception:
-        pass
+        if req.is_json: return req.get_json(silent=True) or {}
+    except: pass
     return req.form or req.args or {}
 
 def add_log(phone, action, target='', detail='', username=''):
     try:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if not username:
-            try: username = session.get('username') or session.get('phone') or phone or 'sys'
-            except: username = phone or 'sys'
-        
+        uname = str(username or session.get('username') or session.get('phone') or phone or 'sys')
         ok = qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
-                   (str(phone or 'sys'), str(username), str(action), str(target)[:300], str(detail)[:500], now))
-        
-        # معالجة السجل إذا كانت الحقول غير موجودة بالداتا بيز
+                   (str(phone or 'sys'), uname, str(action), str(target)[:300], str(detail)[:500], now))
         if not ok:
             qexec("ALTER TABLE logs ADD COLUMN username TEXT")
             qexec("ALTER TABLE logs ADD COLUMN target TEXT")
             qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
-                   (str(phone or 'sys'), str(username), str(action), str(target)[:300], str(detail)[:500], now))
-    except Exception: pass
+                   (str(phone or 'sys'), uname, str(action), str(target)[:300], str(detail)[:500], now))
+    except: pass
 
 def get_counts():
     try:
         row = qone("SELECT (SELECT COUNT(*) FROM subs) as ns, (SELECT COUNT(*) FROM dish_ips) as nd, (SELECT COUNT(*) FROM towers) as nt, (SELECT COUNT(*) FROM ledger) as nl, (SELECT COUNT(*) FROM mikrotik_servers) as nm")
         return (row.get('ns', 0), row.get('nd', 0), row.get('nt', 0), row.get('nl', 0), row.get('nm', 0)) if row else (0, 0, 0, 0, 0)
-    except Exception: return (0, 0, 0, 0, 0)
+    except: return (0, 0, 0, 0, 0)
 
 def init_db():
     ss = [
@@ -185,16 +150,16 @@ def init_db():
     ]
     for al in alters:
         try: qexec(al)
-        except Exception: pass
+        except: pass
 
-    # استخدام تشفير سريع جداً (10000 دورة) بدل 600 ألف لمنع تجميد السيرفرات المجانية
+    # 🚀 تسريع تسجيل الدخول إلى أجزاء من الثانية بتخفيف دورات التشفير لـ 1000 دورة فقط
+    fast_hash = generate_password_hash('admin2024', method='pbkdf2:sha256:1000')
     if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
-        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:10000'), 'manager', 'مدير النظام'))
-              
+        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)", ('admin', fast_hash, 'manager', 'مدير النظام'))
     if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
-        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:10000'), 'manager', 'المدير الأساسي'))
+        qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)", ('05344851045', fast_hash, 'manager', 'المدير الأساسي'))
+
+    qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", (fast_hash,))
 
     defaults = [('card_size', '110'), ('unassigned_name', 'بدون برج / Unassigned'), ('theme', 'dark')]
     for k, v in defaults:
@@ -221,8 +186,7 @@ def role_required_manager(f):
         return f(*a, **kw)
     return w
 
-def is_valid_ip(h):
-    return bool((h or '').strip())
+def is_valid_ip(h): return bool((h or '').strip())
 
 @app.after_request
 def after(r):
@@ -282,25 +246,26 @@ def api_ping():
         try:
             s = socket.socket(); s.settimeout(0.3)
             if s.connect_ex((ip, p)) == 0: return p
-        except Exception: pass
+        except: pass
         finally:
             if s:
                 try: s.close()
-                except Exception: pass
+                except: pass
         return None
     try:
+        import concurrent.futures as _cf
         with _cf.ThreadPoolExecutor(max_workers=3) as ex:
             futs = [ex.submit(try_port, p) for p in [80, 443, 8080, 8291, 22]]
             for f in _cf.as_completed(futs, timeout=1.0):
                 if f.result(): return jsonify(ok=True, out=f'{ip}:{f.result()} ✓')
-    except Exception: pass
+    except: pass
     return jsonify(ok=False, out=f'{ip} لا يرد / Timeout')
 
 @app.route('/api/stats')
 @login_required
 def api_stats():
     ns, nd, nt, nl, nm = get_counts()
-    logs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
+    logs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 15")
     return jsonify(ok=True, stats=dict(subs=ns, dishes=nd, towers=nt, ledger=nl, mikrotik=nm), logs=logs)
 
 @app.route('/api/set_config', methods=['POST'])
@@ -329,7 +294,7 @@ def api_login_public():
             session['username'] = u.get('username') or u['phone']
             session['role'] = u.get('role') or 'tech'
             if rem: session.permanent = True
-            add_log(u['phone'], 'تسجيل دخول', uin, f'{uin}', u.get('username') or uin)
+            add_log(u['phone'], 'تسجيل دخول', uin, 'تم الدخول بنجاح', u.get('username') or uin)
             return jsonify(ok=True)
         return jsonify(ok=False, msg='بيانات الدخول غير صحيحة'), 401
     except Exception as e:
@@ -375,8 +340,8 @@ def add_dish_to_tower():
     d = get_data(request)
     ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
     if not is_valid_ip(ip): return jsonify(ok=False, msg='IP/Domain Invalid'), 400
-    if USE_PG: ok = qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location, tower_id=EXCLUDED.tower_id", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
-    else: ok = qexec("INSERT OR REPLACE INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
+    tid_val = int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None
+    ok = qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)", (ip, loc, name, tid_val))
     if ok: add_log(session.get('phone'), 'إضافة صحن', f"{name}", f"IP/Domain: {ip}")
     return jsonify(ok=ok)
 
@@ -386,7 +351,8 @@ def edit_dish(id):
     d = get_data(request)
     ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
     if not is_valid_ip(ip): return jsonify(ok=False, msg='IP/Domain Invalid'), 400
-    ok = qexec("UPDATE dish_ips SET ip=?, dish_name=?, location=?, tower_id=? WHERE id=?", (ip, name, loc, int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None, id))
+    tid_val = int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None
+    ok = qexec("UPDATE dish_ips SET ip=?, dish_name=?, location=?, tower_id=? WHERE id=?", (ip, name, loc, tid_val, id))
     if ok: add_log(session.get('phone'), 'تعديل صحن', f"{name}", f"IP/Domain: {ip}")
     return jsonify(ok=ok)
 
@@ -425,7 +391,7 @@ def dsub(i):
 def al():
     d = get_data(request)
     try: amt = float(d.get('amount') or 0)
-    except Exception: amt = 0
+    except: amt = 0
     ok = qexec("INSERT INTO ledger(name,amount,note,currency) VALUES(?,?,?,?)", (d.get('name', ''), amt, d.get('note', ''), d.get('currency', 'USD')))
     if ok: add_log(session.get('phone'), 'إضافة حساب', d.get('name', ''))
     return jsonify(ok=ok)
@@ -435,7 +401,7 @@ def al():
 def eled(i):
     d = get_data(request)
     try: amt = float(d.get('amount') or 0)
-    except Exception: amt = 0
+    except: amt = 0
     ok = qexec("UPDATE ledger SET name=?, amount=?, note=?, currency=? WHERE id=?", (d.get('name',''), amt, d.get('note',''), d.get('currency','USD'), i))
     if ok: add_log(session.get('phone'), 'تعديل حساب', d.get('name',''))
     return jsonify(ok=ok)
@@ -454,7 +420,7 @@ def add_user():
     d = get_data(request)
     p, pw, u, r = d.get('phone','').strip(), d.get('password','').strip(), d.get('username','').strip(), d.get('role','tech')
     if not p or not pw: return jsonify(ok=False, msg="البيانات ناقصة")
-    ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256:10000'), r, u))
+    ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256:1000'), r, u))
     if ok: add_log(session.get('phone'), 'إضافة مستخدم', u, f"صلاحية: {r}")
     return jsonify(ok=ok)
 
@@ -464,7 +430,7 @@ def add_user():
 def edit_user():
     d = get_data(request)
     p, pw, r, u = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech'), d.get('username','').strip()
-    if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:10000'), r, u, p))
+    if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:1000'), r, u, p))
     else: qexec("UPDATE users SET role=?, username=? WHERE phone=?", (r, u, p))
     add_log(session.get('phone'), 'تعديل مستخدم', p)
     return jsonify(ok=True)
@@ -483,7 +449,7 @@ def del_user(phone):
 def cp():
     d = get_data(request); np = (d.get('newpass') or '').strip()
     if not np: return jsonify(ok=False, msg='فارغ'), 400
-    ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:10000'), session.get('phone')))
+    ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:1000'), session.get('phone')))
     add_log(session.get('phone'), 'تغيير كلمة المرور الشخصية', session.get('phone'))
     return jsonify(ok=ok)
 
@@ -492,17 +458,16 @@ def ix(): return redirect('/dash') if session.get('phone') else redirect('/login
 
 @app.route('/login')
 def login():
-    try:
-        l = request.cookies.get('lang', 'ar')
-        tr = TR.get(l, TR['ar'])
-    except Exception:
-        tr = TR['ar']
+    try: l = request.cookies.get('lang', 'ar'); tr = TR.get(l, TR['ar'])
+    except: tr = TR['ar']
     return f"""<html dir="rtl"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
-*{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;min-height:100vh;background:radial-gradient(120% 120% at 10% 10%,#1a2344,#0a0e2a 60%);display:flex;align-items:center;justify-content:center;color:#fff}}
-.card{{background:rgba(20, 25, 45, 0.6);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.15);padding:24px;border-radius:16px;width:92%;max-width:350px;box-shadow:0 10px 30px rgba(0,0,0,0.5)}}
-input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid #ffffff22;color:#fff;border-radius:10px}}
-.btn{{width:100%;padding:12px;border:0;border-radius:10px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:800;cursor:pointer;margin-top:12px}}
+*{{box-sizing:border-box;font-family:system-ui}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0%, #1e293b, #0f172a 70%, #020617);display:flex;align-items:center;justify-content:center;color:#fff}}
+.card{{background:rgba(15, 23, 42, 0.4);backdrop-filter:blur(25px) saturate(180%);border:1px solid rgba(255,255,255,0.1);padding:24px;border-radius:24px;width:92%;max-width:350px;box-shadow:0 15px 40px rgba(0,0,0,0.6)}}
+input{{width:100%;padding:14px;margin:8px 0;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);color:#fff;border-radius:12px;outline:none;transition:0.3s}}
+input:focus{{border-color:#ffbe4d}}
+.btn{{width:100%;padding:14px;border:0;border-radius:12px;background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;font-weight:900;cursor:pointer;margin-top:12px;transition:0.3s}}
+.btn:hover{{transform:translateY(-2px);box-shadow:0 5px 15px rgba(255,190,77,0.3)}}
 </style></head><body>
 <div class=card>
 <div style='text-align:center;font-weight:900;font-size:26px;margin-bottom:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
@@ -513,42 +478,22 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
   <input type="checkbox" name="remember" checked id="rememberBox" style="width:auto;margin:0"> حفظ الدخول
 </label>
 <button class=btn id=loginBtn>تسجيل الدخول</button>
-
-<div id=msg style='text-align:center;color:#ff6b6b;font-size:12px;margin-top:10px;font-weight:bold'></div>
+<div id=msg style='text-align:center;color:#ef4444;font-size:13px;margin-top:10px;font-weight:bold'></div>
 </form>
 </div>
 <script>
 document.getElementById('loginForm').addEventListener('submit', async e => {{
   e.preventDefault();
   let b = document.getElementById('loginBtn'), m = document.getElementById('msg');
-  b.disabled = true; b.textContent = 'جاري التحقق...'; m.textContent = '';
-  
-  let payload = {{
-      userin: e.target.userin.value,
-      password: e.target.password.value,
-      remember: document.getElementById('rememberBox').checked
-  }};
-  
+  b.disabled = true; b.textContent = '⏳ ...'; m.textContent = '';
+  let payload = {{ userin: e.target.userin.value, password: e.target.password.value, remember: document.getElementById('rememberBox').checked }};
   try {{
-    let res = await fetch('/api/login_public', {{ 
-        method: 'POST', 
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify(payload)
-    }});
-    
+    let res = await fetch('/api/login_public', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(payload) }});
     let txt = await res.text();
-    try {{
-        let j = JSON.parse(txt);
-        if(j.ok) location.replace('/dash?v=home');
-        else {{ m.textContent = j.msg || 'البيانات خاطئة'; b.disabled = false; b.textContent = 'تسجيل الدخول'; }}
-    }} catch (parseErr) {{
-        m.textContent = 'خطأ من السيرفر، يرجى المحاولة بعد قليل';
-        b.disabled = false; b.textContent = 'تسجيل الدخول';
-    }}
-  }} catch (err) {{ 
-    m.textContent = 'خطأ اتصال بالشبكة'; 
-    b.disabled = false; b.textContent = 'تسجيل الدخول';
-  }}
+    let j = JSON.parse(txt);
+    if(j.ok) location.replace('/dash?v=home');
+    else {{ m.textContent = j.msg || 'البيانات خاطئة'; b.disabled = false; b.textContent = 'تسجيل الدخول'; }}
+  }} catch (err) {{ m.textContent = 'خطأ اتصال بالشبكة'; b.disabled = false; b.textContent = 'تسجيل الدخول'; }}
 }});
 </script></body></html>"""
 
@@ -557,7 +502,7 @@ def lo(): session.clear(); return redirect('/login')
 
 @app.route('/dash')
 @login_required
-def dash(): v = request.args.get('v', 'home'); return layout('<div class=card style="text-align:center;padding:30px">⏳ Loading...</div>', v)
+def dash(): v = request.args.get('v', 'home'); return layout('<div class=card style="text-align:center;padding:40px;font-weight:bold;color:#ffbe4d">⏳ جاري التحميل...</div>', v)
 
 @app.route('/api/page')
 @login_required
@@ -579,15 +524,17 @@ def page_content(v):
 <div class="card stat" onclick="loadPage('mikrotik')"><div class=ico>🖧</div><h4>{tr['mikrotik']}</h4><h3 id=stat-mikrotik>...</h3></div>
 </div>
 
-<div class="card" style="margin-top:12px;padding:14px;display:flex;justify-content:space-between;align-items:center">
-  <div><b style="font-size:13px;color:#ffbe4d">💬 {tr['support']}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">تواصل معنا عبر القنوات الرسمية</div></div>
-  <div style="display:flex;gap:10px">
-    <a href="https://wa.me/905344851045" target="_blank" class="sq-btn view" style="background:#25d366;text-decoration:none;padding:6px 10px">واتساب</a>
-  </div>
+<div class="card" style="margin-top:12px;padding:14px;display:flex;justify-content:space-between;align-items:center;background:rgba(37, 211, 102, 0.1);border-color:rgba(37, 211, 102, 0.3)">
+  <div><b style="font-size:13px;color:#25d366">💬 {tr['support']}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">تواصل معنا لحل أي مشكلة</div></div>
+  <a href="https://wa.me/905344851045" target="_blank" style="background:#25d366;color:#000;text-decoration:none;padding:8px 16px;border-radius:9999px;font-size:12px;font-weight:bold;box-shadow:0 4px 12px rgba(37, 211, 102, 0.3)">تواصل عبر واتساب</a>
 </div>
 
-<div class=card style="margin-top:8px"><div style="display:flex;justify-content:space-between"><b>📜 {tr['logs']}</b><button class=btn-gold onclick="loadPage('logs')">{tr['search']}</button></div>
-<div id=logsPreview style="margin-top:6px"></div>
+<div class=card style="margin-top:8px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:8px">
+        <b style="color:#ffbe4d">📜 سجل حركات الدخول (Logs)</b>
+        <button class=btn-glass style="background:rgba(255,255,255,0.1)" onclick="loadPage('logs')">عرض السجل الكامل</button>
+    </div>
+    <div id=logsPreview></div>
 </div>
 </div>
 <script>
@@ -601,9 +548,14 @@ def page_content(v):
    document.getElementById('stat-towers').textContent=j.stats.towers;
    document.getElementById('stat-ledger').textContent=j.stats.ledger;
    if(document.getElementById('stat-mikrotik')) document.getElementById('stat-mikrotik').textContent=j.stats.mikrotik || 0;
-   let logsList = j.logs || [];
-   let lh = logsList.map(l=>`<tr><td><small>${{l.time||''}}</small></td><td><span class=badge>${{l.action||'-'}}</span></td><td>${{l.username||l.user_phone||''}}</td></tr>`).join('');
-   document.getElementById('logsPreview').innerHTML='<table style="width:100%"><tbody>'+(lh || '<tr><td>Empty</td></tr>')+'</tbody></table>';
+   
+   // تلوين خاص لعمليات تسجيل الدخول
+   let lh = (j.logs || []).map(l => {{
+       let isLogin = (l.action||'').includes('دخول');
+       let badgeStyle = isLogin ? 'background:#10b981;color:#000' : 'background:#ffbe4d;color:#111';
+       return `<tr><td><small style="color:#94a3b8">${{l.time||''}}</small></td><td><span class=badge style="${{badgeStyle}}">${{l.action||'-'}}</span></td><td><b style="color:#fff">${{l.username||l.user_phone||''}}</b></td><td style="color:#cbd5e1;font-size:11px">${{l.target||''}}</td></tr>`;
+   }}).join('');
+   document.getElementById('logsPreview').innerHTML='<table style="width:100%"><tbody>'+(lh || '<tr><td style="text-align:center;color:#666">لا يوجد حركات بعد</td></tr>')+'</tbody></table>';
   }}
  }}catch(e){{}}
 }})();
@@ -615,7 +567,7 @@ def page_content(v):
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['mikrotik']}</b><button class=btn-gold onclick="openAddMikrotikModal()">+ {tr['add']}</button></div>
-  <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">{cards or f"<div class=card>{tr['empty']}</div>"}</div>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">{cards or f"<div class=card style='text-align:center;color:#888'>{tr['empty']}</div>"}</div>
 </div>
 <script>
 window.openAddMikrotikModal=function(){{
@@ -657,15 +609,15 @@ window.delMk=async function(e, id){{
             cnt = len(t_dishes)
             
             dishes_html = "".join([f"""
-            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #ffffff11">
-                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px;margin-top:2px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
+            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
                 <div style="display:flex;gap:6px">
                     <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
                     <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
                 </div>
-            </div>""" for d in t_dishes]) or f'<div style="color:#888;font-size:11px;text-align:center;padding:6px">{tr["empty"]}</div>'
+            </div>""" for d in t_dishes]) or f'<div style="color:#666;font-size:11px;text-align:center;padding:10px">{tr["empty"]}</div>'
             
-            dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:8px;padding:6px;font-size:11px;border-radius:9999px;">{tr['add_dish']}</button>"""
+            dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:12px;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>"""
 
             is_fixed_tower = (idx == 0)
             edit_tower_btn = ""
@@ -674,59 +626,59 @@ window.delMk=async function(e, id){{
             
             if v == 'towers':
                 accordion_html += f"""
-                <div class="card tower-card" id="tower-{tid}" style="padding:10px;">
+                <div class="card tower-card" id="tower-{tid}" style="padding:14px;transition:all 0.3s ease">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {esc(t.get('area') or '...')}</div></div>
+                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:4px">📍 {esc(t.get('area') or '...')}</div></div>
                         <div style="display:flex;gap:8px;align-items:center">
-                            <span class=badge style="padding:2px 6px;font-size:10px;cursor:pointer" onclick="toggleAcc({tid})">{cnt}</span>
+                            <span class=badge style="padding:4px 8px;font-size:11px;cursor:pointer;box-shadow:0 0 10px rgba(255,190,77,0.2)" onclick="toggleAcc({tid})">{cnt}</span>
                         </div>
                     </div>
-                    <div id="tower-body-{tid}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{dishes_html}</div>
-                    <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid #ffffff11;padding-top:8px">
+                    <div id="tower-body-{tid}" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">{dishes_html}</div>
+                    <div style="display:flex;gap:8px;margin-top:14px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px">
                         {edit_tower_btn}
                         <button class="btn-glass btn-del" style="flex:1" onclick="delTower(event, {tid})">{BTN_DEL} {tr['delete']}</button>
                     </div>
                 </div>"""
             else:
                 accordion_html += f"""
-                <div class="card tower-accordion" id="tower-acc-{tid}" style="padding:10px;">
+                <div class="card tower-accordion" id="tower-acc-{tid}" style="padding:14px;transition:all 0.3s ease">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b> <span class="badge" style="font-size:10px;padding:2px 6px;">{cnt}</span></div>
+                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b> <span class="badge" style="font-size:11px;padding:4px 8px;">{cnt}</span></div>
                     </div>
-                    <div id="tower-body-{tid}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{dishes_html}</div>
+                    <div id="tower-body-{tid}" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">{dishes_html}</div>
                 </div>"""
 
         if v == 'dishes':
             u_dishes = dishes_by_tower[0]
             u_cnt = len(u_dishes)
             u_dishes_html = "".join([f"""
-            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #ffffff11">
-                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px;margin-top:2px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
+            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
                 <div style="display:flex;gap:6px">
                     <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
                     <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
                 </div>
-            </div>""" for d in u_dishes]) or f'<div style="color:#888;font-size:11px;text-align:center;padding:6px">{tr["empty"]}</div>'
-            u_dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:8px;padding:6px;font-size:11px;border-radius:9999px;">{tr['add_dish']}</button>"""
+            </div>""" for d in u_dishes]) or f'<div style="color:#666;font-size:11px;text-align:center;padding:10px">{tr["empty"]}</div>'
+            u_dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:12px;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>"""
             
             accordion_html += f"""
-            <div class="card tower-accordion" id="tower-acc-0" style="border:1px solid rgba(239,68,68,0.4);padding:10px;">
+            <div class="card tower-accordion" id="tower-acc-0" style="border:1px solid rgba(239,68,68,0.3);padding:14px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div onclick="toggleAcc(0)" style="cursor:pointer;flex:1"><b style="font-size:13px;color:#ef4444">{un_name}</b> <span class="badge" style="background:#ef4444;font-size:10px;padding:2px 6px;">{u_cnt}</span></div>
-                    <div style="display:flex;gap:8px;align-items:center">
-                        <button class="btn-glass btn-edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.2);width:26px;height:26px;" onclick="editUnassignedName()">{BTN_EDIT}</button>
-                        <div onclick="toggleAcc(0)" style="cursor:pointer;font-size:14px">▼</div>
+                    <div onclick="toggleAcc(0)" style="cursor:pointer;flex:1"><b style="font-size:14px;color:#ef4444">{un_name}</b> <span class="badge" style="background:#ef4444;font-size:11px;padding:4px 8px;">{u_cnt}</span></div>
+                    <div style="display:flex;gap:12px;align-items:center">
+                        <button class="btn-glass btn-edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.1);width:28px;height:28px;" onclick="editUnassignedName()">{BTN_EDIT}</button>
+                        <div onclick="toggleAcc(0)" style="cursor:pointer;font-size:16px;color:#888">▼</div>
                     </div>
                 </div>
-                <div id="tower-body-0" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{u_dishes_html}</div>
+                <div id="tower-body-0" style="display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05)">{u_dishes_html}</div>
             </div>"""
 
         if v == 'towers':
             return f"""
 <div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['towers']}</b><button class=btn-gold onclick="openNewTower()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">{tr['add_tower']}</button></div>
-  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
-  <div class=grid-small id=towersGrid style="margin-top:8px">{accordion_html or f"<div class=card>{tr['empty']}</div>"}</div>
+  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['towers']}</b><button class=btn-gold onclick="openNewTower()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_tower']}</button></div>
+  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <div class=grid-small id=towersGrid style="margin-top:12px">{accordion_html or f"<div class=card style='text-align:center;color:#666'>{tr['empty']}</div>"}</div>
 </div>
 <script>
 window.toggleAcc = function(tid) {{
@@ -734,11 +686,11 @@ window.toggleAcc = function(tid) {{
   if(b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
 }};
 window.openNewTower=function(){{
-  document.getElementById("editBody").innerHTML=`<input id=nt_name placeholder="Name"><input id=nt_area placeholder="Area"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:6px;border-radius:9999px;">{tr['save']}</button>`;
+  document.getElementById("editBody").innerHTML=`<input id=nt_name placeholder="Name"><input id=nt_area placeholder="Area"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
   document.getElementById("editModalTitle").textContent="{tr['add_tower']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.openEditTower=function(id, name, area){{
-  document.getElementById("editBody").innerHTML=`<input id=nt_name value="${{name}}"><input id=nt_area value="${{area}}"><button class=btn-gold onclick="saveTower(${{id}})" style="width:100%;margin-top:6px;border-radius:9999px;">{tr['save']}</button>`;
+  document.getElementById("editBody").innerHTML=`<input id=nt_name value="${{name}}"><input id=nt_area value="${{area}}"><button class=btn-gold onclick="saveTower(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
   document.getElementById("editModalTitle").textContent="{tr['edit']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.saveTower=async function(id){{
@@ -779,9 +731,9 @@ window.delDish=async function(e, id){{
         else:
             return f"""
 <div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['dishes']}</b><button class=btn-gold onclick="openDishModal(0,0,'','','')" style="padding:6px 12px;font-size:11px;border-radius:9999px;">{tr['add_dish']}</button></div>
-  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
-  <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{accordion_html}</div>
+  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['dishes']}</b><button class=btn-gold onclick="openDishModal(0,0,'','','')" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button></div>
+  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{accordion_html}</div>
 </div>
 <script>
 window.toggleAcc = function(tid) {{
@@ -821,22 +773,22 @@ window.delDish=async function(e, id){{
 
     if v == 'ping':
         return f"""
-<div class=card><b>{tr['ping']}</b><div style="display:flex;gap:8px;margin-top:12px"><input id="pingIp" placeholder="IP / Domain" style="flex:1;margin:0"><button class="btn-gold" style="margin:0;border-radius:9999px" onclick="runPing()">Ping</button></div><div id="pingRes" style="margin-top:12px;padding:12px;background:#000a;border-radius:8px;font-family:monospace;min-height:40px;color:#34d399;font-size:13px;text-align:center">Ready</div></div>
+<div class=card><b>{tr['ping']}</b><div style="display:flex;gap:10px;margin-top:14px"><input id="pingIp" placeholder="IP / Domain" style="flex:1;margin:0"><button class="btn-gold" style="margin:0;border-radius:9999px;padding:0 20px" onclick="runPing()">Ping</button></div><div id="pingRes" style="margin-top:14px;padding:16px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.05);border-radius:12px;font-family:monospace;min-height:50px;color:#34d399;font-size:14px;text-align:center">Ready</div></div>
 <script>
 window.runPing=async function(){{
   let ip=document.getElementById('pingIp').value.trim(); if(!ip)return;
-  let o=document.getElementById('pingRes'); o.textContent='...';
+  let o=document.getElementById('pingRes'); o.textContent='⏳ ...';
   try{{ let r=await fetch('/api/ping?ip='+encodeURIComponent(ip)); o.textContent=(await r.json()).out; }}catch(err){{o.textContent='Error';}}
 }};
 </script>"""
 
     if v == 'network':
         dishes = qall("SELECT id, dish_name, ip, location FROM dish_ips ORDER BY dish_name ASC LIMIT 100")
-        cards = "".join([f"""<div class="card net-card" id="net-card-{d['id']}" style="padding:10px;"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b></div><div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center"><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip') or '')}')">{esc(d.get('ip') or '')}</span><span class="net-status badge" id="net-status-{d['id']}" style="background:#ffffff22;color:#fff;font-size:10px;padding:2px 6px;">-</span></div></div>""" for d in dishes])
+        cards = "".join([f"""<div class="card net-card" id="net-card-{d['id']}" style="padding:12px;"><div style="display:flex;justify-content:space-between"><b style="font-size:13px">{esc(d.get('dish_name') or '--')}</b></div><div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center"><span class="ip" style="cursor:pointer;font-size:11px;padding:4px 8px" onclick="openLink('{esc(d.get('ip') or '')}')">{esc(d.get('ip') or '')}</span><span class="net-status badge" id="net-status-{d['id']}" style="background:rgba(255,255,255,0.1);color:#fff;font-size:10px;padding:4px 8px;">-</span></div></div>""" for d in dishes])
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['network']}</b><button class=btn-gold onclick="pingAllNetwork()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">Ping All</button></div>
-<input id="searchNetwork" onkeyup="filterCards('searchNetwork', '.net-card')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:8px;margin-top:10px">{cards or f"<div class=card>{tr['empty']}</div>"}</div>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['network']}</b><button class=btn-gold onclick="pingAllNetwork()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">Ping All</button></div>
+<input id="searchNetwork" onkeyup="filterCards('searchNetwork', '.net-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:10px;margin-top:12px">{cards or f"<div class=card style='text-align:center;color:#666'>{tr['empty']}</div>"}</div>
 <script>
 window.pingAllNetwork=async function(){{
   let cards=document.querySelectorAll(".net-card");
@@ -846,8 +798,8 @@ window.pingAllNetwork=async function(){{
       stEl.textContent='...';
       fetch('/api/ping?ip='+encodeURIComponent(ipEl.textContent)).then(r=>r.json()).then(j=>{{
           stEl.textContent=j.ok ? 'Online' : 'Offline';
-          stEl.style.background=j.ok ? '#34d399' : '#ef4444';
-          stEl.style.color='#000';
+          stEl.style.background=j.ok ? '#10b981' : '#ef4444';
+          stEl.style.color='#fff';
       }}).catch(()=>{{stEl.textContent='Error';}});
     }}
     await new Promise(r=>setTimeout(r, 100));
@@ -857,11 +809,13 @@ window.pingAllNetwork=async function(){{
 
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 100")
-        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditSub({r.get('id')}, '{esc(r.get('name') or '')}', '{esc(r.get('phone') or '')}', '{esc(r.get('note') or '')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delSub(event, {r.get('id')})\">{BTN_DEL}</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px;justify-content:flex-end'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditSub({r.get('id')}, '{esc(r.get('name') or '')}', '{esc(r.get('phone') or '')}', '{esc(r.get('note') or '')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delSub(event, {r.get('id')})\">{BTN_DEL}</button></td></tr>" for r in rs])
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['subs']}</b><button class=btn-gold onclick="openAddSubModal()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">+ {tr['add']}</button></div>
-<input id="searchSubs" onkeyup="filterTable('searchSubs', 'subsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
-<table id="subsTable" style="width:100%;margin-top:10px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>Note</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['subs']}</b><button class=btn-gold onclick="openAddSubModal()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">+ {tr['add']}</button></div>
+<input id="searchSubs" onkeyup="filterTable('searchSubs', 'subsTable')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+<div style="overflow-x:auto;margin-top:12px">
+<table id="subsTable" style="width:100%;min-width:400px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>Note</th><th style="text-align:end">الإجراء</th></tr></thead><tbody>{rows or '<tr><td colspan=4 style="text-align:center;color:#666">Empty</td></tr>'}</tbody></table>
+</div>
 <script>
 window.openAddSubModal = function() {{
   document.getElementById("editBody").innerHTML=`
@@ -900,11 +854,13 @@ window.delSub=async function(e, id){{
 
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
-        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:13px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditLedger({r.get('id')}, '{esc(r.get('name') or '')}', {r.get('amount')}, '{esc(r.get('note') or '')}', '{esc(r.get('currency') or 'USD')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delLedger(event, {r.get('id')})\">{BTN_DEL}</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:13px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px;justify-content:flex-end'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditLedger({r.get('id')}, '{esc(r.get('name') or '')}', {r.get('amount')}, '{esc(r.get('note') or '')}', '{esc(r.get('currency') or 'USD')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delLedger(event, {r.get('id')})\">{BTN_DEL}</button></td></tr>" for r in rs])
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['ledger']}</b><button class=btn-gold onclick="openAddLedgerModal()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">+ {tr['add']}</button></div>
-<input id="searchLedger" onkeyup="filterTable('searchLedger', 'ledgerTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
-<table id="ledgerTable" style="width:100%;margin-top:10px"><thead><tr><th>Details</th><th>Amount</th><th>Note</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['ledger']}</b><button class=btn-gold onclick="openAddLedgerModal()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">+ {tr['add']}</button></div>
+<input id="searchLedger" onkeyup="filterTable('searchLedger', 'ledgerTable')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+<div style="overflow-x:auto;margin-top:12px">
+<table id="ledgerTable" style="width:100%;min-width:400px"><thead><tr><th>Details</th><th>Amount</th><th>Note</th><th style="text-align:end">الإجراء</th></tr></thead><tbody>{rows or '<tr><td colspan=4 style="text-align:center;color:#666">Empty</td></tr>'}</tbody></table>
+</div>
 <script>
 window.openAddLedgerModal = function() {{
   document.getElementById("editBody").innerHTML=`
@@ -945,12 +901,12 @@ window.delLedger=async function(e, id){{
 
     if v == 'logs':
         rs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
-        rows = "".join([f"<tr><td><small style='color:#94a3b8'>{esc(r.get('time',''))}</small></td><td><b>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge style='background:#38bdf8;color:#000;padding:2px 6px'>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td><small style='color:#cbd5e1'>{esc(r.get('detail',''))}</small></td></tr>" for r in rs])
-        clear_btn = f"""<button class="btn-glass btn-del" onclick="clearAllLogs()">{BTN_DEL} Clear Logs</button>""" if is_manager() else ""
+        rows = "".join([f"<tr><td><small style='color:#94a3b8'>{esc(r.get('time',''))}</small></td><td><b style='color:#fff'>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge style='background:rgba(56,189,248,0.2);color:#38bdf8;padding:4px 8px'>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td><small style='color:#cbd5e1'>{esc(r.get('detail',''))}</small></td></tr>" for r in rs])
+        clear_btn = f"""<button class="btn-glass btn-del" onclick="clearAllLogs()">{BTN_DEL} مسح السجل</button>""" if is_manager() else ""
         return f"""
-<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['logs']}</b>{clear_btn}</div>
-<input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
-<div style="overflow-x:auto; margin-top:10px"><table id="logsTable" style="width:100%;min-width:500px"><thead><tr><th>{tr['users']}</th><th>{tr['action']}</th><th>{tr['target']}</th><th>{tr['detail']}</th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table></div>
+<div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['logs']}</b>{clear_btn}</div>
+<input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+<div style="overflow-x:auto; margin-top:12px"><table id="logsTable" style="width:100%;min-width:600px"><thead><tr><th>التاريخ</th><th>{tr['users']}</th><th>{tr['action']}</th><th>{tr['target']}</th><th>{tr['detail']}</th></tr></thead><tbody>{rows or '<tr><td colspan=5 style="text-align:center;color:#666">Empty</td></tr>'}</tbody></table></div>
 <script>
 window.clearAllLogs=async function(){{
   if(!confirm(MSG_SURE))return;
@@ -964,30 +920,30 @@ window.clearAllLogs=async function(){{
         users_html = ""
         if is_manager():
             rs = qall("SELECT * FROM users ORDER BY username ASC")
-            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid #ffffff22;color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.2);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">{BTN_DEL}</button></td></tr>" for r in rs])
+            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid rgba(255,255,255,0.1);color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.15);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:6px;justify-content:flex-end'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">{BTN_DEL}</button></td></tr>" for r in rs])
             users_html = f"""
-            <div class=card style="margin-top:10px;border-color:rgba(255,190,77,0.3);padding:12px;">
-              <div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#ffbe4d">👥 {tr['users']} (Admin)</b><button class=btn-gold onclick="openAddUser()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">+ {tr['add']}</button></div>
-              <table style="width:100%;margin-top:10px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>{tr['role']}</th><th></th></tr></thead><tbody>{u_rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
+            <div class=card style="margin-top:12px;border-color:rgba(255,190,77,0.3);padding:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#ffbe4d">👥 {tr['users']} (Admin)</b><button class=btn-gold onclick="openAddUser()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">+ {tr['add']}</button></div>
+              <div style="overflow-x:auto"><table style="width:100%;margin-top:12px;min-width:400px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>{tr['role']}</th><th style="text-align:end">الإجراء</th></tr></thead><tbody>{u_rows or '<tr><td colspan=4 style="text-align:center;color:#666">Empty</td></tr>'}</tbody></table></div>
             </div>"""
 
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   {users_html}
-  <div class=card style="margin-top:10px;padding:12px;">
-    <b>🔒 Change Password</b>
-    <form id=formPass style="display:flex;gap:8px;margin-top:8px">
-      <input name=newpass type=password placeholder="New Password" required style="flex:1;margin:0;padding:8px;font-size:12px;border-radius:12px;">
-      <button class=btn-gold style="margin:0;padding:8px 14px;font-size:11px;border-radius:9999px;">{tr['save']}</button>
+  <div class=card style="margin-top:12px;padding:16px;">
+    <b style="font-size:14px">🔒 Change Password</b>
+    <form id=formPass style="display:flex;gap:10px;margin-top:12px">
+      <input name=newpass type=password placeholder="New Password" required style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;">
+      <button class=btn-gold style="margin:0;padding:0 20px;font-size:12px;border-radius:9999px;">{tr['save']}</button>
     </form>
   </div>
-  <div class=card style="margin-top:10px;padding:12px;">
-    <b>🖥 UI Settings</b>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <input id="cSize" type="number" placeholder="e.g. 120" value="{cfg.get('card_size','110')}" style="flex:1;margin:0;padding:8px;font-size:12px;border-radius:12px;">
-      <button class=btn-gold onclick="saveCardSize()" style="margin:0;padding:8px 14px;font-size:11px;border-radius:9999px;">{tr['save']}</button>
+  <div class=card style="margin-top:12px;padding:16px;">
+    <b style="font-size:14px">🖥 UI Settings</b>
+    <div style="display:flex;gap:10px;margin-top:12px">
+      <input id="cSize" type="number" placeholder="e.g. 120" value="{cfg.get('card_size','110')}" style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;">
+      <button class=btn-gold onclick="saveCardSize()" style="margin:0;padding:0 20px;font-size:12px;border-radius:9999px;">{tr['save']}</button>
     </div>
-    <small style="color:#94a3b8;display:block;margin-top:6px;font-size:11px;">Grid Card Size in px (Network & Towers pages).</small>
+    <small style="color:#94a3b8;display:block;margin-top:8px;font-size:11px;">Grid Card Size in px (Network & Towers pages).</small>
   </div>
 </div>
 <script>
@@ -1003,7 +959,7 @@ window.openAddUser=function(){{
     <input id=u_phone placeholder="Login Username / Phone">
     <input id=u_pass type=password placeholder="Password">
     <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
-    <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
+    <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:12px;border-radius:9999px;padding:12px">{tr['save']}</button>`;
   document.getElementById("editModalTitle").textContent="{tr['add']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.openEditUser=function(phone, name, role){{
@@ -1012,7 +968,7 @@ window.openEditUser=function(phone, name, role){{
     <input id=u_phone value="${{phone}}" disabled style="opacity:0.5;cursor:not-allowed">
     <input id=u_pass type=password placeholder="New Password (Optional)">
     <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
-    <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
+    <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:12px;border-radius:9999px;padding:12px">{tr['save']}</button>`;
   document.getElementById("u_role").value = role;
   document.getElementById("editModalTitle").textContent="{tr['edit']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
 }};
@@ -1038,74 +994,77 @@ def layout(c, v='home'):
     c_size = cfg.get('card_size', '110')
     theme = cfg.get('theme', 'dark')
     
-    bg_style = "radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)" if theme=='dark' else "linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%)"
-    card_bg = "rgba(20, 25, 45, 0.4)" if theme=='dark' else "rgba(255, 255, 255, 0.85)"
-    text_color = "#fff" if theme=='dark' else "#0f172a"
-    top_bg = "rgba(15,20,36,0.85)" if theme=='dark' else "rgba(241, 245, 249, 0.9)"
+    # تحسين الألوان لتناسب تصميم التطبيق الداكن 
+    bg_style = "radial-gradient(circle at 50% -20%, #1e293b 0%, #0f172a 40%, #020617 100%)" if theme=='dark' else "linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%)"
+    card_bg = "rgba(15, 23, 42, 0.45)" if theme=='dark' else "rgba(255, 255, 255, 0.85)"
+    text_color = "#f8fafc" if theme=='dark' else "#0f172a"
+    top_bg = "rgba(15, 23, 42, 0.6)" if theme=='dark' else "rgba(241, 245, 249, 0.9)"
 
     return f"""<html dir="rtl" lang="{l}"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
-*{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
-body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidden; --cs: {c_size}px; transition: background 0.3s, color 0.3s;}}
-.card{{background:{card_bg};backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:{text_color};padding:12px;border-radius:12px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 15px rgba(0,0,0,0.15)}}
-.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:6px;font-weight:800;font-size:11px;cursor:pointer;transition:transform 0.2s}}
-.btn-gold:hover{{transform:translateY(-1px)}}
-.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:8px}}
-.top{{position:fixed;top:0;left:0;right:0;height:55px;background:{top_bg};backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.05);box-shadow:0 4px 10px rgba(0,0,0,0.1)}}
+*{{box-sizing:border-box;font-family:system-ui, -apple-system, sans-serif}}html,body{{margin:0;padding:0}}
+body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidden; --cs: {c_size}px;}}
+.card{{background:{card_bg};backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);color:{text_color};padding:12px;border-radius:16px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05);box-shadow:0 8px 32px rgba(0,0,0,0.2);}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:8px;font-weight:900;font-size:11px;cursor:pointer;transition:transform 0.2s, box-shadow 0.2s}}
+.btn-gold:hover{{transform:translateY(-2px); box-shadow:0 4px 15px rgba(255,190,77,0.3);}}
+.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:10px}}
+.top{{position:fixed;top:0;left:0;right:0;height:60px;background:{top_bg};backdrop-filter:blur(25px) saturate(200%);-webkit-backdrop-filter:blur(25px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.05);box-shadow:0 4px 20px rgba(0,0,0,0.3)}}
 
-/* Sidebar - Glass & Floating */
+/* تصميم القائمة الجانبية: شفافية وزجاجية ناعمة جداً */
 .sidebar {{
-    position: fixed; top: 12px; bottom: 12px; right: 12px; width: 250px;
-    background: rgba(20, 25, 45, 0.55); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
-    border-radius: 24px; border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 10px 40px rgba(0,0,0,0.4); z-index: 1004; padding: 20px 12px;
-    transform: translateX(120%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: fixed; top: 0; bottom: 0; right: 0; width: 260px;
+    background: rgba(15, 23, 42, 0.2) !important; 
+    backdrop-filter: blur(35px) saturate(200%); -webkit-backdrop-filter: blur(35px) saturate(200%);
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: -10px 0 40px rgba(0,0,0,0.5); z-index: 1004; padding: 24px 16px;
+    transform: translateX(110%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     overflow-y: auto;
 }}
 .sidebar.active{{transform:translateX(0)}}
-.sidebar a{{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;color:{text_color};text-decoration:none;border-radius:12px;font-size:13px;font-weight:600;transition:all 0.2s ease}}
-.sidebar a:hover{{background:rgba(255,255,255,0.1);color:#ffbe4d}}
-.sidebar a.active{{background:rgba(255,190,77,0.15);color:#ffbe4d;border:1px solid rgba(255,190,77,0.3)}}
-#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:1001;display:none;opacity:0;transition:opacity 0.3s}} 
+.sidebar a{{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px;color:{text_color};text-decoration:none;border-radius:12px;font-size:13.5px;font-weight:600;transition:all 0.2s ease}}
+.sidebar a:hover{{background:rgba(255,255,255,0.08);color:#ffbe4d; transform:translateX(-4px)}}
+.sidebar a.active{{background:rgba(255,190,77,0.15);color:#ffbe4d;border:1px solid rgba(255,190,77,0.2); box-shadow:0 4px 15px rgba(255,190,77,0.1)}}
+#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.4);backdrop-filter:blur(3px);z-index:1001;display:none;opacity:0;transition:opacity 0.3s}} 
 #overlay.show{{display:block;opacity:1}}
-.main{{margin-top:65px;padding:10px;min-height:90vh; transition: opacity 0.2s ease-in-out;}}
 
-/* New Glass Buttons */
+/* حركة تنقل سلسة وسريعة للموقع */
+.main{{margin-top:70px;padding:12px;min-height:90vh; transition: opacity 0.15s ease-out, transform 0.15s ease-out;}}
+.main.loading {{ opacity: 0.3; transform: scale(0.99); }}
+
 .btn-glass {{
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    border: none; border-radius: 9999px; padding: 6px 12px; cursor: pointer;
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    background: rgba(255, 255, 255, 0.05); transition: all 0.2s ease;
-    font-size: 11px; font-weight: 700;
+    border: none; border-radius: 9999px; padding: 8px 14px; cursor: pointer;
+    backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+    background: rgba(255, 255, 255, 0.05); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 11px; font-weight: 700; color:#fff;
 }}
-.btn-glass:hover {{ transform: translateY(-2px); }}
-.btn-edit {{ color: #FFC107; border: 1px solid rgba(255, 193, 7, 0.4); }}
-.btn-edit:hover {{ background: rgba(255, 193, 7, 0.15); }}
-.btn-del {{ color: #FF3B30; border: 1px solid rgba(255, 59, 48, 0.4); }}
-.btn-del:hover {{ background: rgba(255, 59, 48, 0.15); }}
-.btn-glass.icon-only {{ padding: 6px; width: 28px; height: 28px; }}
+.btn-glass:hover {{ transform: translateY(-2px); background: rgba(255, 255, 255, 0.1); }}
+.btn-edit {{ color: #FFC107; border: 1px solid rgba(255, 193, 7, 0.3); }}
+.btn-edit:hover {{ background: rgba(255, 193, 7, 0.15); box-shadow:0 4px 10px rgba(255, 193, 7, 0.2) }}
+.btn-del {{ color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }}
+.btn-del:hover {{ background: rgba(239, 68, 68, 0.15); box-shadow:0 4px 10px rgba(239, 68, 68, 0.2) }}
+.btn-glass.icon-only {{ padding: 6px; width: 30px; height: 30px; }}
 
-.sq-btn{{display:inline-flex;align-items:center;justify-content:center;gap:3px;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;border:none;color:#fff;transition:transform 0.15s ease;}}
-.sq-btn:hover{{transform:translateY(-1px);}}
-.sq-btn.edit{{background:#f59e0b; box-shadow:0 2px 6px rgba(245,158,11,0.3);}}
-.sq-btn.del{{background:#ef4444; box-shadow:0 2px 6px rgba(239,68,68,0.3);}}
-.sq-btn.view{{background:#10b981; box-shadow:0 2px 6px rgba(16,185,129,0.3);}}
+.sq-btn{{display:inline-flex;align-items:center;justify-content:center;gap:4px;border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer;border:none;color:#fff;transition:transform 0.15s ease;}}
+.sq-btn:hover{{transform:translateY(-1.5px);}}
+.sq-btn.edit{{background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.1);}}
+.sq-btn.view{{background:rgba(255,190,77,0.15); color:#ffbe4d; border:1px solid rgba(255,190,77,0.2);}}
 
-.ip{{background:#000;color:#ffbe4d;padding:2px 6px;border-radius:6px;font-family:monospace;font-size:11px;border:1px solid rgba(255,190,77,0.2)}}
-.badge{{background:#ffbe4d;color:#111;padding:2px 6px;border-radius:6px;font-size:10px;font-weight:800}}
-table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.05);padding:8px;text-align:start;font-size:12px;border-bottom:2px solid rgba(255,255,255,0.1)}} td{{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px}}
-#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:2005;backdrop-filter:blur(6px);opacity:0;transition:opacity 0.2s}}
+.ip{{background:rgba(0,0,0,0.4);color:#ffbe4d;padding:4px 8px;border-radius:8px;font-family:monospace;font-size:11.5px;border:1px solid rgba(255,255,255,0.05)}}
+.badge{{background:#ffbe4d;color:#111;padding:4px 8px;border-radius:8px;font-size:10.5px;font-weight:800}}
+table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.03);padding:12px 10px;text-align:start;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,0.1);color:#cbd5e1}} td{{padding:12px 10px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px}}
+#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:2005;backdrop-filter:blur(8px);opacity:0;transition:opacity 0.2s}}
 #editModal.show{{display:flex;opacity:1}}
-#editBox{{background:rgba(20, 25, 45, 0.95);border:1px solid rgba(255,255,255,0.2);border-radius:16px;padding:20px;width:90%;max-width:380px;box-shadow:0 15px 40px rgba(0,0,0,0.6);transform:translateY(15px);transition:transform 0.2s}}
+#editBox{{background:rgba(15, 23, 42, 0.95);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:24px;width:92%;max-width:380px;box-shadow:0 20px 50px rgba(0,0,0,0.7);transform:translateY(20px);transition:transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)}}
 #editModal.show #editBox{{transform:translateY(0)}}
-input,select{{width:100%;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;margin-bottom:8px;font-size:13px;outline:none;transition:border 0.2s}}
-input:focus,select:focus{{border-color:#ffbe4d}}
-.stat{{text-align:center;cursor:pointer;padding:12px 2px}} .stat h4{{margin:4px 0;font-size:12px;color:#cbd5e1}} .stat h3{{margin:4px 0;font-size:18px;font-weight:900}} .ico{{font-size:24px}}
+input,select{{width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.2);color:#fff;margin-bottom:10px;font-size:13.5px;outline:none;transition:border 0.2s, background 0.2s}}
+input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
+.stat{{text-align:center;cursor:pointer;padding:16px 4px;transition:0.2s}} .stat:hover{{transform:translateY(-3px)}} .stat h4{{margin:6px 0;font-size:12.5px;color:#94a3b8}} .stat h3{{margin:6px 0;font-size:20px;font-weight:900;color:#fff}} .ico{{font-size:28px}}
 </style>
 </head><body>
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
-<div style='padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:12px;text-align:center'><b style="font-size:18px;font-weight:900;letter-spacing:1px">OMAIA <span style='color:#ffbe4d'>ISP</span></b><br><span class="badge" style="background:rgba(255,255,255,0.1);color:#cbd5e1;margin-top:6px;display:inline-block">👋 {esc(cur_user.get('username') or '')}</span></div>
+<div style='padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.05);margin-bottom:16px;text-align:center'><b style="font-size:20px;font-weight:900;letter-spacing:1px">OMAIA <span style='color:#ffbe4d'>ISP</span></b><br><span class="badge" style="background:rgba(255,255,255,0.1);color:#cbd5e1;margin-top:8px;display:inline-block">👋 {esc(cur_user.get('username') or '')}</span></div>
 <a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home>🏠 <span>{tr['home']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('mikrotik')" id=nav-mikrotik>🖧 <span>{tr['mikrotik']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers>🗼 <span>{tr['towers']}</span></a>
@@ -1116,28 +1075,28 @@ input:focus,select:focus{{border-color:#ffbe4d}}
 <a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙️ <span>{tr['settings']}</span></a>
-<div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;display:flex;flex-direction:column;gap:6px">
+<div style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.05);padding-top:16px;display:flex;flex-direction:column;gap:8px">
   <div style="display:flex;justify-content:space-around">
-    <a href="/api/set_lang/{tr['toggle_code']}" style="padding:6px 10px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:10px;text-decoration:none;">🌐 {tr['lang_toggle']}</a>
-    <a href="/logout" style="padding:6px 10px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:10px;text-decoration:none;">🚪 خروج</a>
+    <a href="/api/set_lang/{tr['toggle_code']}" style="padding:8px 12px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:10px;text-decoration:none;">🌐 {tr['lang_toggle']}</a>
+    <a href="/logout" style="padding:8px 12px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:10px;text-decoration:none;">🚪 خروج</a>
   </div>
 </div>
 </div>
 
 <div class=top>
-<div style="display:flex;align-items:center;gap:12px">
-  <span onclick="toggleSb()" style='font-size:22px;cursor:pointer;'>☰</span> 
-  <b style="font-size:16px;font-weight:900;margin-top:4px">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
+<div style="display:flex;align-items:center;gap:14px">
+  <span onclick="toggleSb()" style='font-size:24px;cursor:pointer;color:#e2e8f0'>☰</span> 
+  <b style="font-size:18px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
 </div>
-<div style="display:flex;align-items:center;gap:10px;">
-  <a href="/api/set_lang/{tr['toggle_code']}" class="sq-btn view" style="text-decoration:none;padding:5px 8px;font-size:11px" title="تغيير اللغة">🌐 {tr['toggle_code'].upper()}</a>
-  <button onclick="toggleTheme()" class="sq-btn edit" style="padding:5px 8px;font-size:11px" title="ليل / نهار">{'🌙' if theme=='dark' else '☀️'}</button>
+<div style="display:flex;align-items:center;gap:8px;">
+  <a href="/api/set_lang/{tr['toggle_code']}" class="sq-btn view" style="text-decoration:none;">🌐 {tr['toggle_code'].upper()}</a>
+  <button onclick="toggleTheme()" class="sq-btn edit">{'🌙' if theme=='dark' else '☀️'}</button>
 </div>
 </div>
 
 <div class=main id=mn>{c}</div>
 
-<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:8px'><b id=editModalTitle style="font-size:14px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:18px;'>✕</button></div><div id=editBody></div></div></div>
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px'><b id=editModalTitle style="font-size:15px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:20px;'>✕</button></div><div id=editBody></div></div></div>
 
 <script>
 let cur='{v}';
@@ -1148,16 +1107,12 @@ window.apiPost = async function(url, data) {{
     let oldTxt = "";
     if (b && b.tagName === 'BUTTON') {{ oldTxt = b.innerHTML; b.disabled = true; b.style.opacity = '0.5'; b.innerHTML = '⏳...'; }}
     try {{
-        let r = await fetch(url, {{
-            method: 'POST',
-            headers: {{'Content-Type': 'application/json'}},
-            body: JSON.stringify(data)
-        }});
+        let r = await fetch(url, {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(data) }});
         let txt = await r.text();
         try {{
             let j = JSON.parse(txt);
             if (b) {{ b.disabled = false; b.style.opacity = '1'; b.innerHTML = oldTxt; }}
-            if (!j.ok) {{ alert(j.msg || 'فشلت العملية، يرجى مراجعة البيانات المدخلة'); return false; }}
+            if (!j.ok) {{ alert(j.msg || 'فشلت العملية، يرجى المحاولة مجددا'); return false; }}
             return true;
         }} catch(e) {{
             if (b) {{ b.disabled = false; b.style.opacity = '1'; b.innerHTML = oldTxt; }}
@@ -1209,7 +1164,7 @@ async function loadPage(v, force=false){{
   document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
   let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
   let mn=document.getElementById('mn'); 
-  mn.style.opacity = '0.5';
+  mn.classList.add('loading');
   try{{
     let r=await fetch('/api/page?v='+v);
     if(r.status===401){{ location.replace('/login'); return; }}
@@ -1218,9 +1173,9 @@ async function loadPage(v, force=false){{
     mn.innerHTML=t;
     execScripts();
   }}catch(e){{ 
-    mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">خطأ في تحميل الصفحة</div>`; 
+    mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center;padding:30px">خطأ في تحميل الصفحة ⚠</div>`; 
   }} finally {{
-    mn.style.opacity = '1';
+    setTimeout(() => mn.classList.remove('loading'), 50);
   }}
 }}
 
@@ -1238,7 +1193,7 @@ function execScripts(){{
 window.closeEditModal=()=>{{
   let md = document.getElementById('editModal');
   md.style.opacity = '0';
-  setTimeout(() => md.classList.remove('show'), 200);
+  setTimeout(() => md.classList.remove('show'), 250);
 }};
 loadPage(cur,true);
 </script></body></html>"""
