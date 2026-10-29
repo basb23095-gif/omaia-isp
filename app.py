@@ -36,7 +36,6 @@ _plock = threading.Lock()
 _sqlite_conn = None
 _slock = threading.Lock()
 
-# قاموس اللغات (عربي / إنجليزي) - الاتجاه ثابت يمين RTL دائماً بناءً على طلبك
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
@@ -90,7 +89,7 @@ def get_conn():
         except Exception: USE_PG = False
     with _slock:
         if _sqlite_conn is None:
-            _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=10, isolation_level=None)
+            _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=15, isolation_level=None)
             _sqlite_conn.row_factory = sqlite3.Row
             try: _sqlite_conn.execute("PRAGMA journal_mode=WAL;")
             except Exception: pass
@@ -264,7 +263,7 @@ def api_mikrotik_list():
 @login_required
 @role_required_manager
 def api_mikrotik_add():
-    d = request.json
+    d = request.json or {}
     name, host, user, pwd, port = d.get('name','').strip(), d.get('host','').strip(), d.get('username','').strip(), d.get('password','').strip(), int(d.get('port') or 8728)
     if not host or not user: return jsonify(ok=False, msg='بيانات ناقصة'), 400
     ok = qexec("INSERT INTO mikrotik_servers(name,host,username,password,port) VALUES(?,?,?,?,?)", (name or host, host, user, pwd, port))
@@ -279,34 +278,6 @@ def api_mikrotik_del(mid):
     ok = qexec("DELETE FROM mikrotik_servers WHERE id=?", (mid,))
     if ok and srv: add_log(session.get('phone'), 'حذف ميكروتك', srv['name'])
     return jsonify(ok=ok)
-
-@app.route('/api/mikrotik/status/<int:mid>')
-@login_required
-def api_mikrotik_status(mid):
-    srv = qone("SELECT * FROM mikrotik_servers WHERE id=?", (mid,))
-    if not srv: return jsonify(ok=False, msg='غير موجود'), 404
-    if not ROUTEROS_AVAILABLE: return jsonify(ok=False, msg='مكتبة routeros_api غير متوفرة'), 500
-    conn = None
-    try:
-        conn, api = mikrotik_connect(srv['host'], srv['username'], srv['password'], srv['port'])
-        res_resource = api.get_resource('/system/resource').get()
-        res_identity = api.get_resource('/system/identity').get()
-        res_active = api.get_resource('/ip/hotspot/active').get()
-        res_ppp = api.get_resource('/ppp/active').get()
-        info = {
-            'identity': res_identity[0].get('name', '') if res_identity else '',
-            'uptime': res_resource[0].get('uptime', '') if res_resource else '',
-            'cpu': res_resource[0].get('cpu-load', '0') if res_resource else '0',
-            'version': res_resource[0].get('version', '') if res_resource else '',
-            'hotspot_active': len(res_active),
-            'ppp_active': len(res_ppp)
-        }
-        return jsonify(ok=True, data=info)
-    except Exception as e: return jsonify(ok=False, msg=f"تعذر الاتصال: {str(e)}"), 500
-    finally:
-        if conn:
-            try: conn.disconnect()
-            except Exception: pass
 
 @app.route('/api/ping')
 @login_required
@@ -343,7 +314,8 @@ def api_stats():
 @login_required
 @role_required_manager
 def set_config():
-    d = request.json; k = (d.get('key') or '').strip(); v = (d.get('value') or '').strip()
+    d = request.json or {}
+    k = (d.get('key') or '').strip(); v = (d.get('value') or '').strip()
     if not k: return jsonify(ok=False), 400
     if USE_PG: qexec("INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", (k, v))
     else: qexec("INSERT OR REPLACE INTO system_config(key,value) VALUES(?,?)", (k, v))
@@ -382,7 +354,7 @@ def clear_logs():
 @app.route('/add_tower', methods=['POST'])
 @login_required
 def at():
-    d = request.json
+    d = request.json or {}
     ok = qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)", (d.get('name', 'برج'), d.get('area', ''), 0, 0, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     if ok: add_log(session.get('phone'), 'إضافة برج', d.get('name', ''))
     return jsonify(ok=ok)
@@ -390,7 +362,7 @@ def at():
 @app.route('/edit_tower/<int:id>', methods=['POST'])
 @login_required
 def edit_tower(id):
-    d = request.json
+    d = request.json or {}
     ok = qexec("UPDATE towers SET name=?, area=? WHERE id=?", (d.get('name'), d.get('area'), id))
     if ok: add_log(session.get('phone'), 'تعديل برج', d.get('name', ''))
     return jsonify(ok=ok)
@@ -407,7 +379,8 @@ def dt(i):
 @app.route('/api/add_dish_to_tower', methods=['POST'])
 @login_required
 def add_dish_to_tower():
-    d = request.json; ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
+    d = request.json or {}
+    ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
     if not is_valid_ip(ip): return jsonify(ok=False, msg='IP Invalid'), 400
     if USE_PG: ok = qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location, tower_id=EXCLUDED.tower_id", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
     else: ok = qexec("INSERT OR REPLACE INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
@@ -417,7 +390,8 @@ def add_dish_to_tower():
 @app.route('/api/edit_dish/<int:id>', methods=['POST'])
 @login_required
 def edit_dish(id):
-    d = request.json; ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
+    d = request.json or {}
+    ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
     ok = qexec("UPDATE dish_ips SET ip=?, dish_name=?, location=?, tower_id=? WHERE id=?", (ip, name, loc, int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None, id))
     if ok: add_log(session.get('phone'), 'تعديل صحن', f"{name}", f"IP: {ip}")
     return jsonify(ok=ok)
@@ -432,14 +406,15 @@ def dd(i):
 @app.route('/add_sub', methods=['POST'])
 @login_required
 def asub():
-    d = request.form or request.json; ok = qexec("INSERT INTO subs(name,phone,note) VALUES(?,?,?)", (d.get('name', ''), d.get('phone', ''), d.get('note', '')))
+    d = request.json or request.form or {}
+    ok = qexec("INSERT INTO subs(name,phone,note) VALUES(?,?,?)", (d.get('name', ''), d.get('phone', ''), d.get('note', '')))
     if ok: add_log(session.get('phone'), 'إضافة مشترك', d.get('name', ''))
     return jsonify(ok=ok)
 
 @app.route('/edit_sub/<int:i>', methods=['POST'])
 @login_required
 def esub(i):
-    d = request.form or request.json
+    d = request.json or request.form or {}
     ok = qexec("UPDATE subs SET name=?, phone=?, note=? WHERE id=?", (d.get('name',''), d.get('phone',''), d.get('note',''), i))
     if ok: add_log(session.get('phone'), 'تعديل مشترك', d.get('name',''))
     return jsonify(ok=ok)
@@ -454,7 +429,7 @@ def dsub(i):
 @app.route('/add_ledger', methods=['POST'])
 @login_required
 def al():
-    d = request.form or request.json
+    d = request.json or request.form or {}
     try: amt = float(d.get('amount') or 0)
     except Exception: amt = 0
     ok = qexec("INSERT INTO ledger(name,amount,note,currency) VALUES(?,?,?,?)", (d.get('name', ''), amt, d.get('note', ''), d.get('currency', 'USD')))
@@ -464,7 +439,7 @@ def al():
 @app.route('/edit_ledger/<int:i>', methods=['POST'])
 @login_required
 def eled(i):
-    d = request.form or request.json
+    d = request.json or request.form or {}
     try: amt = float(d.get('amount') or 0)
     except Exception: amt = 0
     ok = qexec("UPDATE ledger SET name=?, amount=?, note=?, currency=? WHERE id=?", (d.get('name',''), amt, d.get('note',''), d.get('currency','USD'), i))
@@ -482,7 +457,7 @@ def dll(i):
 @login_required
 @role_required_manager
 def add_user():
-    d = request.json
+    d = request.json or {}
     p, pw, u, r = d.get('phone','').strip(), d.get('password','').strip(), d.get('username','').strip(), d.get('role','tech')
     if not p or not pw: return jsonify(ok=False, msg="البيانات ناقصة")
     ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, u))
@@ -493,7 +468,7 @@ def add_user():
 @login_required
 @role_required_manager
 def edit_user():
-    d = request.json
+    d = request.json or {}
     p, pw, r, u = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech'), d.get('username','').strip()
     if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, u, p))
     else: qexec("UPDATE users SET role=?, username=? WHERE phone=?", (r, u, p))
@@ -512,7 +487,7 @@ def del_user(phone):
 @app.route('/change_pass', methods=['POST'])
 @login_required
 def cp():
-    d = request.form; np = (d.get('newpass') or '').strip()
+    d = request.form or request.json or {}; np = (d.get('newpass') or '').strip()
     if not np: return jsonify(ok=False, msg='فارغ'), 400
     ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:150000'), session.get('phone')))
     add_log(session.get('phone'), 'تغيير كلمة المرور الشخصية', session.get('phone'))
@@ -643,7 +618,7 @@ def page_content(v):
 
     if v == 'mikrotik':
         servers = qall("SELECT * FROM mikrotik_servers ORDER BY id DESC")
-        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="sq-btn view" onclick="fetchMikrotikStatus({s['id']})">⚡</button><button class="sq-btn del" onclick="delMk(event, {s['id']})">🗑️</button></div></div><div id="mk-details-{s['id']}" style="margin-top:8px;padding:8px;background:#0006;border-radius:8px;font-size:12px;display:none"></div></div>""" for s in servers])
+        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="sq-btn del" onclick="delMk(event, {s['id']})">🗑️</button></div></div></div>""" for s in servers])
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['mikrotik']}</b><button class=btn-gold onclick="openAddMikrotikModal()">+ {tr['add']}</button></div>
@@ -664,15 +639,6 @@ window.delMk=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
   let r=await fetch('/api/mikrotik/del/'+id);
   if((await r.json()).ok) e.target.closest('.card').remove();
-}};
-window.fetchMikrotikStatus=async function(id){{
-  let box=document.getElementById("mk-details-"+id); box.style.display="block"; box.innerHTML="⏳ ...";
-  try{{
-    let r=await fetch('/api/mikrotik/status/'+id); let j=await r.json();
-    if(j.ok){{
-      let d=j.data; box.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><div><b>ID:</b> ${{d.identity}}</div><div><b>CPU:</b> ${{d.cpu}}%</div><div><b>Uptime:</b> ${{d.uptime}}</div><div><b>Hotspot:</b> <span class="badge">${{d.hotspot_active}}</span></div></div>`;
-    }}else box.innerHTML='<span style="color:#ef4444">Error</span>';
-  }}catch(err){{box.innerHTML='<span style="color:#ef4444">Error</span>';}}
 }};
 </script>"""
 
