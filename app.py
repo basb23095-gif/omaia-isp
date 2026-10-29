@@ -263,7 +263,7 @@ def api_mikrotik_list():
 @login_required
 @role_required_manager
 def api_mikrotik_add():
-    d = request.json or {}
+    d = request.json or request.form or {}
     name, host, user, pwd, port = d.get('name','').strip(), d.get('host','').strip(), d.get('username','').strip(), d.get('password','').strip(), int(d.get('port') or 8728)
     if not host or not user: return jsonify(ok=False, msg='بيانات ناقصة'), 400
     ok = qexec("INSERT INTO mikrotik_servers(name,host,username,password,port) VALUES(?,?,?,?,?)", (name or host, host, user, pwd, port))
@@ -314,7 +314,7 @@ def api_stats():
 @login_required
 @role_required_manager
 def set_config():
-    d = request.json or {}
+    d = request.json or request.form or {}
     k = (d.get('key') or '').strip(); v = (d.get('value') or '').strip()
     if not k: return jsonify(ok=False), 400
     if USE_PG: qexec("INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", (k, v))
@@ -354,7 +354,7 @@ def clear_logs():
 @app.route('/add_tower', methods=['POST'])
 @login_required
 def at():
-    d = request.json or {}
+    d = request.json or request.form or {}
     ok = qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)", (d.get('name', 'برج'), d.get('area', ''), 0, 0, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     if ok: add_log(session.get('phone'), 'إضافة برج', d.get('name', ''))
     return jsonify(ok=ok)
@@ -362,7 +362,7 @@ def at():
 @app.route('/edit_tower/<int:id>', methods=['POST'])
 @login_required
 def edit_tower(id):
-    d = request.json or {}
+    d = request.json or request.form or {}
     ok = qexec("UPDATE towers SET name=?, area=? WHERE id=?", (d.get('name'), d.get('area'), id))
     if ok: add_log(session.get('phone'), 'تعديل برج', d.get('name', ''))
     return jsonify(ok=ok)
@@ -379,7 +379,7 @@ def dt(i):
 @app.route('/api/add_dish_to_tower', methods=['POST'])
 @login_required
 def add_dish_to_tower():
-    d = request.json or {}
+    d = request.json or request.form or {}
     ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
     if not is_valid_ip(ip): return jsonify(ok=False, msg='IP Invalid'), 400
     if USE_PG: ok = qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?) ON CONFLICT (ip) DO UPDATE SET dish_name=EXCLUDED.dish_name, location=EXCLUDED.location, tower_id=EXCLUDED.tower_id", (ip, loc, name, int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None))
@@ -390,7 +390,7 @@ def add_dish_to_tower():
 @app.route('/api/edit_dish/<int:id>', methods=['POST'])
 @login_required
 def edit_dish(id):
-    d = request.json or {}
+    d = request.json or request.form or {}
     ip, name, loc, tid = (d.get('ip') or '').strip(), (d.get('dish_name') or '').strip(), (d.get('location') or '').strip(), d.get('tower_id')
     ok = qexec("UPDATE dish_ips SET ip=?, dish_name=?, location=?, tower_id=? WHERE id=?", (ip, name, loc, int(tid) if tid and str(tid).isdigit() and int(tid)!=0 else None, id))
     if ok: add_log(session.get('phone'), 'تعديل صحن', f"{name}", f"IP: {ip}")
@@ -457,7 +457,7 @@ def dll(i):
 @login_required
 @role_required_manager
 def add_user():
-    d = request.json or {}
+    d = request.json or request.form or {}
     p, pw, u, r = d.get('phone','').strip(), d.get('password','').strip(), d.get('username','').strip(), d.get('role','tech')
     if not p or not pw: return jsonify(ok=False, msg="البيانات ناقصة")
     ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, u))
@@ -468,7 +468,7 @@ def add_user():
 @login_required
 @role_required_manager
 def edit_user():
-    d = request.json or {}
+    d = request.json or request.form or {}
     p, pw, r, u = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech'), d.get('username','').strip()
     if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, u, p))
     else: qexec("UPDATE users SET role=?, username=? WHERE phone=?", (r, u, p))
@@ -487,7 +487,7 @@ def del_user(phone):
 @app.route('/change_pass', methods=['POST'])
 @login_required
 def cp():
-    d = request.form or request.json or {}; np = (d.get('newpass') or '').strip()
+    d = request.json or request.form or {}; np = (d.get('newpass') or '').strip()
     if not np: return jsonify(ok=False, msg='فارغ'), 400
     ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:150000'), session.get('phone')))
     add_log(session.get('phone'), 'تغيير كلمة المرور الشخصية', session.get('phone'))
@@ -1008,7 +1008,7 @@ window.clearAllLogs=async function(){{
   </div>
 </div>
 <script>
-document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault();let r=await fetch("/change_pass",{{method:"POST",body:new FormData(e.target)}});if((await r.json()).ok){{alert("Saved");e.target.reset();}}}});
+document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault();let r=await fetch("/change_pass",{{method:"POST",headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{newpass:e.target.newpass.value}})}});if((await r.json()).ok){{alert("Saved");e.target.reset();}}}});
 window.saveCardSize = async function(){{
   let sz = document.getElementById("cSize").value;
   let r = await fetch("/api/set_config", {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{key:"card_size",value:sz}})}});
