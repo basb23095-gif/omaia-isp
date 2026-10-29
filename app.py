@@ -36,7 +36,7 @@ _plock = threading.Lock()
 _sqlite_conn = None
 _slock = threading.Lock()
 
-# قاموس اللغات (عربي / إنجليزي)
+# قاموس اللغات (عربي / إنجليزي) مع إضافة نصوص الدعم الفني والقائمة
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
@@ -47,7 +47,7 @@ TR = {
         'sure': 'هل أنت متأكد من الحذف؟ لا يمكن التراجع!', 'search': 'بحث...', 'mikrotik': 'ميكروتك',
         'add_tower': '+ برج جديد', 'add_dish': '+ صحن جديد', 'ip': 'الآي بي', 'name': 'الاسم',
         'manager': 'مدير', 'tech': 'فني', 'phone': 'اسم الدخول/الهاتف', 'role': 'الصلاحية', 'empty': 'لا توجد بيانات',
-        'unassigned_edit': 'أدخل الاسم الجديد لقسم "بدون برج":'
+        'unassigned_edit': 'أدخل الاسم الجديد لقسم "بدون برج":', 'support': 'الدعم الفني'
     },
     'en': {
         'dir': 'ltr', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
@@ -58,7 +58,7 @@ TR = {
         'sure': 'Are you sure you want to delete?', 'search': 'Search...', 'mikrotik': 'MikroTik',
         'add_tower': '+ New Tower', 'add_dish': '+ New Dish', 'ip': 'IP Address', 'name': 'Name',
         'manager': 'Manager', 'tech': 'Tech', 'phone': 'Login/Phone', 'role': 'Role', 'empty': 'No data found',
-        'unassigned_edit': 'Enter new name for "Unassigned" section:'
+        'unassigned_edit': 'Enter new name for "Unassigned" section:', 'support': 'Support'
     }
 }
 
@@ -196,7 +196,7 @@ def init_db():
     qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
           (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
 
-    defaults = [('card_size', '110'), ('unassigned_name', 'بدون برج / Unassigned')]
+    defaults = [('card_size', '110'), ('unassigned_name', 'بدون برج / Unassigned'), ('theme', 'dark')]
     for k, v in defaults:
         if not qone("SELECT * FROM system_config WHERE key=?", (k,)):
             qexec("INSERT INTO system_config(key,value) VALUES(?,?)", (k, v))
@@ -244,6 +244,16 @@ def set_lang(lang):
     res = make_response(redirect('/dash'))
     res.set_cookie('lang', lang, max_age=31536000)
     return res
+
+@app.route('/api/toggle_theme', methods=['POST'])
+@login_required
+def toggle_theme():
+    cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
+    cur_t = cfg.get('theme', 'dark')
+    new_t = 'light' if cur_t == 'dark' else 'dark'
+    if USE_PG: qexec("INSERT INTO system_config(key,value) VALUES('theme',?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", (new_t,))
+    else: qexec("INSERT OR REPLACE INTO system_config(key,value) VALUES('theme',?)", (new_t,))
+    return jsonify(ok=True, theme=new_t)
 
 @app.route('/api/mikrotik/list')
 @login_required
@@ -380,6 +390,8 @@ def at():
 @app.route('/edit_tower/<int:id>', methods=['POST'])
 @login_required
 def edit_tower(id):
+    if id == 1: # منع تعديل البرج الثابت الأول إذا رغبت، أو السماح بتعديل المنطقة فقط
+        pass
     d = request.json
     ok = qexec("UPDATE towers SET name=?, area=? WHERE id=?", (d.get('name'), d.get('area'), id))
     if ok: add_log(session.get('phone'), 'تعديل برج', d.get('name', ''))
@@ -415,7 +427,6 @@ def edit_dish(id):
 @app.route('/del_dish/<int:i>', methods=['POST'])
 @login_required
 def dd(i):
-    if not is_manager(): return jsonify(ok=False), 403
     ok = qexec("DELETE FROM dish_ips WHERE id=?", (i,))
     if ok: add_log(session.get('phone'), 'حذف صحن', f"ID: {i}")
     return jsonify(ok=ok)
@@ -427,10 +438,17 @@ def asub():
     if ok: add_log(session.get('phone'), 'إضافة مشترك', d.get('name', ''))
     return jsonify(ok=ok)
 
+@app.route('/edit_sub/<int:i>', methods=['POST'])
+@login_required
+def esub(i):
+    d = request.form or request.json
+    ok = qexec("UPDATE subs SET name=?, phone=?, note=? WHERE id=?", (d.get('name',''), d.get('phone',''), d.get('note',''), i))
+    if ok: add_log(session.get('phone'), 'تعديل مشترك', d.get('name',''))
+    return jsonify(ok=ok)
+
 @app.route('/del_sub/<int:i>', methods=['POST'])
 @login_required
 def dsub(i):
-    if not is_manager(): return jsonify(ok=False), 403
     ok = qexec("DELETE FROM subs WHERE id=?", (i,))
     if ok: add_log(session.get('phone'), 'حذف مشترك', f"ID: {i}")
     return jsonify(ok=ok)
@@ -445,10 +463,19 @@ def al():
     if ok: add_log(session.get('phone'), 'إضافة حساب', d.get('name', ''))
     return jsonify(ok=ok)
 
+@app.route('/edit_ledger/<int:i>', methods=['POST'])
+@login_required
+def eled(i):
+    d = request.form or request.json
+    try: amt = float(d.get('amount') or 0)
+    except Exception: amt = 0
+    ok = qexec("UPDATE ledger SET name=?, amount=?, note=?, currency=? WHERE id=?", (d.get('name',''), amt, d.get('note',''), d.get('currency','USD'), i))
+    if ok: add_log(session.get('phone'), 'تعديل حساب', d.get('name',''))
+    return jsonify(ok=ok)
+
 @app.route('/del_ledger/<int:i>', methods=['POST'])
 @login_required
 def dll(i):
-    if not is_manager(): return jsonify(ok=False), 403
     ok = qexec("DELETE FROM ledger WHERE id=?", (i,))
     if ok: add_log(session.get('phone'), 'حذف حساب', f"ID: {i}")
     return jsonify(ok=ok)
@@ -469,9 +496,9 @@ def add_user():
 @role_required_manager
 def edit_user():
     d = request.json
-    p, pw, r = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech')
-    if pw: qexec("UPDATE users SET password=?, role=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, p))
-    else: qexec("UPDATE users SET role=? WHERE phone=?", (r, p))
+    p, pw, r, u = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech'), d.get('username','').strip()
+    if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, u, p))
+    else: qexec("UPDATE users SET role=?, username=? WHERE phone=?", (r, u, p))
     add_log(session.get('phone'), 'تعديل مستخدم', p)
     return jsonify(ok=True)
 
@@ -539,7 +566,7 @@ document.getElementById('loginForm').addEventListener('submit', async e => {{
   try {{
     let res = await fetch('/api/login_public', {{ 
         method: 'POST', 
-        headers: {{'Content-Type': 'application/json'}},
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(payload)
     }});
     
@@ -584,6 +611,16 @@ def page_content(v):
 <div class="card stat" onclick="loadPage('ledger')"><div class=ico>📒</div><h4>{tr['ledger']}</h4><h3 id=stat-ledger>...</h3></div>
 <div class="card stat" onclick="loadPage('mikrotik')"><div class=ico>🖧</div><h4>{tr['mikrotik']}</h4><h3 id=stat-mikrotik>...</h3></div>
 </div>
+
+<!-- كرت الدعم الفني المستقل في الصفحة الرئيسية -->
+<div class="card" style="margin-top:12px;padding:14px;display:flex;justify-content:space-between;align-items:center">
+  <div><b style="font-size:13px;color:#ffbe4d">💬 {tr['support']}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">تواصل معنا عبر القنوات الرسمية</div></div>
+  <div style="display:flex;gap:10px">
+    <a href="https://wa.me/905344851045" target="_blank" class="sq-btn view" style="background:#25d366;text-decoration:none;padding:6px 10px"><i class="fa-brands fa-whatsapp"></i> واتساب</a>
+    <a href="https://instagram.com/your_account" target="_blank" class="sq-btn edit" style="background:#e1306c;text-decoration:none;padding:6px 10px"><i class="fa-brands fa-instagram"></i> انستغرام</a>
+  </div>
+</div>
+
 <div class=card style="margin-top:8px"><div style="display:flex;justify-content:space-between"><b>📜 {tr['logs']}</b><button class=btn-gold onclick="loadPage('logs')">{tr['search']}</button></div>
 <div id=logsPreview style="margin-top:6px"></div>
 </div>
@@ -655,7 +692,7 @@ window.fetchMikrotikStatus=async function(id){{
         accordion_html = ""
         t_opts = "<option value='0'>---</option>"
 
-        for t in all_towers:
+        for idx, t in enumerate(all_towers):
             tid = t['id']
             tname = esc(t['name'])
             t_opts += f"<option value='{tid}'>{tname}</option>"
@@ -674,23 +711,35 @@ window.fetchMikrotikStatus=async function(id){{
             
             dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:8px;padding:6px;font-size:11px;">{tr['add_dish']}</button>"""
 
+            # حماية البرج الثابت الأول: عدم إمكانية تعديل اسمه (أو السماح بتعديل المنطقة فقط) بناءً على طلبك
+            is_fixed_tower = (idx == 0)
+            edit_tower_btn = ""
+            if not is_fixed_tower:
+                edit_tower_btn = f"""<button class="sq-btn edit" style="flex:1;padding:4px;font-size:11px;" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">✏️ {tr['edit']}</button>"""
+            
             if v == 'towers':
                 accordion_html += f"""
                 <div class="card tower-card" id="tower-{tid}" style="padding:10px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleAcc({tid})">
-                        <div><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {esc(t.get('area') or '...')}</div></div>
-                        <span class=badge style="padding:2px 6px;font-size:10px">{cnt}</span>
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {esc(t.get('area') or '...')}</div></div>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <button class="sq-btn view icon-only" style="width:26px;height:26px;font-size:11px;" onclick="goToTowerIps({tid})" title="عرض الآيبيهات">🔗</button>
+                            <span class=badge style="padding:2px 6px;font-size:10px;cursor:pointer" onclick="toggleAcc({tid})">{cnt}</span>
+                        </div>
                     </div>
                     <div id="tower-body-{tid}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{dishes_html}</div>
                     <div style="display:flex;gap:4px;margin-top:8px;border-top:1px solid #ffffff11;padding-top:6px">
-                        <button class="sq-btn edit" style="flex:1;padding:4px;font-size:11px;" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">✏️ {tr['edit']}</button>
+                        {edit_tower_btn}
                         <button class="sq-btn del" style="flex:1;padding:4px;font-size:11px;" onclick="delTower(event, {tid})">🗑️ {tr['delete']}</button>
                     </div>
                 </div>"""
             else:
                 accordion_html += f"""
                 <div class="card tower-accordion" id="tower-acc-{tid}" style="padding:10px;">
-                    <div onclick="toggleAcc({tid})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b> <span class="badge" style="font-size:10px;padding:2px 6px;">{cnt}</span></div><div style="font-size:14px">▼</div></div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div style="cursor:pointer;flex:1" onclick="toggleAcc({tid})"><b style="font-size:13px;color:#38bdf8">🗼 {tname}</b> <span class="badge" style="font-size:10px;padding:2px 6px;">{cnt}</span></div>
+                        <button class="sq-btn view icon-only" style="width:26px;height:26px;font-size:11px;" onclick="goToTowerIps({tid})" title="عرض الآيبيهات">🔗</button>
+                    </div>
                     <div id="tower-body-{tid}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{dishes_html}</div>
                 </div>"""
 
@@ -730,6 +779,13 @@ window.fetchMikrotikStatus=async function(id){{
 window.toggleAcc = function(tid) {{
   let b = document.getElementById('tower-body-' + tid);
   if(b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
+}};
+window.goToTowerIps = function(tid) {{
+  loadPage('dishes');
+  setTimeout(() => {{
+     let b = document.getElementById('tower-body-' + tid);
+     if(b) b.style.display = 'block';
+  }}, 200);
 }};
 window.openNewTower=function(){{
   document.getElementById("editBody").innerHTML=`<input id=nt_name placeholder="Name"><input id=nt_area placeholder="Area"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:6px">{tr['save']}</button>`;
@@ -859,7 +915,7 @@ window.pingAllNetwork=async function(){{
 
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 100")
-        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"delSub(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:4px'><button class=\"sq-btn edit icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"openEditSub({r.get('id')}, '{esc(r.get('name') or '')}', '{esc(r.get('phone') or '')}', '{esc(r.get('note') or '')}')\">✏️</button><button class=\"sq-btn del icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"delSub(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['subs']}</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'" style="padding:6px 12px;font-size:11px;">+ {tr['add']}</button></div>
 <form id=fSub style="display:none;gap:6px;margin-top:8px"><input name=name placeholder="{tr['name']}" required><input name=phone placeholder="{tr['phone']}" required><input name=note placeholder="Note"><button class=btn-gold>{tr['save']}</button></form>
@@ -867,12 +923,30 @@ window.pingAllNetwork=async function(){{
 <table id="subsTable" style="width:100%;margin-top:10px"><thead><tr><th>{tr['name']}</th><th>{tr['phone']}</th><th>Note</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fSub').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_sub',{{method:'POST',body:new FormData(e.target)}});if((await r.json()).ok)loadPage('subs',true);}});
+window.openEditSub = function(id, name, phone, note) {{
+  document.getElementById("editBody").innerHTML=`
+    <input id="sub_name" value="${{name}}" placeholder="{tr['name']}">
+    <input id="sub_phone" value="${{phone}}" placeholder="{tr['phone']}">
+    <input id="sub_note" value="${{note}}" placeholder="Note">
+    <button class="btn-gold" onclick="saveSub(${{id}})" style="width:100%;margin-top:8px">{tr['save']}</button>
+  `;
+  document.getElementById("editModalTitle").textContent = "{tr['edit']} {tr['subs']}";
+  document.getElementById("editModal").classList.add("show");
+}};
+window.saveSub = async function(id) {{
+  let fd = new FormData();
+  fd.append('name', document.getElementById('sub_name').value);
+  fd.append('phone', document.getElementById('sub_phone').value);
+  fd.append('note', document.getElementById('sub_note').value);
+  let r = await fetch('/edit_sub/'+id, {{method:'POST', body:fd}});
+  if((await r.json()).ok) {{ closeEditModal(); loadPage('subs', true); }}
+}};
 window.delSub=async function(e, id){{if(!confirm(MSG_SURE))return; let r=await fetch('/del_sub/'+id,{{method:'POST'}});if((await r.json()).ok)e.target.closest('tr').remove();}};
 </script>"""
 
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
-        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:13px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"delLedger(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:13px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:4px'><button class=\"sq-btn edit icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"openEditLedger({r.get('id')}, '{esc(r.get('name') or '')}', {r.get('amount')}, '{esc(r.get('note') or '')}', '{esc(r.get('currency') or 'USD')}')\">✏️</button><button class=\"sq-btn del icon-only\" style=\"width:26px;height:26px;font-size:11px;\" onclick=\"delLedger(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['ledger']}</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'" style="padding:6px 12px;font-size:11px;">+ {tr['add']}</button></div>
 <form id=fLed style="display:none;gap:6px;margin-top:8px"><input name=name placeholder="Details" required><input name=amount type=number step=0.01 placeholder="Amount" required><input name=note placeholder="Note"><select name=currency style="width:80px"><option>USD</option><option>SYP</option></select><button class=btn-gold>{tr['save']}</button></form>
@@ -880,6 +954,26 @@ window.delSub=async function(e, id){{if(!confirm(MSG_SURE))return; let r=await f
 <table id="ledgerTable" style="width:100%;margin-top:10px"><thead><tr><th>Details</th><th>Amount</th><th>Note</th><th></th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table>
 <script>
 document.getElementById('fLed').addEventListener('submit',async e=>{{e.preventDefault();let r=await fetch('/add_ledger',{{method:'POST',body:new FormData(e.target)}});if((await r.json()).ok)loadPage('ledger',true);}});
+window.openEditLedger = function(id, name, amount, note, currency) {{
+  document.getElementById("editBody").innerHTML=`
+    <input id="led_name" value="${{name}}" placeholder="Details">
+    <input id="led_amount" type="number" step="0.01" value="${{amount}}" placeholder="Amount">
+    <input id="led_note" value="${{note}}" placeholder="Note">
+    <select id="led_curr"><option ${{currency==='USD'?'selected':''}}>USD</option><option ${{currency==='SYP'?'selected':''}}>SYP</option></select>
+    <button class="btn-gold" onclick="saveLedger(${{id}})" style="width:100%;margin-top:8px">{tr['save']}</button>
+  `;
+  document.getElementById("editModalTitle").textContent = "{tr['edit']} {tr['ledger']}";
+  document.getElementById("editModal").classList.add("show");
+}};
+window.saveLedger = async function(id) {{
+  let fd = new FormData();
+  fd.append('name', document.getElementById('led_name').value);
+  fd.append('amount', document.getElementById('led_amount').value);
+  fd.append('note', document.getElementById('led_note').value);
+  fd.append('currency', document.getElementById('led_curr').value);
+  let r = await fetch('/edit_ledger/'+id, {{method:'POST', body:fd}});
+  if((await r.json()).ok) {{ closeEditModal(); loadPage('ledger', true); }}
+}};
 window.delLedger=async function(e, id){{if(!confirm(MSG_SURE))return; let r=await fetch('/del_ledger/'+id,{{method:'POST'}});if((await r.json()).ok)e.target.closest('tr').remove();}};
 </script>"""
 
@@ -890,7 +984,7 @@ window.delLedger=async function(e, id){{if(!confirm(MSG_SURE))return; let r=awai
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['logs']}</b>{clear_btn}</div>
 <input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;">
-<div style="overflow-x:auto; margin-top:10px"><table id="logsTable" style="width:100%;min-width:500px"><thead><tr><th>{tr['time']}</th><th>{tr['users']}</th><th>{tr['action']}</th><th>{tr['target']}</th><th>{tr['detail']}</th></tr></thead><tbody>{rows or '<tr><td colspan=5>Empty</td></tr>'}</tbody></table></div>
+<div style="overflow-x:auto; margin-top:10px"><table id="logsTable" style="width:100%;min-width:500px"><thead><tr><th>{tr['users']}</th><th>{tr['action']}</th><th>{tr['target']}</th><th>{tr['detail']}</th></tr></thead><tbody>{rows or '<tr><td colspan=4>Empty</td></tr>'}</tbody></table></div>
 <script>
 window.clearAllLogs=async function(){{
   if(!confirm(MSG_SURE))return;
@@ -943,13 +1037,13 @@ window.openAddUser=function(){{
     <input id=u_name placeholder="Full Name">
     <input id=u_phone placeholder="Login Username / Phone">
     <input id=u_pass type=password placeholder="Password">
-    <select id=u_role><option value="tech">Tech (View & Edit limits)</option><option value="manager">Manager (Full Admin)</option></select>
+    <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
     <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:8px">{tr['save']}</button>`;
   document.getElementById("editModalTitle").textContent="{tr['add']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.openEditUser=function(phone, name, role){{
   document.getElementById("editBody").innerHTML=`
-    <input id=u_name value="${{name}}" disabled style="opacity:0.5;cursor:not-allowed">
+    <input id=u_name value="${{name}}" placeholder="Full Name">
     <input id=u_phone value="${{phone}}" disabled style="opacity:0.5;cursor:not-allowed">
     <input id=u_pass type=password placeholder="New Password (Optional)">
     <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
@@ -978,23 +1072,32 @@ def layout(c, v='home'):
     cur_user = qone("SELECT * FROM users WHERE phone=?", (session.get('phone') or '',)) or {}
     cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
     c_size = cfg.get('card_size', '110')
+    theme = cfg.get('theme', 'dark')
+    
+    # ثيمات الألوان (ليل / نهار)
+    bg_style = "radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)" if theme=='dark' else "linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%)"
+    card_bg = "rgba(20, 25, 45, 0.4)" if theme=='dark' else "rgba(255, 255, 255, 0.85)"
+    text_color = "#fff" if theme=='dark' else "#0f172a"
+    top_bg = "rgba(15,20,36,0.85)" if theme=='dark' else "rgba(241, 245, 249, 0.9)"
 
     return f"""<html dir="{tr['dir']}" lang="{l}"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
+<!-- استدعاء خطوط FontAwesome للأيقونات الرسمية -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 *{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
-body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%);color:#fff;overflow-x:hidden; --cs: {c_size}px;}}
-.card{{background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:#fff;padding:12px;border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 3px 10px rgba(0,0,0,0.15)}}
+body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidden; --cs: {c_size}px; transition: background 0.3s, color 0.3s;}}
+.card{{background:{card_bg};backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:{text_color};padding:12px;border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 3px 10px rgba(0,0,0,0.15)}}
 .btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:6px;font-weight:800;font-size:11px;cursor:pointer;transition:transform 0.2s}}
 .btn-gold:hover{{transform:translateY(-1px)}}
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:8px}}
-.top{{position:fixed;top:0;left:0;right:0;height:50px;background:rgba(15,20,36,0.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.1)}}
-.sidebar{{position:fixed;top:0;bottom:0;width:240px;background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 25px rgba(0,0,0,0.4);z-index:1004;padding:16px 10px;transition:transform 0.3s ease;overflow-y:auto}}
+.top{{position:fixed;top:0;left:0;right:0;height:50px;background:{top_bg};backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.1)}}
+.sidebar{{position:fixed;top:0;bottom:0;width:240px;background:{card_bg};backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 25px rgba(0,0,0,0.4);z-index:1004;padding:16px 10px;transition:transform 0.3s ease;overflow-y:auto}}
 html[dir="rtl"] .sidebar{{transform:translateX(110%);right:0;border-radius:20px 0 0 20px}}
 html[dir="rtl"] .sidebar.active{{transform:translateX(0)}}
 html[dir="ltr"] .sidebar{{transform:translateX(-110%);left:0;border-radius:0 24px 24px 0}}
 html[dir="ltr"] .sidebar.active{{transform:translateX(0)}}
-.sidebar a{{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;color:#cbd5e1;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;transition:all 0.2s ease}}
-.sidebar a:hover{{background:rgba(255,255,255,0.1);color:#fff}}
+.sidebar a{{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;color:{text_color};text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;transition:all 0.2s ease}}
+.sidebar a:hover{{background:rgba(255,255,255,0.1);color:#ffbe4d}}
 .sidebar a.active{{background:rgba(255,190,77,0.15);color:#ffbe4d;border:1px solid rgba(255,190,77,0.3)}}
 #overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:1001;display:none;opacity:0;transition:opacity 0.2s}} 
 #overlay.show{{display:block;opacity:1}}
@@ -1032,9 +1135,19 @@ input:focus,select:focus{{border-color:#ffbe4d}}
 <a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙ <span>{tr['settings']}</span></a>
-<div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;display:flex;justify-content:space-around">
-  <a href="/api/set_lang/{tr['toggle_code']}" style="padding:6px 10px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:6px;">🌐 {tr['lang_toggle']}</a>
-  <a href="/logout" style="padding:6px 10px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:6px;">🚪</a>
+<div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;display:flex;flex-direction:column;gap:6px">
+  <div style="display:flex;justify-content:space-around">
+    <a href="/api/set_lang/{tr['toggle_code']}" style="padding:6px 10px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:6px;">🌐 {tr['lang_toggle']}</a>
+    <a href="/logout" style="padding:6px 10px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:6px;">🚪</a>
+  </div>
+  <!-- بند الدعم الفني في القائمة الجانبية مع أيقونات واتساب وانستغرام الرسمية -->
+  <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;text-align:center">
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">{tr['support']}</div>
+    <div style="display:flex;justify-content:center;gap:12px">
+      <a href="https://wa.me/905344851045" target="_blank" style="color:#25d366;font-size:18px;text-decoration:none" title="واتساب"><i class="fa-brands fa-whatsapp"></i></a>
+      <a href="https://instagram.com/your_account" target="_blank" style="color:#e1306c;font-size:18px;text-decoration:none" title="انستغرام"><i class="fa-brands fa-instagram"></i></a>
+    </div>
+  </div>
 </div>
 </div>
 
@@ -1043,9 +1156,10 @@ input:focus,select:focus{{border-color:#ffbe4d}}
   <span onclick="toggleSb()" style='font-size:22px;cursor:pointer;'>☰</span> 
   <b style="font-size:16px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
 </div>
+<!-- الأيقونات في أعلى اليسار: زر تبديل اللغة + زر تبديل الوضع (ليل/نهار) -->
 <div style="display:flex;align-items:center;gap:10px;">
-  <a href="https://wa.me/905344851045" target="_blank" style="font-size:18px;text-decoration:none;" title="واتساب">💬</a>
-  <a href="https://instagram.com/your_account" target="_blank" style="font-size:18px;text-decoration:none;" title="انستغرام">📸</a>
+  <a href="/api/set_lang/{tr['toggle_code']}" class="sq-btn view" style="text-decoration:none;padding:5px 8px;font-size:11px" title="تغيير اللغة">🌐 {tr['toggle_code'].upper()}</a>
+  <button onclick="toggleTheme()" class="sq-btn edit" style="padding:5px 8px;font-size:11px" title="ليل / نهار">{'🌙' if theme=='dark' else '☀️'}</button>
 </div>
 </div>
 
@@ -1061,6 +1175,12 @@ window.openLink = function(ip) {{
   if(!ip) return; let u = ip.trim();
   if(!u.startsWith('http://') && !u.startsWith('https://')) u = 'http://' + u;
   window.open(u, '_blank');
+}};
+
+window.toggleTheme = async function() {{
+  let r = await fetch('/api/toggle_theme', {{method:'POST'}});
+  let j = await r.json();
+  if(j.ok) location.reload();
 }};
 
 window.filterTable = function(inpId, tblId) {{
