@@ -3,12 +3,14 @@ from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 import os, html, ipaddress, secrets, subprocess, json, socket, platform, io, csv, datetime, re, threading, time, traceback
+
 try:
     import psycopg2, psycopg2.extras
     from psycopg2 import pool as pg_pool
     PG = True
-except:
+except Exception:
     psycopg2 = None; pg_pool = None; PG = False
+
 import sqlite3
 from collections import defaultdict
 
@@ -40,7 +42,7 @@ def init_pool():
         if _pg_pool: return
         try:
             _pg_pool = pg_pool.ThreadedConnectionPool(3, 20, dsn=DATABASE_URL, sslmode='require', connect_timeout=5)
-        except:
+        except Exception:
             _pg_pool = None; USE_PG = False
 init_pool()
 
@@ -53,18 +55,18 @@ def get_conn():
             c = _pg_pool.getconn()
             if getattr(c, 'closed', 1) == 0: return c
             _pg_pool.putconn(c, close=True)
-        except: pass
+        except Exception: pass
         try: return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=5)
-        except: USE_PG = False
+        except Exception: USE_PG = False
     elif USE_PG:
         try: return psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=2)
-        except: USE_PG = False
+        except Exception: USE_PG = False
     with _slock:
         if _sqlite_conn is None:
             _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=10, isolation_level=None)
             _sqlite_conn.row_factory = sqlite3.Row
             try: _sqlite_conn.execute("PRAGMA journal_mode=WAL;")
-            except: pass
+            except Exception: pass
         return _sqlite_conn
 
 def put_conn(c):
@@ -73,12 +75,12 @@ def put_conn(c):
         try:
             if c.closed == 0: _pg_pool.putconn(c)
             else: _pg_pool.putconn(c, close=True)
-        except:
+        except Exception:
             try: c.close()
-            except: pass
+            except Exception: pass
     elif USE_PG and hasattr(c, 'closed'):
         try: c.close()
-        except: pass
+        except Exception: pass
 
 def qall(q, a=()):
     cn = None
@@ -90,10 +92,10 @@ def qall(q, a=()):
             r = [dict(x) for x in cur.fetchall()]; cur.close(); put_conn(cn); return r
         else:
             with _slock: return [dict(x) for x in cn.execute(q, a).fetchall()]
-    except Exception as e:
+    except Exception:
         if cn and USE_PG and hasattr(cn, 'closed'):
             try: put_conn(cn)
-            except: pass
+            except Exception: pass
         return []
 
 def qone(q, a=()):
@@ -108,10 +110,10 @@ def qexec(q, a=()):
         else:
             with _slock: cn.execute(q, a); cn.commit()
         return True
-    except Exception as e:
+    except Exception:
         if cn and USE_PG and hasattr(cn, 'closed'):
             try: cn.rollback(); put_conn(cn)
-            except: pass
+            except Exception: pass
         return False
 
 def add_log(phone, action, target='', detail='', username=''):
@@ -119,7 +121,7 @@ def add_log(phone, action, target='', detail='', username=''):
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not username:
             try: username = session.get('username') or session.get('phone') or phone or 'sys'
-            except: username = phone or 'sys'
+            except Exception: username = phone or 'sys'
         qexec("INSERT INTO logs(user_phone,username,action,target,detail,time) VALUES(?,?,?,?,?,?)",
               (phone or 'sys', username, action, str(target)[:300], str(detail)[:500], now))
         with _clock:
@@ -137,7 +139,7 @@ def get_counts():
         d = (row.get('ns', 0), row.get('nd', 0), row.get('nt', 0), row.get('nl', 0)) if row else (0, 0, 0, 0)
         with _clock: _cache['counts'] = (d, time.time())
         return d
-    except: return (0, 0, 0, 0)
+    except Exception: return (0, 0, 0, 0)
 
 def init_db():
     ss = [
@@ -153,7 +155,7 @@ def init_db():
     for s in ss: qexec(s)
     for al in ["ALTER TABLE dish_ips ADD COLUMN tower_id INTEGER", "ALTER TABLE towers ADD COLUMN created_at TEXT", "ALTER TABLE logs ADD COLUMN username TEXT", "ALTER TABLE logs ADD COLUMN target TEXT"]:
         try: qexec(al)
-        except: pass
+        except Exception: pass
     if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)", ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'admin'))
     if not qone("SELECT * FROM towers WHERE name=?", ('نقطة حماة الرئيسية',)):
@@ -188,7 +190,7 @@ def is_valid_host(h):
     try:
         ipaddress.ip_address(h)
         return True
-    except:
+    except Exception:
         if len(h) >= 3 and '.' in h and ' ' not in h and re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+$', h):
             return True
         return False
@@ -213,10 +215,10 @@ def api_ping():
         try:
             s = socket.socket(); s.settimeout(0.25)
             if s.connect_ex((ip, p)) == 0: return p
-        except: pass
+        except Exception: pass
         finally:
             try: s.close()
-            except: pass
+            except Exception: pass
         return None
     try:
         with _cf.ThreadPoolExecutor(max_workers=3) as ex:
@@ -224,7 +226,7 @@ def api_ping():
             for f in _cf.as_completed(futs, timeout=0.8):
                 r = f.result()
                 if r: return jsonify(ok=True, out=f'{ip}:{r} ✓')
-    except: pass
+    except Exception: pass
     return jsonify(ok=False, out=f'{ip} لا يرد')
 
 @app.route('/api/stats')
@@ -368,10 +370,10 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 </div>
 <script>
 document.getElementById('loginForm').addEventListener('submit', async e => {{
-  e.preventDefault(); let b = document.getElementById('loginBtn'), m = document.getElementById('msg'); b.textContent = '...'; b.disabled = true;
-  try {{ let fd = new FormData(e.target); let res = await fetch('/api/login_public', {{method: 'POST', body: fd}}); let j = await res.json();
-  if(j.ok) {{ location.replace('/dash?v=home'); }} else {{ m.textContent = j.msg; b.textContent = 'دخول ⚡'; b.disabled = false; }}
-  }} catch {{ m.textContent = 'خطأ شبكة'; b.textContent = 'دخول ⚡'; b.disabled = false; }}
+    e.preventDefault(); let b = document.getElementById('loginBtn'), m = document.getElementById('msg'); b.textContent = '...'; b.disabled = true;
+    try {{ let fd = new FormData(e.target); let res = await fetch('/api/login_public', {{method: 'POST', body: fd}}); let j = await res.json();
+    if(j.ok) {{ location.replace('/dash?v=home'); }} else {{ m.textContent = j.msg; b.textContent = 'دخول ⚡'; b.disabled = false; }}
+    }} catch {{ m.textContent = 'خطأ شبكة'; b.textContent = 'دخول ⚡'; b.disabled = false; }}
 }});
 </script></body></html>"""
 
@@ -474,7 +476,7 @@ def esub(i):
 def al():
     d = request.json if request.is_json else request.form
     try: amt = float(d.get('amount') or 0)
-    except: amt = 0
+    except Exception: amt = 0
     ok = qexec("INSERT INTO ledger(name,amount,note,currency) VALUES(?,?,?,?)", (d.get('name', ''), amt, d.get('note', ''), d.get('currency', 'USD')))
     if ok: add_log(session.get('phone'), 'إضافة حساب', d.get('name', ''))
     return jsonify(ok=ok)
@@ -493,41 +495,9 @@ def el(i):
     if not is_manager(): return jsonify(ok=False), 403
     d = request.json if request.is_json else request.form
     try: amt = float(d.get('amount') or 0)
-    except: amt = 0
+    except Exception: amt = 0
     ok = qexec("UPDATE ledger SET name=?,amount=?,note=?,currency=? WHERE id=?", (d.get('name', ''), amt, d.get('note', ''), d.get('currency', 'USD'), i))
     if ok: add_log(session.get('phone'), 'تعديل حساب', f"حساب {i}")
-    return jsonify(ok=ok)
-
-@app.route('/add_user', methods=['POST'])
-@login_required
-@role_required_manager
-def au():
-    ph = (request.form.get('phone') or request.form.get('user_field', '')).strip()
-    if not ph: return jsonify(ok=False, msg='رقم مطلوب'), 400
-    if qone("SELECT * FROM users WHERE phone=?", (ph,)): return jsonify(ok=False, msg='موجود مسبقاً'), 400
-    ok = qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)", (ph, generate_password_hash(request.form.get('password', '1234'), method='pbkdf2:sha256:150000'), request.form.get('role', 'tech'), ph))
-    if ok: add_log(session.get('phone'), 'إضافة يوزر', ph)
-    return jsonify(ok=ok)
-
-@app.route('/edit_user', methods=['POST'])
-@login_required
-@role_required_manager
-def eu():
-    old = request.form.get('old_phone', '').strip(); new_ph = (request.form.get('phone') or '').strip(); new_role = request.form.get('role', 'tech'); new_pass = request.form.get('password', '').strip()
-    if not old: return jsonify(ok=False, msg='خطأ'), 400
-    if old != new_ph and qone("SELECT * FROM users WHERE phone=?", (new_ph,)): return jsonify(ok=False, msg='موجود'), 400
-    if new_pass: ok = qexec("UPDATE users SET phone=?,username=?,role=?,password=? WHERE phone=?", (new_ph, new_ph, new_role, generate_password_hash(new_pass, method='pbkdf2:sha256:150000'), old))
-    else: ok = qexec("UPDATE users SET phone=?,username=?,role=? WHERE phone=?", (new_ph, new_ph, new_role, old))
-    if ok: add_log(session.get('phone'), 'تعديل يوزر', new_ph)
-    return jsonify(ok=ok)
-
-@app.route('/del_user/<ph>')
-@login_required
-@role_required_manager
-def du(ph):
-    if ph == '05344851045': return jsonify(ok=False, msg='ممنوع'), 400
-    ok = qexec("DELETE FROM users WHERE phone=?", (ph,))
-    if ok: add_log(session.get('phone'), 'حذف يوزر', ph)
     return jsonify(ok=ok)
 
 @app.route('/change_pass', methods=['POST'])
@@ -563,11 +533,11 @@ def page_content(v):
         cards = ""
         for t in rs:
             tid = t.get('id'); tname = esc(t.get('name') or f'برج {tid}'); tarea = esc(t.get('area') or ''); lat = t.get('lat') or 35.1318; lng = t.get('lng') or 36.7578; cnt = t.get('cnt') or 0
-            cards += f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">{tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tarea}</div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:10px"><button class=\"btn-circle edit\" onclick="openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class=\"btn-circle del\" onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button></div></div>'
-        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>🗼 الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid>{cards}</div></div><script>
-window.openNewTowerPage = function() {{ let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); }};
+            cards += f'<div class="card tower-card" id="tower-{tid}" data-name="{tname}" data-area="{tarea}" data-lat="{lat}" data-lng="{lng}"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:10px;align-items:center"><div style="width:38px;height:38px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px">🗼</div><div><b style="font-size:13px">{tname}</b><div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 {tarea}</div></div></div><span class=badge>{cnt} IP</span></div><div style="display:flex;gap:6px;margin-top:8px"><button class=\"btn-circle edit\" onclick="openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class=\"btn-circle del\" onclick="openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button></div></div>'
+        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card style="display:flex;justify-content:space-between;align-items:center"><b>🗼 الأبراج</b><button class=btn-gold onclick="openNewTowerPage()">+ برج</button></div><div class=grid-small id=towersGrid style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">{cards}</div></div><script>
+window.openNewTowerPage = function() {{ let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerPage()" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); }};
 window.saveNewTowerPage = async function() {{ let d = {{ name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value }}; if(!d.name) return; let r = await fetch("/add_tower", {{ method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d) }}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('towers', true); }} }};
-window.openEditTowerPage = async function(id) {{ try {{ let r = await fetch('/api/tower_detail/' + id); let j = await r.json(); if(!j.ok) return; let t = j.tower; let b = document.getElementById("editBody"); b.innerHTML = '<input id=et_name value="' + (t.name || "") + '"><input id=et_area value="' + (t.area || "") + '"><div class=row><input id=et_lat value="' + (t.lat || "") + '"><input id=et_lng value="' + (t.lng || "") + '"></div><button class=btn-gold onclick="saveTowerPage(' + id + ')" style="width:100%">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل برج"; document.getElementById("editModal").classList.add("show"); }} catch(e) {{ alert(e); }} }};
+window.openEditTowerPage = async function(id) {{ try {{ let r = await fetch('/api/tower_detail/' + id); let j = await r.json(); if(!j.ok) return; let t = j.tower; let b = document.getElementById("editBody"); b.innerHTML = '<input id=et_name value="' + (t.name || "") + '"><input id=et_area value="' + (t.area || "") + '"><div class=row><input id=et_lat value="' + (t.lat || "") + '"><input id=et_lng value="' + (t.lng || "") + '"></div><button class=btn-gold onclick="saveTowerPage(' + id + ')" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل برج"; document.getElementById("editModal").classList.add("show"); }} catch(e) {{ alert(e); }} }};
 window.saveTowerPage = async function(id) {{ let d = {{ name: document.getElementById("et_name").value, area: document.getElementById("et_area").value, lat: document.getElementById("et_lat").value, lng: document.getElementById("et_lng").value }}; let r = await fetch("/edit_tower/" + id, {{ method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d) }}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('towers', true); }} }};
 </script>"""
     if v == 'dishes':
@@ -578,25 +548,25 @@ window.saveTowerPage = async function(id) {{ let d = {{ name: document.getElemen
             tid = t.get('id'); tname = esc(t.get('name') or f'برج {tid}'); tarea = esc(t.get('area') or ''); lat = t.get('lat') or 35.1318; lng = t.get('lng') or 36.7578; cnt = t.get('cnt') or 0
             accordion_html += f'''
 <div class="card tower-accordion" id="tower-acc-{tid}" data-name="{tname.lower()}" data-area="{tarea.lower()}" data-loaded="0">
- <div class="tower-accordion-header" onclick="toggleAccordionLazy({tid})" style="padding:14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer">
-  <div style="display:flex;align-items:center;gap:12px;flex:1"><div style="width:44px;height:44px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🗼</div><div><b style="font-size:14px">{tname}</b><div style="font-size:11px;color:#94a3b8">📍 {tarea}</div></div></div>
-  <div style="display:flex;gap:8px;align-items:center"><span class=badge>{cnt} IP</span><button class="btn-circle edit" onclick="event.stopPropagation();openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class="btn-circle del" onclick="event.stopPropagation();openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button><div id="arrow-{tid}">▼</div></div>
+ <div class="tower-accordion-header" onclick="toggleAccordionLazy({tid})" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+  <div style="display:flex;align-items:center;gap:10px;flex:1"><div style="width:38px;height:38px;background:linear-gradient(135deg,var(--accent,#ffbe4d),#ffb020);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px">🗼</div><div><b style="font-size:13px">{tname}</b><div style="font-size:10px;color:#94a3b8">📍 {tarea}</div></div></div>
+  <div style="display:flex;gap:6px;align-items:center"><span class=badge>{cnt} IP</span><button class="btn-circle edit" onclick="event.stopPropagation();openEditTowerPage({tid})" title="تعديل">✏ تعديل</button><button class="btn-circle del" onclick="event.stopPropagation();openDeleteModal(\'/del_tower/{tid}\',{tid},\'{tname}\')" title="حذف">🗑 حذف</button><div id="arrow-{tid}">▼</div></div>
  </div>
- <div class="tower-accordion-body" id="tower-body-{tid}" style="display:none;background:#0f1424"><div id="tower-content-{tid}" style="padding:12px">جاري التحميل...</div></div>
+ <div class="tower-accordion-body" id="tower-body-{tid}" style="display:none;background:#0f1424"><div id="tower-content-{tid}" style="padding:10px">جاري التحميل...</div></div>
 </div>'''
         accordion_html += f'''
 <div class="card tower-accordion" id="tower-acc-0" data-loaded="0" style="border:1px dashed #ef444488">
- <div class="tower-accordion-header" onclick="toggleAccordionLazy(0)" style="padding:14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer">
-  <div style="display:flex;gap:10px;align-items:center"><div style="width:44px;height:44px;background:#ef4444;border-radius:10px;display:flex;align-items:center;justify-content:center">⚠</div><div><b>بدون برج</b><div style="font-size:11px;color:#94a3b8">{no_cnt} IP</div></div></div>
-  <span style="background:#ef4444;color:#fff;padding:3px 8px;border-radius:6px;font-size:11px">{no_cnt} IP</span>
+ <div class="tower-accordion-header" onclick="toggleAccordionLazy(0)" style="padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer">
+  <div style="display:flex;gap:10px;align-items:center"><div style="width:38px;height:38px;background:#ef4444;border-radius:10px;display:flex;align-items:center;justify-content:center">⚠</div><div><b>بدون برج</b><div style="font-size:10px;color:#94a3b8">{no_cnt} IP</div></div></div>
+  <span style="background:#ef4444;color:#fff;padding:2px 6px;border-radius:6px;font-size:10px">{no_cnt} IP</span>
  </div>
- <div class="tower-accordion-body" id="tower-body-0" style="display:none;background:#0f1424"><div id="tower-content-0" style="padding:12px"></div></div>
+ <div class="tower-accordion-body" id="tower-body-0" style="display:none;background:#0f1424"><div id="tower-content-0" style="padding:10px"></div></div>
 </div>'''
         return f"""<div style="max-width:1100px;margin:0 auto">
 <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>📡 الصحون</b><button class=btn-gold onclick="openNewTowerAcc()">+ برج</button></div>
-<div id=accordionContainer style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{accordion_html}</div>
+<div id=accordionContainer style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{accordion_html}</div>
 </div>
-<div id=addDishModal style="position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:2500"><div style="background:var(--card-bg);width:95%;max-width:400px;border-radius:14px;padding:18px"><b id=addDishTitle>+ صحن</b><input id=mName placeholder="اسم"><input id=mIp placeholder="IP"><input id=mLoc placeholder="موقع"><input type=hidden id=mTid><div class=row><button onclick="closeAddDishModal()">إلغاء</button><button onclick=saveDish() class=btn-gold>حفظ</button></div></div></div>
+<div id=addDishModal style="position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:2500"><div style="background:var(--card-bg);width:95%;max-width:400px;border-radius:14px;padding:18px"><b id=addDishTitle>+ صحن</b><input id=mName placeholder="اسم"><input id=mIp placeholder="IP"><input id=mLoc placeholder="موقع"><input type=hidden id=mTid><div class=row style="margin-top:10px"><button onclick="closeAddDishModal()" style="flex:1;padding:8px;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:8px">إلغاء</button><button onclick=saveDish() class=btn-gold style="flex:1;padding:8px">حفظ</button></div></div></div>
 <script>
 window.DISH_CACHE = {{}};
 window.openInChrome = function(ip) {{ if(!ip) return; let url = ip; if(!url.startsWith('http')) url = 'http://' + url; window.open(url, '_blank'); }};
@@ -610,27 +580,25 @@ window.toggleAccordionLazy = async function(tid) {{
                 if(j.ok) {{ DISH_CACHE[tid] = j.dishes || []; acc.dataset.loaded = '1'; renderDishes(tid); }}
             }} catch {{ content.innerHTML = 'خطأ'; }}
         }}
-    }} else {{ body.classList.remove('open'); setTimeout(() => body.style.display = 'none', 350); }}
+    }} else {{ body.classList.remove('open'); setTimeout(() => body.style.display = 'none', 300); }}
 }};
 window.renderDishes = function(tid) {{
     let dishes = DISH_CACHE[tid] || []; let content = document.getElementById('tower-content-' + tid);
     let h = '<div style="display:flex;flex-direction:column;gap:6px">';
-    dishes.forEach(d => {{ h += '<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:10px"><div><b>' + escHtml(d.dish_name) + '</b><br><span class=ip onclick="openInChrome(\\'' + d.ip + '\\')">' + d.ip + '</span></div><div style="display:flex;gap:6px"><button class="btn-circle view" onclick="openInChrome(\\'' + d.ip + '\\')">👁 عرض</button><button class="btn-circle edit" onclick="openEditDish(' + d.id + ')">✏ تعديل</button><button class="btn-circle del" onclick="openDeleteModal(\\'/del_dish/' + d.id + '\\', ' + d.id + ', \\'' + d.ip + '\\')">🗑 حذف</button></div></div>'; }});
-    h += '<button class=btn-gold onclick="openAddDish(' + tid + ')" style="width:100%;margin-top:8px">+ إضافة صحن</button></div>';
+    dishes.forEach(d => {{ h += '<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:8px"><div><b>' + escHtml(d.dish_name) + '</b><br><span class=ip onclick="openInChrome(\\'' + d.ip + '\\')">' + d.ip + '</span></div><div style="display:flex;gap:4px"><button class="btn-circle view" onclick="openInChrome(\\'' + d.ip + '\\')">👁 عرض</button><button class="btn-circle edit" onclick="openEditDish(' + d.id + ')">✏ تعديل</button><button class="btn-circle del" onclick="openDeleteModal(\\'/del_dish/' + d.id + '\\', ' + d.id + ', \\'' + d.ip + '\\')">🗑 حذف</button></div></div>'; }});
+    h += '<button class=btn-gold onclick="openAddDish(' + tid + ')" style="width:100%;margin-top:6px">+ إضافة صحن</button></div>';
     content.innerHTML = h;
 }};
 window.openAddDish = function(tid) {{ document.getElementById('addDishModal').style.display = 'flex'; document.getElementById('mTid').value = tid; }};
 window.closeAddDishModal = function() {{ document.getElementById('addDishModal').style.display = 'none'; }};
 window.saveDish = async function() {{
     let name = document.getElementById('mName').value.trim(); let ip = document.getElementById('mIp').value.trim(); let loc = document.getElementById('mLoc').value.trim(); let tid = document.getElementById('mTid').value;
-    let cacheKey = 'dish_add_' + ip;
-    if(localStorage.getItem(cacheKey)) {{ alert('تم تخزين هذا الصحن مسبقاً (كاش)'); return; }}
     if(!ip) return; let r = await fetch('/api/add_dish_to_tower', {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({ip: ip, dish_name: name || 'صحن', location: loc, tower_id: tid})}}); let j = await r.json();
-    if(j.ok) {{ localStorage.setItem(cacheKey, '1'); closeAddDishModal(); document.getElementById('tower-acc-' + tid).dataset.loaded = '0'; toggleAccordionLazy(parseInt(tid)); }}
+    if(j.ok) {{ closeAddDishModal(); document.getElementById('tower-acc-' + tid).dataset.loaded = '0'; toggleAccordionLazy(parseInt(tid)); }}
 }};
 window.openEditDish = async function(id) {{ try {{ let r = await fetch('/api/dish_detail/' + id); let j = await r.json(); if(!j.ok) return; let d = j.dish; let b = document.getElementById("editBody"); b.innerHTML = '<input id=ed_n value="' + d.dish_name + '"><input id=ed_i value="' + d.ip + '"><input id=ed_l value="' + (d.location || '') + '"><button class=btn-gold onclick="saveEditDish(' + id + ')" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل صحن"; document.getElementById("editModal").classList.add("show"); }} catch(e) {{ alert(e); }} }};
 window.saveEditDish = async function(id) {{ let d = {{dish_name: document.getElementById("ed_n").value, ip: document.getElementById("ed_i").value, location: document.getElementById("ed_l").value}}; let r = await fetch("/edit_dish/" + id, {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d)}}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
-window.openNewTowerAcc = function() {{ let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerAcc()" style="width:100%">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); }};
+window.openNewTowerAcc = function() {{ let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerAcc()" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); }};
 window.saveNewTowerAcc = async function() {{ let d = {{name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value}}; if(!d.name) return; let r = await fetch("/add_tower", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d)}}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
 </script>"""
     if v == 'map':
@@ -645,7 +613,7 @@ setTimeout(() => {
 }, 300);
 </script>"""
     if v == 'ping':
-        return """<div class=card><h3>📶 البنج</h3><div class=row style="margin-top:8px"><input id=pingIp placeholder="192.168.1.1" style="flex:1"><button class=btn-gold onclick="doPing()">فحص</button></div><div id=pingResult class=pingBox>جاهز</div></div>
+        return """<div class=card><h3>📶 البنج</h3><div class=row style="margin-top:8px"><input id=pingIp placeholder="192.168.1.1" style="flex:1"><button class=btn-gold onclick="doPing()">فحص</button></div><div id=pingResult style="margin-top:10px;font-family:monospace">جاهز</div></div>
 <script>window.doPing = async function() { let ip = document.getElementById('pingIp').value.trim(); if(!ip) return; let out = document.getElementById('pingResult'); out.textContent = 'يفحص...'; try { let r = await fetch('/api/ping?ip=' + encodeURIComponent(ip)); let j = await r.json(); out.textContent = j.out; } catch { out.textContent = 'خطأ'; } };</script>"""
     if v == 'logs':
         rs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
@@ -702,47 +670,42 @@ body{{background:var(--bg);color:var(--text);overflow-x:hidden}}
 .row{{display:flex;gap:6px;align-items:center;flex-wrap:wrap}}
 .btn-gold{{background:linear-gradient(90deg,var(--accent),#ffb020);color:#111;padding:7px 12px;border:0;border-radius:8px;font-weight:700;font-size:11px;cursor:pointer}}
 
-/* === أزرار الحذف والتعديل والعرض (نصف دائرة / كبسولة زجاجية متوهجة) === */
 .btn-circle{{
-  background: rgba(255, 255, 255, 0.08) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.18) !important;
-  color: var(--text) !important;
-  padding: 6px 12px !important;
-  border-radius: 20px !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2) !important;
-  transition: all 0.2s cubic-bezier(0.34,1.56,0.64,1) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    color: var(--text) !important;
+    padding: 6px 12px !important;
+    border-radius: 20px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.2) !important;
+    transition: all 0.2s cubic-bezier(0.34,1.56,0.64,1) !important;
 }}
-.btn-circle:hover{{
-  transform: translateY(-2px) scale(1.05) !important;
-}}
-.btn-circle:active{{
-  transform: scale(0.9) !important;
-}}
+.btn-circle:hover{{ transform: translateY(-2px) scale(1.05) !important; }}
+.btn-circle:active{{ transform: scale(0.9) !important; }}
 .btn-circle.edit{{
-  background: rgba(245, 158, 11, 0.18) !important;
-  color: #ffbe4d !important;
-  border-color: rgba(245, 158, 11, 0.35) !important;
-  box-shadow: 0 0 15px rgba(245, 158, 11, 0.25), inset 0 1px 0 rgba(255,255,255,0.2) !important;
+    background: rgba(245, 158, 11, 0.18) !important;
+    color: #ffbe4d !important;
+    border-color: rgba(245, 158, 11, 0.35) !important;
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.25), inset 0 1px 0 rgba(255,255,255,0.2) !important;
 }}
 .btn-circle.del{{
-  background: rgba(239, 68, 68, 0.18) !important;
-  color: #ff6b6b !important;
-  border-color: rgba(239, 68, 68, 0.35) !important;
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.25), inset 0 1px 0 rgba(255,255,255,0.2) !important;
+    background: rgba(239, 68, 68, 0.18) !important;
+    color: #ff6b6b !important;
+    border-color: rgba(239, 68, 68, 0.35) !important;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.25), inset 0 1px 0 rgba(255,255,255,0.2) !important;
 }}
 .btn-circle.view{{
-  background: rgba(6, 182, 212, 0.18) !important;
-  color: #22d3ee !important;
-  border-color: rgba(6, 182, 212, 0.35) !important;
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.25), inset 0 1px 0 rgba(255,255,255,0.2) !important;
+    background: rgba(6, 182, 212, 0.18) !important;
+    color: #22d3ee !important;
+    border-color: rgba(6, 182, 212, 0.35) !important;
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.25), inset 0 1px 0 rgba(255,255,255,0.2) !important;
 }}
 
 .ip{{background:#000;color:var(--accent);padding:2px 6px;border-radius:5px;font-family:monospace;font-size:10px;cursor:pointer}} .badge{{background:var(--accent);color:#111;padding:2px 6px;border-radius:5px;font-size:10px;font-weight:700}}
