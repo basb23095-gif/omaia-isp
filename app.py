@@ -48,7 +48,8 @@ TR = {
         'add': 'إضافة', 'edit': 'تعديل', 'delete': 'حذف', 'save': 'حفظ',
         'sure': 'هل أنت متأكد من الحذف؟ لا يمكن التراجع!', 'search': 'بحث...', 'mikrotik': 'ميكروتك',
         'add_tower': '+ برج جديد', 'add_dish': '+ صحن جديد', 'ip': 'الآي بي', 'name': 'الاسم',
-        'manager': 'مدير', 'tech': 'فني', 'phone': 'اسم الدخول/الهاتف', 'role': 'الصلاحية', 'empty': 'لا توجد بيانات'
+        'manager': 'مدير', 'tech': 'فني', 'phone': 'اسم الدخول/الهاتف', 'role': 'الصلاحية', 'empty': 'لا توجد بيانات',
+        'unassigned_edit': 'أدخل الاسم الجديد لقسم "بدون برج":'
     },
     'en': {
         'dir': 'ltr', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
@@ -58,7 +59,8 @@ TR = {
         'add': 'Add', 'edit': 'Edit', 'delete': 'Delete', 'save': 'Save',
         'sure': 'Are you sure you want to delete?', 'search': 'Search...', 'mikrotik': 'MikroTik',
         'add_tower': '+ New Tower', 'add_dish': '+ New Dish', 'ip': 'IP Address', 'name': 'Name',
-        'manager': 'Manager', 'tech': 'Tech', 'phone': 'Login/Phone', 'role': 'Role', 'empty': 'No data found'
+        'manager': 'Manager', 'tech': 'Tech', 'phone': 'Login/Phone', 'role': 'Role', 'empty': 'No data found',
+        'unassigned_edit': 'Enter new name for "Unassigned" section:'
     }
 }
 
@@ -185,7 +187,6 @@ def init_db():
         try: qexec(al)
         except Exception: pass
 
-    # إضافة المستخدمين الأساسيين بصلاحيات المدير
     if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
               ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'مدير النظام'))
@@ -194,12 +195,13 @@ def init_db():
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
               ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'المدير الأساسي'))
 
-    # تحديث إجباري لحل مشكلة تسجيل الدخول
     qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
           (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
 
-    if not qone("SELECT * FROM system_config WHERE key=?", ('card_size',)):
-        qexec("INSERT INTO system_config(key,value) VALUES(?,?)", ('card_size', '120'))
+    defaults = [('card_size', '120'), ('unassigned_name', 'بدون برج / Unassigned')]
+    for k, v in defaults:
+        if not qone("SELECT * FROM system_config WHERE key=?", (k,)):
+            qexec("INSERT INTO system_config(key,value) VALUES(?,?)", (k, v))
 init_db()
 
 def login_required(f):
@@ -493,17 +495,6 @@ def cp():
     add_log(session.get('phone'), 'تغيير كلمة المرور الشخصية', session.get('phone'))
     return jsonify(ok=ok)
 
-@app.route('/api/tower_detail/<int:id>')
-@login_required
-def tower_detail(id):
-    if id == 0:
-        dishes = qall("SELECT * FROM dish_ips WHERE tower_id IS NULL ORDER BY dish_name ASC LIMIT 50")
-        return jsonify(ok=True, tower=dict(id=0, name='بدون برج', area=''), dishes=dishes)
-    t = qone("SELECT * FROM towers WHERE id=?", (id,))
-    if not t: return jsonify(ok=False, msg='غير موجود'), 404
-    dishes = qall("SELECT * FROM dish_ips WHERE tower_id=? ORDER BY dish_name ASC LIMIT 100", (id,))
-    return jsonify(ok=True, tower=t, dishes=dishes)
-
 @app.route('/')
 def ix(): return redirect('/dash') if session.get('phone') else redirect('/login')
 
@@ -520,8 +511,8 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
 <div class=card>
 <div style='text-align:center;font-weight:900;font-size:26px;margin-bottom:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
 <form id=loginForm>
-<input name=userin placeholder="{tr['phone']}" required autofocus>
-<input name=password type=password placeholder="***" required>
+<input name=userin placeholder='{tr['phone']}' required autofocus>
+<input name=password type=password placeholder='***' required>
 <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:10px;cursor:pointer">
   <input type="checkbox" name="remember" checked id="rememberBox" style="width:auto;margin:0"> حفظ الدخول
 </label>
@@ -613,7 +604,7 @@ def page_content(v):
 
     if v == 'mikrotik':
         servers = qall("SELECT * FROM mikrotik_servers ORDER BY id DESC")
-        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="glass-btn view" onclick="fetchMikrotikStatus({s['id']})">⚡</button><button class="glass-btn del" onclick="delMk(event, {s['id']})">🗑</button></div></div><div id="mk-details-{s['id']}" style="margin-top:8px;padding:8px;background:#0006;border-radius:8px;font-size:12px;display:none"></div></div>""" for s in servers])
+        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="sq-btn view" onclick="fetchMikrotikStatus({s['id']})">⚡</button><button class="sq-btn del" onclick="delMk(event, {s['id']})">🗑️</button></div></div><div id="mk-details-{s['id']}" style="margin-top:8px;padding:8px;background:#0006;border-radius:8px;font-size:12px;display:none"></div></div>""" for s in servers])
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['mikrotik']}</b><button class=btn-gold onclick="openAddMikrotikModal()">+ {tr['add']}</button></div>
@@ -646,32 +637,97 @@ window.fetchMikrotikStatus=async function(id){{
 }};
 </script>"""
 
-    if v == 'towers':
-        rs = qall("SELECT t.id,t.name,t.area, COUNT(d.id) as cnt FROM towers t LEFT JOIN dish_ips d ON d.tower_id=t.id GROUP BY t.id,t.name,t.area ORDER BY t.name ASC")
-        cards = "".join([f"""
-<div class="card tower-card" id="tower-{t['id']}">
-  <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="openTowerDishes({t['id']})">
-    <div><b style="font-size:14px;color:#38bdf8">🗼 {esc(t['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:4px">📍 {esc(t.get('area') or '...')}</div></div>
-    <span class=badge style="padding:4px 8px;font-size:11px">{t['cnt']}</span>
-  </div>
-  <div style="display:flex;gap:6px;margin-top:12px;border-top:1px solid #ffffff11;padding-top:8px">
-    <button class="glass-btn edit" onclick="openEditTower({t['id']}, '{esc(t['name'])}', '{esc(t.get('area') or '')}')">✏️ {tr['edit']}</button>
-    <button class="glass-btn del" onclick="delTower(event, {t['id']})">🗑 {tr['delete']}</button>
-  </div>
-</div>""" for t in rs])
-        return f"""
+    if v == 'towers' or v == 'dishes':
+        # نظام جلب جميع الأبراج والصحون دفعة واحدة لتسريع الفتح اللحظي
+        all_towers = qall("SELECT * FROM towers ORDER BY name ASC")
+        all_dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
+        
+        cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
+        un_name = esc(cfg.get('unassigned_name', 'بدون برج / Unassigned'))
+
+        dishes_by_tower = defaultdict(list)
+        for d in all_dishes:
+            dishes_by_tower[d.get('tower_id') or 0].append(d)
+
+        accordion_html = ""
+        t_opts = "<option value='0'>---</option>"
+
+        for t in all_towers:
+            tid = t['id']
+            tname = esc(t['name'])
+            t_opts += f"<option value='{tid}'>{tname}</option>"
+            
+            t_dishes = dishes_by_tower[tid]
+            cnt = len(t_dishes)
+            
+            dishes_html = "".join([f"""
+            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff11">
+                <div><b style="font-size:13px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:13px;padding:4px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8">{esc(d.get('location') or '')}</small></div>
+                <div style="display:flex;gap:6px">
+                    <button class="sq-btn edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">✏️</button>
+                    <button class="sq-btn del icon-only" onclick="delDish(event, {d['id']})">🗑️</button>
+                </div>
+            </div>""" for d in t_dishes]) or f'<div style="color:#888;font-size:12px;text-align:center;padding:10px">{tr["empty"]}</div>'
+            
+            dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:12px">{tr['add_dish']}</button>"""
+
+            if v == 'towers':
+                accordion_html += f"""
+                <div class="card tower-card" id="tower-{tid}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleAcc({tid})">
+                        <div><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b><div style="font-size:11px;color:#94a3b8;margin-top:4px">📍 {esc(t.get('area') or '...')}</div></div>
+                        <span class=badge style="padding:4px 8px;font-size:11px">{cnt}</span>
+                    </div>
+                    <div id="tower-body-{tid}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22">{dishes_html}</div>
+                    <div style="display:flex;gap:6px;margin-top:12px;border-top:1px solid #ffffff11;padding-top:8px">
+                        <button class="sq-btn edit" style="flex:1" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">✏️ {tr['edit']}</button>
+                        <button class="sq-btn del" style="flex:1" onclick="delTower(event, {tid})">🗑️ {tr['delete']}</button>
+                    </div>
+                </div>"""
+            else:
+                accordion_html += f"""
+                <div class="card tower-accordion" id="tower-acc-{tid}">
+                    <div onclick="toggleAcc({tid})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:14px;color:#38bdf8">🗼 {tname}</b> <span class="badge">{cnt}</span></div><div style="font-size:18px">▼</div></div>
+                    <div id="tower-body-{tid}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22">{dishes_html}</div>
+                </div>"""
+
+        # قسم (بدون برج) لصفحة الصحون
+        if v == 'dishes':
+            u_dishes = dishes_by_tower[0]
+            u_cnt = len(u_dishes)
+            u_dishes_html = "".join([f"""
+            <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff11">
+                <div><b style="font-size:13px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:13px;padding:4px 8px;margin-top:4px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8">{esc(d.get('location') or '')}</small></div>
+                <div style="display:flex;gap:6px">
+                    <button class="sq-btn edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">✏️</button>
+                    <button class="sq-btn del icon-only" onclick="delDish(event, {d['id']})">🗑️</button>
+                </div>
+            </div>""" for d in u_dishes]) or f'<div style="color:#888;font-size:12px;text-align:center;padding:10px">{tr["empty"]}</div>'
+            u_dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:12px">{tr['add_dish']}</button>"""
+            
+            accordion_html += f"""
+            <div class="card tower-accordion" id="tower-acc-0" style="border:1px solid rgba(239,68,68,0.4)">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div onclick="toggleAcc(0)" style="cursor:pointer;flex:1"><b style="font-size:14px;color:#ef4444">{un_name}</b> <span class="badge" style="background:#ef4444">{u_cnt}</span></div>
+                    <div style="display:flex;gap:10px;align-items:center">
+                        <button class="sq-btn edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.2)" onclick="editUnassignedName()">✏️</button>
+                        <div onclick="toggleAcc(0)" style="cursor:pointer;font-size:18px">▼</div>
+                    </div>
+                </div>
+                <div id="tower-body-0" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22">{u_dishes_html}</div>
+            </div>"""
+
+        if v == 'towers':
+            return f"""
 <div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['towers']}</b><button class=btn-gold onclick="openNewTower()">{tr['add_tower']}</button></div>
   <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
-  <div class=grid-small id=towersGrid style="margin-top:8px">{cards or f"<div class=card>{tr['empty']}</div>"}</div>
+  <div class=grid-small id=towersGrid style="margin-top:8px">{accordion_html or f"<div class=card>{tr['empty']}</div>"}</div>
 </div>
 <script>
-window.openTowerDishes = async function(tid) {{
-  await loadPage('dishes');
-  setTimeout(() => {{
-    let acc = document.getElementById('tower-body-' + tid);
-    if(acc && acc.style.display === 'none') toggleAccordionLazy(tid);
-  }}, 200);
+window.toggleAcc = function(tid) {{
+  let b = document.getElementById('tower-body-' + tid);
+  if(b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
 }};
 window.openNewTower=function(){{
   document.getElementById("editBody").innerHTML=`<input id=nt_name placeholder="Name"><input id=nt_area placeholder="Area"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:6px">{tr['save']}</button>`;
@@ -693,51 +749,12 @@ window.delTower=async function(e, id){{
   let r=await fetch('/del_tower/'+id, {{method:'POST'}});
   if((await r.json()).ok) e.target.closest('.card').remove();
 }};
-</script>"""
-
-    if v == 'dishes':
-        towers = qall("SELECT t.id, t.name, t.area, (SELECT COUNT(*) FROM dish_ips WHERE tower_id=t.id) as cnt FROM towers t ORDER BY t.name ASC")
-        no_cnt = (qone("SELECT COUNT(*) as c FROM dish_ips WHERE tower_id IS NULL") or {}).get('c', 0)
-        accordion_html = "".join([f"""<div class="card tower-accordion" id="tower-acc-{t['id']}"><div onclick="toggleAccordionLazy({t['id']})" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:14px;color:#38bdf8">🗼 {esc(t['name'])}</b> <span class="badge">{t['cnt']}</span></div><div style="font-size:18px">▼</div></div><div id="tower-body-{t['id']}" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22"><div id="tower-content-{t['id']}"></div></div></div>""" for t in towers])
-        accordion_html += f"""<div class="card tower-accordion" id="tower-acc-0" style="border:1px solid rgba(239,68,68,0.4)"><div onclick="toggleAccordionLazy(0)" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"><div><b style="font-size:14px;color:#ef4444">بدون برج / Unassigned</b> <span class="badge" style="background:#ef4444">{no_cnt}</span></div><div style="font-size:18px">▼</div></div><div id="tower-body-0" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed #ffffff22"><div id="tower-content-0"></div></div></div>"""
-        
-        t_opts = "<option value='0'>---</option>" + "".join([f"<option value='{t['id']}'>{esc(t['name'])}</option>" for t in towers])
-        
-        return f"""
-<div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['dishes']}</b><button class=btn-gold onclick="openDishModal(0,0,'','','')">{tr['add_dish']}</button></div>
-  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
-  <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{accordion_html}</div>
-</div>
-<script>
-const towerOpts = `{t_opts}`;
-window.toggleAccordionLazy=async function(tid){{
-  let b=document.getElementById('tower-body-'+tid);
-  if(b.style.display==='none'){{
-    b.style.display='block'; let c=document.getElementById('tower-content-'+tid); c.innerHTML='⏳ ...';
-    try{{
-      let r=await fetch('/api/tower_detail/'+tid); let j=await r.json();
-      if(j.ok){{
-        c.innerHTML=(j.dishes||[]).map(d=>`
-          <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff11">
-            <div><b style="font-size:13px">${{d.dish_name||'--'}}</b><br><span class="ip" style="cursor:pointer;font-size:13px;padding:4px 8px;margin-top:4px;display:inline-block" onclick="openLink('${{d.ip}}')">${{d.ip}}</span> <small style="color:#94a3b8">${{d.location||''}}</small></div>
-            <div style="display:flex;gap:6px">
-              <button class="glass-btn edit" onclick="openDishModal(${{d.id}}, ${{tid}}, '${{d.dish_name||''}}', '${{d.ip||''}}', '${{d.location||''}}')">✏️</button>
-              <button class="glass-btn del" onclick="delDish(event, ${{d.id}})">🗑</button>
-            </div>
-          </div>
-        `).join('') || '<div style="color:#888;font-size:12px;text-align:center;padding:10px">فارغ Empty</div>';
-        c.innerHTML += `<button class="btn-gold" onclick="openDishModal(0, ${{tid}},'','','')" style="width:100%;margin-top:12px">{tr['add_dish']}</button>`;
-      }}
-    }}catch(err){{c.innerHTML='Error';}}
-  }}else b.style.display='none';
-}};
 window.openDishModal=function(id, tid, name, ip, loc){{
   document.getElementById("editBody").innerHTML=`
     <input id="dish_name" placeholder="{tr['name']}" value="${{name}}">
     <input id="dish_ip" placeholder="IP" value="${{ip}}">
     <input id="dish_loc" placeholder="Location/Note" value="${{loc}}">
-    <select id="dish_tid" style="font-weight:bold">${{towerOpts}}</select>
+    <select id="dish_tid" style="font-weight:bold">{t_opts}</select>
     <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px">{tr['save']}</button>
   `;
   document.getElementById("dish_tid").value = tid;
@@ -745,19 +762,55 @@ window.openDishModal=function(id, tid, name, ip, loc){{
   document.getElementById("editModal").classList.add("show");
 }};
 window.saveDish=async function(id){{
-  let tid = document.getElementById("dish_tid").value;
-  let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:tid}};
-  if(!d.ip) return alert("IP Required");
+  let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
+  if(!d.ip) return;
   let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
   let r=await fetch(url, {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
-  if((await r.json()).ok){{
-     closeEditModal(); 
-     let cBox = document.getElementById('tower-content-' + tid);
-     if (cBox) {{
-         document.getElementById('tower-body-' + tid).style.display = 'none';
-         toggleAccordionLazy(tid);
-     }} else loadPage('dishes',true);
-  }}
+  if((await r.json()).ok){{ closeEditModal(); loadPage('towers',true); }}
+}};
+window.delDish=async function(e, id){{
+  if(!confirm(MSG_SURE)) return;
+  let r=await fetch('/del_dish/'+id, {{method:'POST'}});
+  if((await r.json()).ok) e.target.closest('.dish-row').remove();
+}};
+</script>"""
+        else: # dishes page
+            return f"""
+<div style="max-width:1100px;margin:0 auto">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['dishes']}</b><button class=btn-gold onclick="openDishModal(0,0,'','','')">{tr['add_dish']}</button></div>
+  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.tower-accordion')" placeholder="{tr['search']}" style="margin-top:6px;width:100%">
+  <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">{accordion_html}</div>
+</div>
+<script>
+window.toggleAcc = function(tid) {{
+  let b = document.getElementById('tower-body-' + tid);
+  if(b) b.style.display = b.style.display === 'none' ? 'block' : 'none';
+}};
+window.editUnassignedName = async function() {{
+    let newName = prompt("{tr['unassigned_edit']}");
+    if(newName) {{
+        await fetch('/api/set_config', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{key:'unassigned_name', value:newName}})}});
+        loadPage('dishes', true);
+    }}
+}};
+window.openDishModal=function(id, tid, name, ip, loc){{
+  document.getElementById("editBody").innerHTML=`
+    <input id="dish_name" placeholder="{tr['name']}" value="${{name}}">
+    <input id="dish_ip" placeholder="IP" value="${{ip}}">
+    <input id="dish_loc" placeholder="Location/Note" value="${{loc}}">
+    <select id="dish_tid" style="font-weight:bold">{t_opts}</select>
+    <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px">{tr['save']}</button>
+  `;
+  document.getElementById("dish_tid").value = tid;
+  document.getElementById("editModalTitle").textContent = id===0 ? "{tr['add']}" : "{tr['edit']}";
+  document.getElementById("editModal").classList.add("show");
+}};
+window.saveDish=async function(id){{
+  let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
+  if(!d.ip) return;
+  let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
+  let r=await fetch(url, {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}});
+  if((await r.json()).ok){{ closeEditModal(); loadPage('dishes',true); }}
 }};
 window.delDish=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
@@ -804,7 +857,7 @@ window.pingAllNetwork=async function(){{
 
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 100")
-        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"glass-btn del\" onclick=\"delSub(event, {r.get('id')})\">🗑</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" onclick=\"delSub(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['subs']}</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ {tr['add']}</button></div>
 <form id=fSub style="display:none;gap:6px;margin-top:8px"><input name=name placeholder="{tr['name']}" required><input name=phone placeholder="{tr['phone']}" required><input name=note placeholder="Note"><button class=btn-gold>{tr['save']}</button></form>
@@ -817,7 +870,7 @@ window.delSub=async function(e, id){{if(!confirm(MSG_SURE))return; let r=await f
 
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
-        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:14px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"glass-btn del\" onclick=\"delLedger(event, {r.get('id')})\">🗑</button></td></tr>" for r in rs])
+        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:14px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td><button class=\"sq-btn del icon-only\" onclick=\"delLedger(event, {r.get('id')})\">🗑️</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['ledger']}</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ {tr['add']}</button></div>
 <form id=fLed style="display:none;gap:6px;margin-top:8px"><input name=name placeholder="Details" required><input name=amount type=number step=0.01 placeholder="Amount" required><input name=note placeholder="Note"><select name=currency style="width:80px"><option>USD</option><option>SYP</option></select><button class=btn-gold>{tr['save']}</button></form>
@@ -849,7 +902,7 @@ window.clearAllLogs=async function(){{
         users_html = ""
         if is_manager():
             rs = qall("SELECT * FROM users ORDER BY username ASC")
-            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid #ffffff22;color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.2);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:6px'><button class=\"glass-btn edit\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">✏️</button><button class=\"glass-btn del\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">🗑</button></td></tr>" for r in rs])
+            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid #ffffff22;color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.2);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:6px'><button class=\"sq-btn edit icon-only\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">✏️</button><button class=\"sq-btn del icon-only\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">🗑️</button></td></tr>" for r in rs])
             users_html = f"""
             <div class=card style="margin-top:10px;border-color:rgba(255,190,77,0.3)">
               <div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#ffbe4d">👥 {tr['users']} (Admin)</b><button class=btn-gold onclick="openAddUser()">+ {tr['add']}</button></div>
@@ -883,7 +936,6 @@ window.saveCardSize = async function(){{
   if((await r.json()).ok){{ document.body.style.setProperty('--cs', sz+'px'); alert('Saved'); }}
 }};
 
-/* إدارة المستخدمين */
 window.openAddUser=function(){{
   document.getElementById("editBody").innerHTML=`
     <input id=u_name placeholder="Full Name">
@@ -932,7 +984,8 @@ def layout(c, v='home'):
 *{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
 body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%);color:#fff;overflow-x:hidden; --cs: {c_size}px;}}
 .card{{background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:#fff;padding:16px;border-radius:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 15px rgba(0,0,0,0.2)}}
-.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:8px 16px;border:0;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:8px 16px;border:0;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer;transition:transform 0.2s}}
+.btn-gold:hover{{transform:translateY(-1px)}}
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 120px),1fr));gap:10px}}
 .top{{position:fixed;top:0;left:0;right:0;height:55px;background:rgba(15,20,36,0.8);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.1)}}
 .sidebar{{position:fixed;top:0;bottom:0;width:260px;background:rgba(20, 25, 45, 0.35);backdrop-filter:blur(25px);-webkit-backdrop-filter:blur(25px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 30px rgba(0,0,0,0.5);z-index:1004;padding:20px 14px;transition:transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275);overflow-y:auto}}
@@ -946,10 +999,15 @@ html[dir="ltr"] .sidebar.active{{transform:translateX(0)}}
 #overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);z-index:1001;display:none;opacity:0;transition:opacity 0.3s}} 
 #overlay.show{{display:block;opacity:1}}
 .main{{margin-top:65px;padding:12px;min-height:90vh}}
-.glass-btn{{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);color:#fff;transition:all 0.2s ease}}
-.glass-btn:hover{{background:rgba(255,255,255,0.15);transform:translateY(-2px)}}
-.glass-btn.edit{{color:#38bdf8;border-color:rgba(56,189,248,0.4);background:rgba(56,189,248,0.1)}}
-.glass-btn.del{{color:#ef4444;border-color:rgba(239,68,68,0.4);background:rgba(239,68,68,0.1)}}
+
+/* أزرار التعديل والحذف المربعة ذات الزوايا الدائرية */
+.sq-btn{{display:inline-flex;align-items:center;justify-content:center;gap:4px;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;border:none;color:#fff;transition:transform 0.2s ease, filter 0.2s ease;}}
+.sq-btn:hover{{transform:translateY(-2px); filter:brightness(1.1);}}
+.sq-btn.edit{{background:#f59e0b; box-shadow:0 4px 10px rgba(245,158,11,0.3);}}
+.sq-btn.del{{background:#ef4444; box-shadow:0 4px 10px rgba(239,68,68,0.3);}}
+.sq-btn.view{{background:#10b981; box-shadow:0 4px 10px rgba(16,185,129,0.3);}}
+.sq-btn.icon-only{{width:32px;height:32px;padding:0;font-size:14px;}}
+
 .ip{{background:#000;color:#ffbe4d;padding:4px 8px;border-radius:6px;font-family:monospace;font-size:12px}}
 .badge{{background:#ffbe4d;color:#111;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:800}}
 table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.05);padding:10px;text-align:start;font-size:13px;border-bottom:2px solid rgba(255,255,255,0.1)}} td{{padding:10px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px}}
@@ -1041,7 +1099,6 @@ window.closeEditModal=()=>{{
   md.style.opacity = '0';
   setTimeout(() => md.classList.remove('show'), 300);
 }};
-// Override add class to also set opacity
 const origAdd = DOMTokenList.prototype.add;
 DOMTokenList.prototype.add = function(...args) {{
   origAdd.apply(this, args);
@@ -1049,7 +1106,6 @@ DOMTokenList.prototype.add = function(...args) {{
     setTimeout(() => document.getElementById('editModal').style.opacity = '1', 10);
   }}
 }};
-
 loadPage(cur,true);
 </script></body></html>"""
 
