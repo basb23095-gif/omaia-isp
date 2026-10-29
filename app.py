@@ -37,7 +37,7 @@ BTN_DEL = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" view
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
-        'home': 'الرئيسية', 'towers': 'الأبراج', 'dishes': 'الصحون والآيبيهات',
+        'home': 'الرئيسية', 'towers': 'الأبراج والآيبيهات', 'dishes': 'الصحون والآيبيهات',
         'ping': 'البنج (Ping)', 'network': 'الشبكة', 'subs': 'المشتركين', 'ledger': 'الحسابات',
         'users': 'المستخدمين', 'logs': 'السجل', 'settings': 'الإعدادات', 'logout': 'تسجيل خروج',
         'add': 'إضافة', 'edit': 'تعديل', 'delete': 'حذف', 'save': 'حفظ',
@@ -48,7 +48,7 @@ TR = {
     },
     'en': {
         'dir': 'rtl', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
-        'home': 'Home', 'towers': 'Towers', 'dishes': 'Dishes & IPs',
+        'home': 'Home', 'towers': 'Towers & Dishes', 'dishes': 'Dishes & IPs',
         'ping': 'Ping Check', 'network': 'Network', 'subs': 'Subscribers', 'ledger': 'Ledger',
         'users': 'Users', 'logs': 'Logs', 'settings': 'Settings', 'logout': 'Logout',
         'add': 'Add', 'edit': 'Edit', 'delete': 'Delete', 'save': 'Save',
@@ -237,7 +237,21 @@ def api_mikrotik_add():
     if ok: add_log(session.get('phone'), 'إضافة ميكروتك', name or host, f"{host}:{port}")
     return jsonify(ok=ok)
 
-@app.route('/api/mikrotik/del/<int:mid>')
+@app.route('/api/mikrotik/edit/<int:mid>', methods=['POST'])
+@login_required
+@role_required_manager
+def api_mikrotik_edit(mid):
+    d = get_data(request)
+    name, host, user, pwd, port = d.get('name','').strip(), d.get('host','').strip(), d.get('username','').strip(), d.get('password','').strip(), int(d.get('port') or 8728)
+    if not host or not user: return jsonify(ok=False, msg='بيانات ناقصة'), 400
+    if pwd:
+        ok = qexec("UPDATE mikrotik_servers SET name=?, host=?, username=?, password=?, port=? WHERE id=?", (name or host, host, user, pwd, port, mid))
+    else:
+        ok = qexec("UPDATE mikrotik_servers SET name=?, host=?, username=?, port=? WHERE id=?", (name or host, host, user, port, mid))
+    if ok: add_log(session.get('phone'), 'تعديل ميكروتك', name or host)
+    return jsonify(ok=ok)
+
+@app.route('/api/mikrotik/del/<int:mid>', methods=['POST'])
 @login_required
 @role_required_manager
 def api_mikrotik_del(mid):
@@ -322,16 +336,20 @@ def clear_logs():
 @login_required
 def at():
     d = get_data(request)
-    ok = qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)", (d.get('name', 'برج'), d.get('area', ''), 0, 0, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    if ok: add_log(session.get('phone'), 'إضافة برج', d.get('name', ''))
+    name = (d.get('name') or 'برج').strip()
+    area = (d.get('area') or '').strip()
+    ok = qexec("INSERT INTO towers(name,area,lat,lng,created_at) VALUES(?,?,?,?,?)", (name, area, 0, 0, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    if ok: add_log(session.get('phone'), 'إضافة برج', name)
     return jsonify(ok=ok)
 
 @app.route('/edit_tower/<int:id>', methods=['POST'])
 @login_required
 def edit_tower(id):
     d = get_data(request)
-    ok = qexec("UPDATE towers SET name=?, area=? WHERE id=?", (d.get('name'), d.get('area'), id))
-    if ok: add_log(session.get('phone'), 'تعديل برج', d.get('name', ''))
+    name = (d.get('name') or '').strip()
+    area = (d.get('area') or '').strip()
+    ok = qexec("UPDATE towers SET name=?, area=? WHERE id=?", (name, area, id))
+    if ok: add_log(session.get('phone'), 'تعديل برج', name)
     return jsonify(ok=ok)
 
 @app.route('/del_tower/<int:i>', methods=['POST'])
@@ -351,7 +369,7 @@ def add_dish_to_tower():
     if not is_valid_ip(ip): return jsonify(ok=False, msg='IP/Domain Invalid'), 400
     tid_val = int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None
     ok = qexec("INSERT INTO dish_ips(ip,location,dish_name,tower_id) VALUES(?,?,?,?)", (ip, loc, name, tid_val))
-    if ok: add_log(session.get('phone'), 'إضافة صحن', f"{name}", f"IP/Domain: {ip}")
+    if ok: add_log(session.get('phone'), 'إضافة صحن/آيبي', f"{name}", f"IP/Domain: {ip}")
     return jsonify(ok=ok)
 
 @app.route('/api/edit_dish/<int:id>', methods=['POST'])
@@ -362,14 +380,14 @@ def edit_dish(id):
     if not is_valid_ip(ip): return jsonify(ok=False, msg='IP/Domain Invalid'), 400
     tid_val = int(tid) if tid and str(tid).isdigit() and int(tid) != 0 else None
     ok = qexec("UPDATE dish_ips SET ip=?, dish_name=?, location=?, tower_id=? WHERE id=?", (ip, name, loc, tid_val, id))
-    if ok: add_log(session.get('phone'), 'تعديل صحن', f"{name}", f"IP/Domain: {ip}")
+    if ok: add_log(session.get('phone'), 'تعديل صحن/آيبي', f"{name}", f"IP/Domain: {ip}")
     return jsonify(ok=ok)
 
 @app.route('/del_dish/<int:i>', methods=['POST'])
 @login_required
 def dd(i):
     ok = qexec("DELETE FROM dish_ips WHERE id=?", (i,))
-    if ok: add_log(session.get('phone'), 'حذف صحن', f"ID: {i}")
+    if ok: add_log(session.get('phone'), 'حذف صحن/آيبي', f"ID: {i}")
     return jsonify(ok=ok)
 
 @app.route('/add_sub', methods=['POST'])
@@ -592,21 +610,26 @@ def page_content(v):
 
     if v == 'mikrotik':
         servers = qall("SELECT * FROM mikrotik_servers ORDER BY id DESC")
-        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="btn-glass btn-del icon-only" onclick="delMk(event, {s['id']})">{BTN_DEL}</button></div></div></div>""" for s in servers])
+        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}" style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><div style="flex:1"><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="btn-glass btn-edit icon-only" onclick="openEditMikrotikModal({s['id']}, '{esc(s['name'])}', '{esc(s['host'])}', '{esc(s['username'])}', {s['port']})">{BTN_EDIT}</button><button class="btn-glass btn-del icon-only" onclick="delMk(event, {s['id']})">{BTN_DEL}</button></div></div>""" for s in servers])
         return f"""
 <div style="max-width:1100px;margin:0 auto">
-  <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['mikrotik']}</b><button class=btn-gold onclick="openAddMikrotikModal()">+ {tr['add']}</button></div>
+  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['mikrotik']}</b><button class=btn-gold onclick="openAddMikrotikModal()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">+ {tr['add']}</button></div>
   <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">{cards or f"<div class=card style='text-align:center;color:#888'>{tr['empty']}</div>"}</div>
 </div>
 <script>
 window.openAddMikrotikModal=function(){{
-  document.getElementById("editBody").innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><input id="mk_name" placeholder="Name"><input id="mk_host" placeholder="IP / Domain"><input id="mk_user" placeholder="User"><input id="mk_pwd" type="password" placeholder="Pass"><input id="mk_port" type="number" value="8728"><button class="btn-gold" onclick="saveNewMikrotik()" style="width:100%;margin-top:4px;border-radius:9999px">{tr['save']}</button></div>`;
+  document.getElementById("editBody").innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><input id="mk_name" placeholder="Name"><input id="mk_host" placeholder="IP / Domain"><input id="mk_user" placeholder="User"><input id="mk_pwd" type="password" placeholder="Pass"><input id="mk_port" type="number" value="8728"><button class="btn-gold" onclick="saveMikrotik(0)" style="width:100%;margin-top:4px;border-radius:9999px">{tr['save']}</button></div>`;
   document.getElementById("editModalTitle").textContent="{tr['add']}"; document.getElementById("editModal").classList.add("show");
 }};
-window.saveNewMikrotik=async function(){{
+window.openEditMikrotikModal=function(id, name, host, user, port){{
+  document.getElementById("editBody").innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><input id="mk_name" value="${{name}}" placeholder="Name"><input id="mk_host" value="${{host}}" placeholder="IP / Domain"><input id="mk_user" value="${{user}}" placeholder="User"><input id="mk_pwd" type="password" placeholder="New Pass (Optional)"><input id="mk_port" type="number" value="${{port}}"><button class="btn-gold" onclick="saveMikrotik(${{id}})" style="width:100%;margin-top:4px;border-radius:9999px">{tr['save']}</button></div>`;
+  document.getElementById("editModalTitle").textContent="{tr['edit']}"; document.getElementById("editModal").classList.add("show");
+}};
+window.saveMikrotik=async function(id){{
   let d={{name:document.getElementById("mk_name").value,host:document.getElementById("mk_host").value,username:document.getElementById("mk_user").value,password:document.getElementById("mk_pwd").value,port:document.getElementById("mk_port").value}};
-  if(!d.host||!d.username) return;
-  if(await window.apiPost('/api/mikrotik/add', d)) {{ closeEditModal(); loadPage('mikrotik', true); }}
+  if(!d.host||!d.username) return alert('بيانات ناقصة');
+  let url = id === 0 ? '/api/mikrotik/add' : '/api/mikrotik/edit/'+id;
+  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage('mikrotik', true); }}
 }};
 window.delMk=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
@@ -632,7 +655,7 @@ window.delMk=async function(e, id){{
 
             dishes_rows = "".join([f"""
             <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:8px 12px;border-radius:8px;margin-top:6px">
-                <div><b>{esc(d.get('dish_name') or '--')}</b> <span class="ip" style="font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span></div>
+                <div><b>{esc(d.get('dish_name') or '--')}</b> <span class="ip" style="font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8">{esc(d.get('location') or '')}</small></div>
                 <div style="display:flex;gap:4px">
                     <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
                     <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
@@ -665,7 +688,7 @@ window.delMk=async function(e, id){{
         un_cnt = len(un_dishes)
         un_rows = "".join([f"""
         <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:8px 12px;border-radius:8px;margin-top:6px">
-            <div><b>{esc(d.get('dish_name') or '--')}</b> <span class="ip" style="font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span></div>
+            <div><b>{esc(d.get('dish_name') or '--')}</b> <span class="ip" style="font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8">{esc(d.get('location') or '')}</small></div>
             <div style="display:flex;gap:4px">
                 <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
                 <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
@@ -1041,7 +1064,7 @@ def layout(c, v='home'):
 *{{box-sizing:border-box;font-family:system-ui, -apple-system, sans-serif}}html,body{{margin:0;padding:0}}
 body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidden; --cs: {c_size}px;}}
 .card{{background:{card_bg};backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);color:{text_color};padding:12px;border-radius:16px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05);box-shadow:0 8px 32px rgba(0,0,0,0.2);}}
-.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:8px;font-weight:900;font-size:11px;cursor:pointer;transition:transform 0.2s, box-shadow:0.2s}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:8px;font-weight:900;font-size:11px;cursor:pointer;transition:transform 0.2s, box-shadow 0.2s}}
 .btn-gold:hover{{transform:translateY(-2px); box-shadow:0 4px 15px rgba(255,190,77,0.3);}}
 .grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:10px}}
 .top{{position:fixed;top:0;left:0;right:0;height:60px;background:{top_bg};backdrop-filter:blur(25px) saturate(200%);-webkit-backdrop-filter:blur(25px);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.05);box-shadow:0 4px 20px rgba(0,0,0,0.3)}}
@@ -1131,7 +1154,7 @@ input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
 
 <div class=main id=mn>{c}</div>
 
-<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px'><b id=editModalTitle style="font-size:15px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:20px;'>✕</button></div><div id=editBody></div></div></div>
+<div id=editModal><div id=editBox style="max-width:50vw;width:95%"><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:12px'><b id=editModalTitle style="font-size:15px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:20px;'>✕</button></div><div id=editBody></div></div></div>
 
 <script>
 let cur='{v}';
