@@ -518,10 +518,9 @@ input{{width:100%;padding:12px;margin:8px 0;background:#0f1424;border:1px solid 
 </label>
 <button class=btn id=loginBtn>تسجيل الدخول</button>
 
-<!-- روابط الدعم الفني -->
-<div style="display: flex; justify-content: center; gap: 20px; margin-top: 15px;">
-  <a href="https://wa.me/905344851045" target="_blank" style="color: #25D366; text-decoration: none; font-size: 13px; font-weight: bold;">💬 واتساب الدعم</a>
-  <a href="https://instagram.com/your_account" target="_blank" style="color: #E1306C; text-decoration: none; font-size: 13px; font-weight: bold;">📸 انستغرام</a>
+<div style="display:flex;justify-content:center;gap:20px;margin-top:15px;align-items:center">
+  <a href="https://wa.me/905344851045" target="_blank" style="color:#25D366;text-decoration:none;font-size:14px;font-weight:bold;display:flex;align-items:center;gap:5px;">💬 واتساب</a>
+  <a href="https://instagram.com/Af_20_1999" target="_blank" style="color:#E1306C;text-decoration:none;font-size:14px;font-weight:bold;display:flex;align-items:center;gap:5px;">📸 انستغرام</a>
 </div>
 
 <div id=msg style='text-align:center;color:#ff6b6b;font-size:12px;margin-top:10px;font-weight:bold'></div>
@@ -987,7 +986,15 @@ def layout(c, v='home'):
     return f"""<html dir="{tr['dir']}" lang="{l}"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
 <style>
 *{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
-body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%);color:#fff;overflow-x:hidden; --cs: {c_size}px;}}
+body{{background:radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%);color:#fff;overflow-x:hidden; --cs: {c_size}px; transition: background 0.3s, color 0.3s;}}
+body.light-theme{{background:radial-gradient(120% 120% at 10% 10%, #f0f4f8 0%, #d9e2ec 60%, #bcccdc 100%);color:#102a43;}}
+body.light-theme .card{{background:rgba(255, 255, 255, 0.7);color:#102a43;border:1px solid rgba(0,0,0,0.1);box-shadow:0 4px 15px rgba(0,0,0,0.05);}}
+body.light-theme .sidebar{{background:rgba(255, 255, 255, 0.6);border-inline-end:1px solid rgba(0,0,0,0.1);}}
+body.light-theme .sidebar a{{color:#334e68;}}
+body.light-theme .sidebar a:hover{{background:rgba(0,0,0,0.05);color:#102a43;}}
+body.light-theme .top{{background:rgba(255, 255, 255, 0.8);border-bottom:1px solid rgba(0,0,0,0.1);color:#102a43;}}
+body.light-theme input, body.light-theme select{{background:rgba(255,255,255,0.8);color:#102a43;border:1px solid rgba(0,0,0,0.2);}}
+
 .card{{background:rgba(20, 25, 45, 0.4);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:#fff;padding:16px;border-radius:12px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 15px rgba(0,0,0,0.2)}}
 .btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:8px 16px;border:0;border-radius:8px;font-weight:800;font-size:12px;cursor:pointer;transition:transform 0.2s}}
 .btn-gold:hover{{transform:translateY(-1px)}}
@@ -1037,14 +1044,30 @@ input:focus,select:focus{{border-color:#ffbe4d}}
 <a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙ <span>{tr['settings']}</span></a>
-<div style="margin-top:24px;border-top:1px solid rgba(255,255,255,0.1);padding-top:16px">
-  <a href="/api/set_lang/{tr['toggle_code']}" style="background:rgba(255,255,255,0.05)">🌐 <span>{tr['lang_toggle']}</span></a>
+
+<!-- روابط الدعم الفني كأيقونات في القائمة -->
+<div style="margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-around;align-items:center;">
+  <a href="https://wa.me/905344851045" target="_blank" style="padding:8px;background:rgba(37,211,102,0.15);border-radius:50%;color:#25D366;font-size:18px;text-decoration:none;" title="WhatsApp">💬</a>
+  <a href="https://instagram.com/Af_20_1999" target="_blank" style="padding:8px;background:rgba(225,48,108,0.15);border-radius:50%;color:#E1306C;font-size:18px;text-decoration:none;" title="Instagram">📸</a>
+</div>
+
+<div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px">
   <a href="/logout" style="background:rgba(239,68,68,0.15);color:#ff6b6b;border:1px solid rgba(239,68,68,0.3)">🚪 <span>{tr['logout']}</span></a>
 </div>
 </div>
 
 <div class=top>
-<div style="display:flex;align-items:center;gap:16px"><span onclick="toggleSb()" style='font-size:26px;cursor:pointer;text-shadow:0 2px 4px rgba(0,0,0,0.5)'>☰</span> <b style="font-size:18px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b></div>
+<div style="display:flex;align-items:center;gap:16px">
+  <span onclick="toggleSb()" style='font-size:26px;cursor:pointer;text-shadow:0 2px 4px rgba(0,0,0,0.5)'>☰</span> 
+  <b style="font-size:18px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
+</div>
+<div style="display:flex;align-items:center;gap:12px;">
+  <div style="position:relative;">
+    <input type="text" id="globalSearchInput" placeholder="{tr['search']}" onkeyup="globalSearch(event)" style="padding:6px 12px;font-size:12px;margin:0;width:130px;border-radius:20px;">
+  </div>
+  <a href="/api/set_lang/{tr['toggle_code']}" style="background:rgba(255,255,255,0.1);padding:6px 10px;border-radius:50%;text-decoration:none;font-size:14px;" title="Language">🌐</a>
+  <span onclick="toggleTheme()" style="background:rgba(255,255,255,0.1);padding:6px 10px;border-radius:50%;cursor:pointer;font-size:14px;" title="Theme">🌓</span>
+</div>
 </div>
 
 <div class=main id=mn>{c}</div>
@@ -1059,6 +1082,27 @@ window.openLink = function(ip) {{
   if(!ip) return; let u = ip.trim();
   if(!u.startsWith('http://') && !u.startsWith('https://')) u = 'http://' + u;
   window.open(u, '_blank');
+}};
+
+window.toggleTheme = function() {{
+  document.body.classList.toggle('light-theme');
+  let isLight = document.body.classList.contains('light-theme');
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+}};
+
+if(localStorage.getItem('theme') === 'light') {{
+  document.body.classList.add('light-theme');
+}};
+
+window.globalSearch = function(e) {{
+  let val = e.target.value;
+  let activeTable = document.querySelector('table');
+  if(activeTable) {{
+    let rows = activeTable.querySelectorAll('tbody tr');
+    rows.forEach(r => {{
+      r.style.display = r.textContent.toLowerCase().includes(val.toLowerCase()) ? '' : 'none';
+    }});
+  }}
 }};
 
 window.filterTable = function(inpId, tblId) {{
