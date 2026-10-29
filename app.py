@@ -36,6 +36,10 @@ _plock = threading.Lock()
 _sqlite_conn = None
 _slock = threading.Lock()
 
+# أيقونات مدمجة ومباشرة لسرعة خيالية بدون ملفات خارجية
+BTN_EDIT = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>"""
+BTN_DEL = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>"""
+
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
@@ -139,9 +143,11 @@ def qexec(q, a=()):
             cur.execute(q.replace("?", "%s"), a)
             cn.commit(); cur.close(); put_conn(cn)
         else:
-            with _slock: cn.execute(q, a); cn.commit()
+            with _slock: 
+                cn.execute(q, a)
         return True
     except Exception as e:
+        print(f"DB Error: {e}")
         if cn and USE_PG and hasattr(cn, 'closed'):
             try: cn.rollback(); put_conn(cn)
             except Exception: pass
@@ -188,20 +194,26 @@ def init_db():
     if USE_PG: ss = [s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY") for s in ss]
     for s in ss: qexec(s)
     
-    for al in ["ALTER TABLE dish_ips ADD COLUMN tower_id INTEGER", "ALTER TABLE towers ADD COLUMN created_at TEXT", "ALTER TABLE logs ADD COLUMN username TEXT", "ALTER TABLE logs ADD COLUMN target TEXT"]:
+    # تحديثات ذكية للجداول القديمة عشان ما يعلق الحفظ أبداً
+    alters = [
+        "ALTER TABLE dish_ips ADD COLUMN tower_id INTEGER",
+        "ALTER TABLE towers ADD COLUMN created_at TEXT",
+        "ALTER TABLE logs ADD COLUMN username TEXT",
+        "ALTER TABLE logs ADD COLUMN target TEXT",
+        "ALTER TABLE users ADD COLUMN username TEXT",
+        "ALTER TABLE ledger ADD COLUMN currency TEXT"
+    ]
+    for al in alters:
         try: qexec(al)
         except Exception: pass
 
     if not qone("SELECT * FROM users WHERE phone=?", ('admin',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'مدير النظام'))
+              ('admin', generate_password_hash('admin2024', method='pbkdf2:sha256'), 'manager', 'مدير النظام'))
               
     if not qone("SELECT * FROM users WHERE phone=?", ('05344851045',)):
         qexec("INSERT INTO users(phone,password,role,username) VALUES(?,?,?,?)",
-              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256:150000'), 'manager', 'المدير الأساسي'))
-
-    qexec("UPDATE users SET password=? WHERE phone IN ('admin', '05344851045')", 
-          (generate_password_hash('admin2024', method='pbkdf2:sha256:150000'),))
+              ('05344851045', generate_password_hash('admin2024', method='pbkdf2:sha256'), 'manager', 'المدير الأساسي'))
 
     defaults = [('card_size', '110'), ('unassigned_name', 'بدون برج / Unassigned'), ('theme', 'dark')]
     for k, v in defaults:
@@ -229,7 +241,6 @@ def role_required_manager(f):
     return w
 
 def is_valid_ip(h):
-    # السماح التام بأي نص غير فارغ لتفادي مشاكل الرفض
     return bool((h or '').strip())
 
 @app.after_request
@@ -462,7 +473,7 @@ def add_user():
     d = get_data(request)
     p, pw, u, r = d.get('phone','').strip(), d.get('password','').strip(), d.get('username','').strip(), d.get('role','tech')
     if not p or not pw: return jsonify(ok=False, msg="البيانات ناقصة")
-    ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, u))
+    ok = qexec("INSERT OR REPLACE INTO users(phone,password,role,username) VALUES(?,?,?,?)", (p, generate_password_hash(pw, method='pbkdf2:sha256'), r, u))
     if ok: add_log(session.get('phone'), 'إضافة مستخدم', u, f"صلاحية: {r}")
     return jsonify(ok=ok)
 
@@ -472,7 +483,7 @@ def add_user():
 def edit_user():
     d = get_data(request)
     p, pw, r, u = d.get('phone','').strip(), d.get('password','').strip(), d.get('role','tech'), d.get('username','').strip()
-    if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256:150000'), r, u, p))
+    if pw: qexec("UPDATE users SET password=?, role=?, username=? WHERE phone=?", (generate_password_hash(pw, method='pbkdf2:sha256'), r, u, p))
     else: qexec("UPDATE users SET role=?, username=? WHERE phone=?", (r, u, p))
     add_log(session.get('phone'), 'تعديل مستخدم', p)
     return jsonify(ok=True)
@@ -491,7 +502,7 @@ def del_user(phone):
 def cp():
     d = get_data(request); np = (d.get('newpass') or '').strip()
     if not np: return jsonify(ok=False, msg='فارغ'), 400
-    ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256:150000'), session.get('phone')))
+    ok = qexec("UPDATE users SET password=? WHERE phone=?", (generate_password_hash(np, method='pbkdf2:sha256'), session.get('phone')))
     add_log(session.get('phone'), 'تغيير كلمة المرور الشخصية', session.get('phone'))
     return jsonify(ok=ok)
 
@@ -626,7 +637,7 @@ def page_content(v):
 
     if v == 'mikrotik':
         servers = qall("SELECT * FROM mikrotik_servers ORDER BY id DESC")
-        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="btn-glass btn-del icon-only" onclick="delMk(event, {s['id']})"><i data-lucide="trash-2" stroke-width="2.5"></i></button></div></div></div>""" for s in servers])
+        cards = "".join([f"""<div class="card" id="mk-server-{s['id']}"><div style="display:flex;justify-content:space-between;align-items:center"><div><b style="font-size:14px">🖧 {esc(s['name'])}</b><div style="font-size:11px;color:#94a3b8;margin-top:2px">{esc(s['host'])}:{s['port']}</div></div><div style="display:flex;gap:6px"><button class="btn-glass btn-del icon-only" onclick="delMk(event, {s['id']})">{BTN_DEL}</button></div></div></div>""" for s in servers])
         return f"""
 <div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center"><b>{tr['mikrotik']}</b><button class=btn-gold onclick="openAddMikrotikModal()">+ {tr['add']}</button></div>
@@ -675,8 +686,8 @@ window.delMk=async function(e, id){{
             <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #ffffff11">
                 <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px;margin-top:2px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
                 <div style="display:flex;gap:6px">
-                    <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')"><i data-lucide="edit-2" stroke-width="2.5"></i></button>
-                    <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})"><i data-lucide="trash-2" stroke-width="2.5"></i></button>
+                    <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
+                    <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
                 </div>
             </div>""" for d in t_dishes]) or f'<div style="color:#888;font-size:11px;text-align:center;padding:6px">{tr["empty"]}</div>'
             
@@ -685,7 +696,7 @@ window.delMk=async function(e, id){{
             is_fixed_tower = (idx == 0)
             edit_tower_btn = ""
             if not is_fixed_tower:
-                edit_tower_btn = f"""<button class="btn-glass btn-edit" style="flex:1" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')"><i data-lucide="edit-2" style="width:14px;height:14px;stroke-width:2.5"></i> {tr['edit']}</button>"""
+                edit_tower_btn = f"""<button class="btn-glass btn-edit" style="flex:1" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">{BTN_EDIT} {tr['edit']}</button>"""
             
             if v == 'towers':
                 accordion_html += f"""
@@ -699,7 +710,7 @@ window.delMk=async function(e, id){{
                     <div id="tower-body-{tid}" style="display:none;margin-top:8px;padding-top:8px;border-top:1px dashed #ffffff22">{dishes_html}</div>
                     <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid #ffffff11;padding-top:8px">
                         {edit_tower_btn}
-                        <button class="btn-glass btn-del" style="flex:1" onclick="delTower(event, {tid})"><i data-lucide="trash-2" style="width:14px;height:14px;stroke-width:2.5"></i> {tr['delete']}</button>
+                        <button class="btn-glass btn-del" style="flex:1" onclick="delTower(event, {tid})">{BTN_DEL} {tr['delete']}</button>
                     </div>
                 </div>"""
             else:
@@ -718,8 +729,8 @@ window.delMk=async function(e, id){{
             <div class="dish-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #ffffff11">
                 <div><b style="font-size:12px">{esc(d.get('dish_name') or '--')}</b><br><span class="ip" style="cursor:pointer;font-size:11px;padding:2px 6px;margin-top:2px;display:inline-block" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:10px">{esc(d.get('location') or '')}</small></div>
                 <div style="display:flex;gap:6px">
-                    <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')"><i data-lucide="edit-2" stroke-width="2.5"></i></button>
-                    <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})"><i data-lucide="trash-2" stroke-width="2.5"></i></button>
+                    <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
+                    <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
                 </div>
             </div>""" for d in u_dishes]) or f'<div style="color:#888;font-size:11px;text-align:center;padding:6px">{tr["empty"]}</div>'
             u_dishes_html += f"""<button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:8px;padding:6px;font-size:11px;border-radius:9999px;">{tr['add_dish']}</button>"""
@@ -729,7 +740,7 @@ window.delMk=async function(e, id){{
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div onclick="toggleAcc(0)" style="cursor:pointer;flex:1"><b style="font-size:13px;color:#ef4444">{un_name}</b> <span class="badge" style="background:#ef4444;font-size:10px;padding:2px 6px;">{u_cnt}</span></div>
                     <div style="display:flex;gap:8px;align-items:center">
-                        <button class="btn-glass btn-edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.2);width:26px;height:26px;" onclick="editUnassignedName()"><i data-lucide="edit-2" stroke-width="2.5"></i></button>
+                        <button class="btn-glass btn-edit icon-only" style="background:transparent;box-shadow:none;border:1px solid rgba(255,255,255,0.2);width:26px;height:26px;" onclick="editUnassignedName()">{BTN_EDIT}</button>
                         <div onclick="toggleAcc(0)" style="cursor:pointer;font-size:14px">▼</div>
                     </div>
                 </div>
@@ -872,7 +883,7 @@ window.pingAllNetwork=async function(){{
 
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 100")
-        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditSub({r.get('id')}, '{esc(r.get('name') or '')}', '{esc(r.get('phone') or '')}', '{esc(r.get('note') or '')}')\"><i data-lucide=\"edit-2\" stroke-width=\"2.5\"></i></button><button class=\"btn-glass btn-del icon-only\" onclick=\"delSub(event, {r.get('id')})\"><i data-lucide=\"trash-2\" stroke-width=\"2.5\"></i></button></td></tr>" for r in rs])
+        rows = "".join([f"<tr class='sub-row'><td><b>{esc(r.get('name') or '')}</b></td><td><span class=ip>{esc(r.get('phone') or '')}</span></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditSub({r.get('id')}, '{esc(r.get('name') or '')}', '{esc(r.get('phone') or '')}', '{esc(r.get('note') or '')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delSub(event, {r.get('id')})\">{BTN_DEL}</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['subs']}</b><button class=btn-gold onclick="openAddSubModal()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">+ {tr['add']}</button></div>
 <input id="searchSubs" onkeyup="filterTable('searchSubs', 'subsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
@@ -915,7 +926,7 @@ window.delSub=async function(e, id){{
 
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 100")
-        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:13px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditLedger({r.get('id')}, '{esc(r.get('name') or '')}', {r.get('amount')}, '{esc(r.get('note') or '')}', '{esc(r.get('currency') or 'USD')}')\"><i data-lucide=\"edit-2\" stroke-width=\"2.5\"></i></button><button class=\"btn-glass btn-del icon-only\" onclick=\"delLedger(event, {r.get('id')})\"><i data-lucide=\"trash-2\" stroke-width=\"2.5\"></i></button></td></tr>" for r in rs])
+        rows = "".join([f"<tr><td><b>{esc(r.get('name') or '')}</b></td><td><b style='color:#ffbe4d;font-size:13px'>{r.get('amount')} {esc(r.get('currency') or '')}</b></td><td>{esc(r.get('note') or '')}</td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditLedger({r.get('id')}, '{esc(r.get('name') or '')}', {r.get('amount')}, '{esc(r.get('note') or '')}', '{esc(r.get('currency') or 'USD')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delLedger(event, {r.get('id')})\">{BTN_DEL}</button></td></tr>" for r in rs])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['ledger']}</b><button class=btn-gold onclick="openAddLedgerModal()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">+ {tr['add']}</button></div>
 <input id="searchLedger" onkeyup="filterTable('searchLedger', 'ledgerTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
@@ -961,7 +972,7 @@ window.delLedger=async function(e, id){{
     if v == 'logs':
         rs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
         rows = "".join([f"<tr><td><small style='color:#94a3b8'>{esc(r.get('time',''))}</small></td><td><b>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge style='background:#38bdf8;color:#000;padding:2px 6px'>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td><small style='color:#cbd5e1'>{esc(r.get('detail',''))}</small></td></tr>" for r in rs])
-        clear_btn = f"""<button class="btn-glass btn-del" onclick="clearAllLogs()"><i data-lucide="trash-2" stroke-width="2.5" style="width:14px;height:14px"></i> Clear Logs</button>""" if is_manager() else ""
+        clear_btn = f"""<button class="btn-glass btn-del" onclick="clearAllLogs()">{BTN_DEL} Clear Logs</button>""" if is_manager() else ""
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:12px;"><b>{tr['logs']}</b>{clear_btn}</div>
 <input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:6px;width:100%;padding:8px;font-size:12px;border-radius:12px;">
@@ -979,7 +990,7 @@ window.clearAllLogs=async function(){{
         users_html = ""
         if is_manager():
             rs = qall("SELECT * FROM users ORDER BY username ASC")
-            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid #ffffff22;color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.2);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\"><i data-lucide=\"edit-2\" stroke-width=\"2.5\"></i></button><button class=\"btn-glass btn-del icon-only\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\"><i data-lucide=\"trash-2\" stroke-width=\"2.5\"></i></button></td></tr>" for r in rs])
+            u_rows = "".join([f"<tr><td><b>{esc(r.get('username') or '')}</b></td><td><span class=ip style='background:transparent;border:1px solid #ffffff22;color:#fff'>{esc(r.get('phone') or '')}</span></td><td><span class=badge style='background:rgba(255,190,77,0.2);color:#ffbe4d'>{'Manager' if r.get('role')=='manager' else 'Tech'}</span></td><td style='display:flex;gap:6px'><button class=\"btn-glass btn-edit icon-only\" onclick=\"openEditUser('{esc(r.get('phone') or '')}', '{esc(r.get('username') or '')}', '{r.get('role')}')\">{BTN_EDIT}</button><button class=\"btn-glass btn-del icon-only\" onclick=\"delUser(event, '{esc(r.get('phone') or '')}')\">{BTN_DEL}</button></td></tr>" for r in rs])
             users_html = f"""
             <div class=card style="margin-top:10px;border-color:rgba(255,190,77,0.3);padding:12px;">
               <div style="display:flex;justify-content:space-between;align-items:center"><b style="color:#ffbe4d">👥 {tr['users']} (Admin)</b><button class=btn-gold onclick="openAddUser()" style="padding:6px 12px;font-size:11px;border-radius:9999px;">+ {tr['add']}</button></div>
@@ -1059,8 +1070,6 @@ def layout(c, v='home'):
     top_bg = "rgba(15,20,36,0.85)" if theme=='dark' else "rgba(241, 245, 249, 0.9)"
 
     return f"""<html dir="rtl" lang="{l}"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<script src="https://unpkg.com/lucide@latest"></script>
 <style>
 *{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
 body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidden; --cs: {c_size}px; transition: background 0.3s, color 0.3s;}}
@@ -1123,32 +1132,32 @@ input:focus,select:focus{{border-color:#ffbe4d}}
 <div id=overlay onclick="toggleSb(false)"></div>
 <div class=sidebar id=sb>
 <div style='padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:12px;text-align:center'><b style="font-size:18px;font-weight:900;letter-spacing:1px">OMAIA <span style='color:#ffbe4d'>ISP</span></b><br><span class="badge" style="background:rgba(255,255,255,0.1);color:#cbd5e1;margin-top:6px;display:inline-block">👋 {esc(cur_user.get('username') or '')}</span></div>
-<a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home><i data-lucide="home"></i> <span>{tr['home']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('mikrotik')" id=nav-mikrotik><i data-lucide="server"></i> <span>{tr['mikrotik']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers><i data-lucide="radio-tower"></i> <span>{tr['towers']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('dishes')" id=nav-dishes><i data-lucide="satellite"></i> <span>{tr['dishes']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('ping')" id=nav-ping><i data-lucide="activity"></i> <span>{tr['ping']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('network')" id=nav-network><i data-lucide="network"></i> <span>{tr['network']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('subs')" id=nav-subs><i data-lucide="users"></i> <span>{tr['subs']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger><i data-lucide="book-open"></i> <span>{tr['ledger']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs><i data-lucide="scroll-text"></i> <span>{tr['logs']}</span></a>
-<a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings><i data-lucide="settings"></i> <span>{tr['settings']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home>🏠 <span>{tr['home']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('mikrotik')" id=nav-mikrotik>🖧 <span>{tr['mikrotik']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers>🗼 <span>{tr['towers']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('dishes')" id=nav-dishes>📡 <span>{tr['dishes']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ping')" id=nav-ping>📶 <span>{tr['ping']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('network')" id=nav-network>📊 <span>{tr['network']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('subs')" id=nav-subs>👥 <span>{tr['subs']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙️ <span>{tr['settings']}</span></a>
 <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;display:flex;flex-direction:column;gap:6px">
   <div style="display:flex;justify-content:space-around">
-    <a href="/api/set_lang/{tr['toggle_code']}" style="padding:6px 10px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:10px;">🌐 {tr['lang_toggle']}</a>
-    <a href="/logout" style="padding:6px 10px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:10px;"><i data-lucide="log-out"></i></a>
+    <a href="/api/set_lang/{tr['toggle_code']}" style="padding:6px 10px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:10px;text-decoration:none;">🌐 {tr['lang_toggle']}</a>
+    <a href="/logout" style="padding:6px 10px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:10px;text-decoration:none;">🚪 خروج</a>
   </div>
 </div>
 </div>
 
 <div class=top>
 <div style="display:flex;align-items:center;gap:12px">
-  <span onclick="toggleSb()" style='font-size:22px;cursor:pointer;'><i data-lucide="menu"></i></span> 
+  <span onclick="toggleSb()" style='font-size:22px;cursor:pointer;'>☰</span> 
   <b style="font-size:16px;font-weight:900;margin-top:4px">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
 </div>
 <div style="display:flex;align-items:center;gap:10px;">
   <a href="/api/set_lang/{tr['toggle_code']}" class="sq-btn view" style="text-decoration:none;padding:5px 8px;font-size:11px" title="تغيير اللغة">🌐 {tr['toggle_code'].upper()}</a>
-  <button onclick="toggleTheme()" class="sq-btn edit" style="padding:5px 8px;font-size:11px" title="ليل / نهار">{'🌙' if theme=='dark' else '☀'}</button>
+  <button onclick="toggleTheme()" class="sq-btn edit" style="padding:5px 8px;font-size:11px" title="ليل / نهار">{'🌙' if theme=='dark' else '☀️'}</button>
 </div>
 </div>
 
@@ -1235,12 +1244,15 @@ async function loadPage(v, force=false){{
     if(t.includes('"ok":false') && t.includes('غير مسجل')){{ location.replace('/login'); return; }}
     mn.innerHTML=t;
     execScripts();
-  }}catch(e){{ mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">Error Loading Page</div>`; }}
-  mn.style.opacity = '1';
+  }}catch(e){{ 
+    mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">خطأ في تحميل الصفحة</div>`; 
+  }} finally {{
+    mn.style.opacity = '1';
+  }}
 }}
 
 function execScripts(){{
-    // تنظيف السكربتات القديمة لمنع تسرب الذاكرة والتعليق عند كل تنقل
+    // تنظيف السكربتات القديمة لمنع تداخلها
     document.querySelectorAll('.dyn-script').forEach(e => e.remove());
     document.getElementById('mn').querySelectorAll('script').forEach(o=>{{
         let s=document.createElement('script'); 
@@ -1249,7 +1261,6 @@ function execScripts(){{
         document.body.appendChild(s); 
         o.remove();
     }});
-    if (window.lucide) lucide.createIcons();
 }}
 
 window.closeEditModal=()=>{{
@@ -1258,10 +1269,6 @@ window.closeEditModal=()=>{{
   setTimeout(() => md.classList.remove('show'), 200);
 }};
 loadPage(cur,true);
-
-document.addEventListener("DOMContentLoaded", function() {{
-    if (window.lucide) lucide.createIcons();
-}});
 </script></body></html>"""
 
 if __name__ == '__main__':
