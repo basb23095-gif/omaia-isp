@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+\# -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response, make_response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -15,7 +15,6 @@ from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "omaia_isp_fixed_secret_token_2026_xyz")
-# تعديل مدة الجلسة لتنتهي بإغلاق المتصفح أو حسب الرغبة لمنع ثبات تسجيل الدخول بشكل دائم
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=8)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -65,7 +64,7 @@ def esc(s): return html.escape(str(s or ''), quote=True)
 def get_sqlite():
     global _sqlite_conn
     if _sqlite_conn is None:
-        _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=15, isolation_level=None)
+        _sqlite_conn = sqlite3.connect(os.path.join(os.path.dirname(__file__), "omia.db"), check_same_thread=False, timeout=10, isolation_level=None)
         _sqlite_conn.row_factory = sqlite3.Row
         try: _sqlite_conn.execute("PRAGMA journal_mode=WAL;")
         except: pass
@@ -255,7 +254,7 @@ def api_ping():
     def try_port(p):
         s = None
         try:
-            s = socket.socket(); s.settimeout(0.3)
+            s = socket.socket(); s.settimeout(0.2)
             if s.connect_ex((ip, p)) == 0: return p
         except: pass
         finally:
@@ -267,7 +266,7 @@ def api_ping():
         import concurrent.futures as _cf
         with _cf.ThreadPoolExecutor(max_workers=3) as ex:
             futs = [ex.submit(try_port, p) for p in [80, 443, 8080, 8291, 22]]
-            for f in _cf.as_completed(futs, timeout=1.0):
+            for f in _cf.as_completed(futs, timeout=0.8):
                 if f.result(): return jsonify(ok=True, out=f'{ip}:{f.result()} ✓')
     except: pass
     return jsonify(ok=False, out=f'{ip} لا يرد / Timeout')
@@ -276,7 +275,7 @@ def api_ping():
 @login_required
 def api_stats():
     ns, nd, nt, nl, nm = get_counts()
-    logs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 15")
+    logs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 10")
     return jsonify(ok=True, stats=dict(subs=ns, dishes=nd, towers=nt, ledger=nl, mikrotik=nm), logs=logs)
 
 @app.route('/api/set_config', methods=['POST'])
@@ -432,20 +431,13 @@ def add_user():
     pw = str(d.get('password', '')).strip()
     u = str(d.get('username', '')).strip()
     r = str(d.get('role', 'tech')).strip()
-    
-    if not p or not pw:
-        return jsonify(ok=False, msg="البيانات ناقصة")
-    
+    if not p or not pw: return jsonify(ok=False, msg="البيانات ناقصة")
     hashed_pw = generate_password_hash(pw, method='pbkdf2:sha256:1000')
-    
     if USE_PG:
         ok = qexec("INSERT INTO users(phone, password, role, username) VALUES(?, ?, ?, ?) ON CONFLICT (phone) DO UPDATE SET password=EXCLUDED.password, role=EXCLUDED.role, username=EXCLUDED.username", (p, hashed_pw, r, u))
     else:
         ok = qexec("INSERT OR REPLACE INTO users(phone, password, role, username) VALUES(?, ?, ?, ?)", (p, hashed_pw, r, u))
-        
-    if ok:
-        add_log(session.get('phone'), 'إضافة مستخدم', u, f"صلاحية: {r}")
-        
+    if ok: add_log(session.get('phone'), 'إضافة مستخدم', u, f"صلاحية: {r}")
     return jsonify(ok=ok)
 
 @app.route('/api/users/edit', methods=['POST'])
@@ -672,7 +664,7 @@ window.delMk=async function(e, id){{
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
                         <div>
                             <b style="font-size:15px;color:#38bdf8">🗼 {tname}</b>
-                            <div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tare || 'حلب/سوريا'}</div>
+                            <div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tare or 'حلب/سوريا'}</div>
                         </div>
                         <span class="badge" style="background:rgba(255,190,77,0.2);color:#ffbe4d;font-size:12px;padding:4px 10px">{cnt}</span>
                     </div>
@@ -685,7 +677,6 @@ window.delMk=async function(e, id){{
             </div>
             """
 
-        # Unassigned Section
         u_dishes = dishes_by_tower[0]
         u_cnt = len(u_dishes)
         u_dishes_list = "".join([f"""
@@ -1089,7 +1080,6 @@ input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
 <a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
 <a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙️ <span>{tr['settings']}</span></a>
 
-<!-- زر تسجيل الخروج الرسمي الواضح -->
 <div style="margin-top:20px;border-top:1px solid rgba(255,255,255,0.05);padding-top:16px;display:flex;flex-direction:column;gap:8px">
   <a href="/logout" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);text-align:center;justify-content:center;border-radius:12px;padding:12px;font-weight:bold;text-decoration:none;">🚪 {tr['logout']}</a>
   <div style="display:flex;justify-content:space-around;margin-top:6px">
