@@ -1014,4 +1014,208 @@ window.clearAllLogs=async function(){{
     <b>🖥️ UI Settings</b>
     <div style="display:flex;gap:8px;margin-top:8px">
       <input id="cSize" type="number" placeholder="e.g. 120" value="{cfg.get('card_size','110')}" style="flex:1;margin:0;padding:8px;font-size:12px;">
-      <button class=btn-gold onclick="saveCardSize()" style="margin:0;padding:8px 14px;font-size:1
+      <button class=btn-gold onclick="saveCardSize()" style="margin:0;padding:8px 14px;font-size:11px;">{tr['save']}</button>
+    </div>
+    <small style="color:#94a3b8;display:block;margin-top:6px;font-size:11px;">Grid Card Size in px (Network & Towers pages).</small>
+  </div>
+</div>
+<script>
+document.getElementById("formPass").addEventListener("submit",async e=>{{e.preventDefault();let r=await fetch("/change_pass",{{method:"POST",headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{newpass:e.target.newpass.value}})}});if((await r.json()).ok){{alert("Saved");e.target.reset();}}}});
+window.saveCardSize = async function(){{
+  let sz = document.getElementById("cSize").value;
+  let r = await fetch("/api/set_config", {{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{key:"card_size",value:sz}})}});
+  if((await r.json()).ok){{ document.body.style.setProperty('--cs', sz+'px'); alert('Saved'); }}
+}};
+
+window.openAddUser=function(){{
+  document.getElementById("editBody").innerHTML=`
+    <input id=u_name placeholder="Full Name">
+    <input id=u_phone placeholder="Login Username / Phone">
+    <input id=u_pass type=password placeholder="Password">
+    <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
+    <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:8px">{tr['save']}</button>`;
+  document.getElementById("editModalTitle").textContent="{tr['add']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
+}};
+window.openEditUser=function(phone, name, role){{
+  document.getElementById("editBody").innerHTML=`
+    <input id=u_name value="${{name}}" placeholder="Full Name">
+    <input id=u_phone value="${{phone}}" disabled style="opacity:0.5;cursor:not-allowed">
+    <input id=u_pass type=password placeholder="New Password (Optional)">
+    <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
+    <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:8px">{tr['save']}</button>`;
+  document.getElementById("u_role").value = role;
+  document.getElementById("editModalTitle").textContent="{tr['edit']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
+}};
+window.saveUser=async function(isNew){{
+  let d={{username:document.getElementById('u_name').value, phone:document.getElementById('u_phone').value, password:document.getElementById('u_pass').value, role:document.getElementById('u_role').value}};
+  if(isNew && (!d.phone || !d.password)) return alert('Missing info');
+  let url = isNew ? '/api/users/add' : '/api/users/edit';
+  let r=await fetch(url, {{method:'POST',headers:{{"Content-Type":"application/json"}},body:JSON.stringify(d)}});
+  let j=await r.json(); if(j.ok) {{closeEditModal(); loadPage('settings',true);}} else alert(j.msg||'Error');
+}};
+window.delUser=async function(e, phone){{
+  if(!confirm(MSG_SURE)) return;
+  let r=await fetch('/api/users/del/'+phone, {{method:'POST'}});
+  let j=await r.json(); if(j.ok) e.target.closest('tr').remove(); else alert(j.msg||'Cannot delete Admin');
+}};
+</script>"""
+
+    return "<div class=card>404 Not Found</div>"
+
+def layout(c, v='home'):
+    l = request.cookies.get('lang', 'ar'); tr = TR.get(l, TR['ar'])
+    cur_user = qone("SELECT * FROM users WHERE phone=?", (session.get('phone') or '',)) or {}
+    cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
+    c_size = cfg.get('card_size', '110')
+    theme = cfg.get('theme', 'dark')
+    
+    bg_style = "radial-gradient(120% 120% at 10% 10%, #1a2344 0%, #0a0e2a 60%, #070a1f 100%)" if theme=='dark' else "linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%)"
+    card_bg = "rgba(20, 25, 45, 0.4)" if theme=='dark' else "rgba(255, 255, 255, 0.85)"
+    text_color = "#fff" if theme=='dark' else "#0f172a"
+    top_bg = "rgba(15,20,36,0.85)" if theme=='dark' else "rgba(241, 245, 249, 0.9)"
+
+    return f"""<html dir="rtl" lang="{l}"><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>OMAIA ISP</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*{{box-sizing:border-box;font-family:system-ui}}html,body{{margin:0;padding:0}}
+body{{background:{bg_style};color:{text_color};min-height:100vh;overflow-x:hidden; --cs: {c_size}px; transition: background 0.3s, color 0.3s;}}
+.card{{background:{card_bg};backdrop-filter:blur(15px);-webkit-backdrop-filter:blur(15px);color:{text_color};padding:12px;border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 3px 10px rgba(0,0,0,0.15)}}
+.btn-gold{{background:linear-gradient(90deg,#ffbe4d,#ffb020);color:#111;padding:6px 12px;border:0;border-radius:6px;font-weight:800;font-size:11px;cursor:pointer;transition:transform 0.2s}}
+.btn-gold:hover{{transform:translateY(-1px)}}
+.grid-small{{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:8px}}
+.top{{position:fixed;top:0;left:0;right:0;height:50px;background:{top_bg};backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 12px;z-index:1003;border-bottom:1px solid rgba(255,255,255,0.1)}}
+.sidebar{{position:fixed;top:0;bottom:0;width:240px;background:{card_bg};backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-inline-end:1px solid rgba(255,255,255,0.15);box-shadow:0 0 25px rgba(0,0,0,0.4);z-index:1004;padding:16px 10px;transition:transform 0.3s ease;overflow-y:auto;right:0;transform:translateX(110%);border-radius:20px 0 0 20px}}
+.sidebar.active{{transform:translateX(0)}}
+.sidebar a{{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-bottom:6px;color:{text_color};text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;transition:all 0.2s ease}}
+.sidebar a:hover{{background:rgba(255,255,255,0.1);color:#ffbe4d}}
+.sidebar a.active{{background:rgba(255,190,77,0.15);color:#ffbe4d;border:1px solid rgba(255,190,77,0.3)}}
+#overlay{{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px);z-index:1001;display:none;opacity:0;transition:opacity 0.2s}} 
+#overlay.show{{display:block;opacity:1}}
+.main{{margin-top:55px;padding:10px;min-height:90vh}}
+
+.sq-btn{{display:inline-flex;align-items:center;justify-content:center;gap:3px;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;border:none;color:#fff;transition:transform 0.15s ease, filter 0.15s ease;}}
+.sq-btn:hover{{transform:translateY(-1px); filter:brightness(1.1);}}
+.sq-btn.edit{{background:#f59e0b; box-shadow:0 2px 6px rgba(245,158,11,0.3);}}
+.sq-btn.del{{background:#ef4444; box-shadow:0 2px 6px rgba(239,68,68,0.3);}}
+.sq-btn.view{{background:#10b981; box-shadow:0 2px 6px rgba(16,185,129,0.3);}}
+.sq-btn.icon-only{{width:26px;height:26px;padding:0;font-size:12px;}}
+
+.ip{{background:#000;color:#ffbe4d;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px}}
+.badge{{background:#ffbe4d;color:#111;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:800}}
+table{{width:100%;border-collapse:collapse}} th{{background:rgba(255,255,255,0.05);padding:8px;text-align:start;font-size:12px;border-bottom:2px solid rgba(255,255,255,0.1)}} td{{padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px}}
+#editModal{{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:2005;backdrop-filter:blur(4px);opacity:0;transition:opacity 0.2s}}
+#editModal.show{{display:flex;opacity:1}}
+#editBox{{background:rgba(20, 25, 45, 0.95);border:1px solid rgba(255,255,255,0.2);border-radius:12px;padding:16px;width:90%;max-width:380px;box-shadow:0 10px 30px rgba(0,0,0,0.5);transform:translateY(15px);transition:transform 0.2s}}
+#editModal.show #editBox{{transform:translateY(0)}}
+input,select{{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;margin-bottom:8px;font-size:13px;outline:none;transition:border 0.2s}}
+input:focus,select:focus{{border-color:#ffbe4d}}
+.stat{{text-align:center;cursor:pointer;padding:12px 2px}} .stat h4{{margin:4px 0;font-size:12px;color:#cbd5e1}} .stat h3{{margin:4px 0;font-size:18px;font-weight:900}} .ico{{font-size:24px}}
+</style>
+</head><body>
+<div id=overlay onclick="toggleSb(false)"></div>
+<div class=sidebar id=sb>
+<div style='padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:12px;text-align:center'><b style="font-size:18px;font-weight:900;letter-spacing:1px">OMAIA <span style='color:#ffbe4d'>ISP</span></b><br><span class="badge" style="background:rgba(255,255,255,0.1);color:#cbd5e1;margin-top:6px;display:inline-block">👋 {esc(cur_user.get('username') or '')}</span></div>
+<a href="#" onclick="event.preventDefault(); loadPage('home')" id=nav-home>🏠 <span>{tr['home']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('mikrotik')" id=nav-mikrotik>🖧 <span>{tr['mikrotik']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('towers')" id=nav-towers>🗼 <span>{tr['towers']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('dishes')" id=nav-dishes>📡 <span>{tr['dishes']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ping')" id=nav-ping>📶 <span>{tr['ping']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('network')" id=nav-network>📊 <span>{tr['network']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('subs')" id=nav-subs>👥 <span>{tr['subs']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('ledger')" id=nav-ledger>📒 <span>{tr['ledger']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('logs')" id=nav-logs>📜 <span>{tr['logs']}</span></a>
+<a href="#" onclick="event.preventDefault(); loadPage('settings')" id=nav-settings>⚙ <span>{tr['settings']}</span></a>
+<div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;display:flex;flex-direction:column;gap:6px">
+  <div style="display:flex;justify-content:space-around">
+    <a href="/api/set_lang/{tr['toggle_code']}" style="padding:6px 10px;font-size:12px;background:rgba(255,255,255,0.05);border-radius:6px;">🌐 {tr['lang_toggle']}</a>
+    <a href="/logout" style="padding:6px 10px;font-size:12px;background:rgba(239,68,68,0.15);color:#ff6b6b;border-radius:6px;">🚪</a>
+  </div>
+  <div style="padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;text-align:center">
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">{tr['support']}</div>
+    <div style="display:flex;justify-content:center;gap:12px">
+      <a href="https://wa.me/905344851045" target="_blank" style="color:#25d366;font-size:18px;text-decoration:none" title="واتساب"><i class="fa-brands fa-whatsapp"></i></a>
+      <a href="https://instagram.com/af_20_1999" target="_blank" style="color:#e1306c;font-size:18px;text-decoration:none" title="انستغرام"><i class="fa-brands fa-instagram"></i></a>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class=top>
+<div style="display:flex;align-items:center;gap:12px">
+  <span onclick="toggleSb()" style='font-size:22px;cursor:pointer;'>☰</span> 
+  <b style="font-size:16px;font-weight:900">OMAIA <span style='color:#ffbe4d'>ISP</span></b>
+</div>
+<div style="display:flex;align-items:center;gap:10px;">
+  <a href="/api/set_lang/{tr['toggle_code']}" class="sq-btn view" style="text-decoration:none;padding:5px 8px;font-size:11px" title="تغيير اللغة">🌐 {tr['toggle_code'].upper()}</a>
+  <button onclick="toggleTheme()" class="sq-btn edit" style="padding:5px 8px;font-size:11px" title="ليل / نهار">{'🌙' if theme=='dark' else '☀️'}</button>
+</div>
+</div>
+
+<div class=main id=mn>{c}</div>
+
+<div id=editModal><div id=editBox><div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:8px'><b id=editModalTitle style="font-size:14px">--</b><button onclick="closeEditModal()" style='background:transparent;border:0;color:#cbd5e1;cursor:pointer;font-size:18px;'>✕</button></div><div id=editBody></div></div></div>
+
+<script>
+let cur='{v}';
+const MSG_SURE = "{tr['sure']}";
+
+window.openLink = function(ip) {{
+  if(!ip) return; let u = ip.trim();
+  if(!u.startsWith('http://') && !u.startsWith('https://')) u = 'http://' + u;
+  window.open(u, '_blank');
+}};
+
+window.toggleTheme = async function() {{
+  let r = await fetch('/api/toggle_theme', {{method:'POST'}});
+  let j = await r.json();
+  if(j.ok) location.reload();
+}};
+
+window.filterTable = function(inpId, tblId) {{
+  let q = document.getElementById(inpId).value.toLowerCase();
+  document.querySelectorAll('#' + tblId + ' tbody tr').forEach(r => {{
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  }});
+}};
+
+window.filterCards = function(inpId, sel) {{
+  let q = document.getElementById(inpId).value.toLowerCase();
+  document.querySelectorAll(sel).forEach(c => {{
+    c.style.display = c.textContent.toLowerCase().includes(q) ? '' : 'none';
+  }});
+}};
+
+function toggleSb(f){{
+  let sb=document.getElementById('sb'), ov=document.getElementById('overlay'); 
+  let o = f!==undefined ? f : !sb.classList.contains('active'); 
+  if(o) {{ ov.classList.add('show'); setTimeout(()=>sb.classList.add('active'), 10); }}
+  else {{ sb.classList.remove('active'); setTimeout(()=>ov.classList.remove('show'), 200); }}
+}}
+
+async function loadPage(v,force=false){{
+  cur=v; toggleSb(false);
+  document.querySelectorAll('.sidebar a').forEach(a=>a.classList.remove('active'));
+  let n=document.getElementById('nav-'+v); if(n) n.classList.add('active');
+  let mn=document.getElementById('mn'); mn.innerHTML="<div class=card style='text-align:center;padding:30px'>⏳ Loading...</div>";
+  try{{
+    let r=await fetch('/api/page?v='+v);
+    if(r.status===401){{ location.replace('/login'); return; }}
+    let t=await r.text();
+    if(t.includes('"ok":false') && t.includes('غير مسجل')){{ location.replace('/login'); return; }}
+    mn.innerHTML=t;
+    execScripts();
+  }}catch(e){{ mn.innerHTML=`<div class=card style="color:#ef4444;text-align:center">Error Loading Page</div>`; }}
+}}
+function execScripts(){{document.getElementById('mn').querySelectorAll('script').forEach(o=>{{let s=document.createElement('script'); s.textContent=o.textContent; document.body.appendChild(s); o.remove();}});}}
+
+window.closeEditModal=()=>{{
+  let md = document.getElementById('editModal');
+  md.style.opacity = '0';
+  setTimeout(() => md.classList.remove('show'), 200);
+}};
+loadPage(cur,true);
+</script></body></html>"""
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
