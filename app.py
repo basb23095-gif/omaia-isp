@@ -37,7 +37,7 @@ BTN_DEL = """<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" view
 TR = {
     'ar': {
         'dir': 'rtl', 'toggle_code': 'en', 'lang_toggle': 'English',
-        'home': 'الرئيسية', 'towers': 'الأبراج', 'dishes': 'الصحون والآيبيهات',
+        'home': 'الرئيسية', 'towers': 'الأبراج والصحون', 'dishes': 'الآيبيهات',
         'ping': 'البنج (Ping)', 'network': 'الشبكة', 'subs': 'المشتركين', 'ledger': 'الحسابات',
         'users': 'المستخدمين', 'logs': 'السجل', 'settings': 'الإعدادات', 'logout': 'تسجيل خروج',
         'add': 'إضافة', 'edit': 'تعديل', 'delete': 'حذف', 'save': 'حفظ',
@@ -48,7 +48,7 @@ TR = {
     },
     'en': {
         'dir': 'rtl', 'toggle_code': 'ar', 'lang_toggle': 'العربية',
-        'home': 'Home', 'towers': 'Towers', 'dishes': 'Dishes & IPs',
+        'home': 'Home', 'towers': 'Towers & Dishes', 'dishes': 'Dishes & IPs',
         'ping': 'Ping Check', 'network': 'Network', 'subs': 'Subscribers', 'ledger': 'Ledger',
         'users': 'Users', 'logs': 'Logs', 'settings': 'Settings', 'logout': 'Logout',
         'add': 'Add', 'edit': 'Edit', 'delete': 'Delete', 'save': 'Save',
@@ -615,21 +615,84 @@ window.delMk=async function(e, id){{
 }};
 </script>"""
 
-    # --- صفحة الأبراج مستقلة وحدها ---
+    # --- صفحة الأبراج مستقلة مع قوائم منسدلة لعرض الصحون التابعة لكل برج ---
     if v == 'towers':
         all_towers = qall("SELECT * FROM towers ORDER BY name ASC")
-        towers_cards = "".join([f"""
-        <div class="card tower-card" style="display:flex;justify-content:space-between;align-items:center;padding:16px;">
-            <div>
-                <b style="font-size:15px;color:#38bdf8">🗼 {esc(t['name'])}</b>
-                <div style="font-size:11px;color:#94a3b8;margin-top:4px">📍 {esc(t.get('area') or 'حلب/سوريا')}</div>
+        all_dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
+        dishes_by_tower = defaultdict(list)
+        for d in all_dishes:
+            dishes_by_tower[d.get('tower_id') or 0].append(d)
+
+        towers_html = ""
+        for t in all_towers:
+            tid = t['id']
+            tname = esc(t['name'])
+            t_dishes = dishes_by_tower[tid]
+            cnt = len(t_dishes)
+
+            dishes_rows = "".join([f"""
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:8px 12px;border-radius:8px;margin-top:6px">
+                <div><b>{esc(d.get('dish_name') or '--')}</b> <span class="ip" style="font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span></div>
+                <div style="display:flex;gap:4px">
+                    <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
+                    <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
+                </div>
             </div>
-            <div style="display:flex;gap:8px">
-                <button class="btn-glass btn-edit" onclick="openEditTower({t['id']}, '{esc(t['name'])}', '{esc(t.get('area') or '')}')">{BTN_EDIT} {tr['edit']}</button>
-                <button class="btn-glass btn-del" onclick="delTower(event, {t['id']})">{BTN_DEL} {tr['delete']}</button>
+            """ for d in t_dishes]) or f"<div style='color:#777;font-size:11px;padding:8px'>{tr['empty']}</div>"
+
+            towers_html += f"""
+            <div class="card tower-item" style="padding:14px;margin-bottom:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div onclick="toggleTower({tid})" style="cursor:pointer;flex:1">
+                        <b style="font-size:15px;color:#38bdf8">🗼 {tname}</b> <span class="badge" style="background:rgba(255,190,77,0.2);color:#ffbe4d">{cnt}</span>
+                        <div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {esc(t.get('area') or 'حلب/سوريا')}</div>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <button class="btn-glass btn-edit" onclick="openEditTower({tid}, '{tname}', '{esc(t.get('area') or '')}')">{BTN_EDIT} {tr['edit']}</button>
+                        <button class="btn-glass btn-del" onclick="delTower(event, {tid})">{BTN_DEL} {tr['delete']}</button>
+                        <div onclick="toggleTower({tid})" style="cursor:pointer;font-size:14px;color:#aaa;padding:0 6px">▼</div>
+                    </div>
+                </div>
+                <div id="tower-list-{tid}" style="display:none;margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px">
+                    {dishes_rows}
+                    <button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-top:10px;padding:6px;font-size:11px;border-radius:9999px;">{tr['add_dish']}</button>
+                </div>
+            </div>
+            """
+
+        # بدون برج
+        un_dishes = dishes_by_tower[0]
+        un_cnt = len(un_dishes)
+        un_rows = "".join([f"""
+        <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:8px 12px;border-radius:8px;margin-top:6px">
+            <div><b>{esc(d.get('dish_name') or '--')}</b> <span class="ip" style="font-size:11px;padding:2px 6px" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span></div>
+            <div style="display:flex;gap:4px">
+                <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
+                <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
             </div>
         </div>
-        """ for t in all_towers]) or f"<div class=card style='text-align:center;color:#666'>{tr['empty']}</div>"
+        """ for d in un_dishes]) or f"<div style='color:#777;font-size:11px;padding:8px'>{tr['empty']}</div>"
+
+        towers_html += f"""
+        <div class="card tower-item" style="padding:14px;border:1px solid rgba(239,68,68,0.3)">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <div onclick="toggleTower(0)" style="cursor:pointer;flex:1">
+                    <b style="font-size:15px;color:#ef4444">بدون برج / Unassigned</b> <span class="badge" style="background:#ef4444;color:#fff">{un_cnt}</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <div onclick="toggleTower(0)" style="cursor:pointer;font-size:14px;color:#aaa;padding:0 6px">▼</div>
+                </div>
+            </div>
+            <div id="tower-list-0" style="display:none;margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px">
+                {un_rows}
+                <button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;margin-top:10px;padding:6px;font-size:11px;border-radius:9999px;">{tr['add_dish']}</button>
+            </div>
+        </div>
+        """
+
+        t_opts = "<option value='0'>---</option>"
+        for t in all_towers:
+            t_opts += f"<option value='{t['id']}'>{esc(t['name'])}</option>"
 
         return f"""
 <div style="max-width:1100px;margin:0 auto">
@@ -637,10 +700,14 @@ window.delMk=async function(e, id){{
     <b>{tr['towers']}</b>
     <button class=btn-gold onclick="openNewTower()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_tower']}</button>
   </div>
-  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
-  <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{towers_cards}</div>
+  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-item')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{towers_html}</div>
 </div>
 <script>
+window.toggleTower = function(id) {{
+  let el = document.getElementById('tower-list-' + id);
+  if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}};
 window.openNewTower=function(){{
   document.getElementById("editBody").innerHTML=`<input id=nt_name placeholder="Name"><input id=nt_area placeholder="Area"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
   document.getElementById("editModalTitle").textContent="{tr['add_tower']}"; document.getElementById("editModal").classList.add("show");
@@ -660,15 +727,35 @@ window.delTower=async function(e, id){{
   let card = e.currentTarget.closest('.card');
   if(await window.apiPost('/del_tower/'+id, {{}})) card.remove();
 }};
+window.openDishModal=function(id, tid, name, ip, loc){{
+  document.getElementById("editBody").innerHTML=`
+    <input id="dish_name" placeholder="{tr['name']}" value="${{name}}">
+    <input id="dish_ip" placeholder="IP / Domain" value="${{ip}}">
+    <input id="dish_loc" placeholder="Location/Note" value="${{loc}}">
+    <select id="dish_tid" style="font-weight:bold">{t_opts}</select>
+    <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+  `;
+  document.getElementById("dish_tid").value = tid;
+  document.getElementById("editModalTitle").textContent = id===0 ? "{tr['add']}" : "{tr['edit']}";
+  document.getElementById("editModal").classList.add("show");
+}};
+window.saveDish=async function(id){{
+  let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
+  if(!d.ip) return alert('يرجى كتابة الآي بي أو الدومين');
+  let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
+  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage('towers', true); }}
+}};
+window.delDish=async function(e, id){{
+  if(!confirm(MSG_SURE)) return;
+  let row = e.currentTarget.closest('div[style*="background"]');
+  if(await window.apiPost('/del_dish/'+id, {{}})) row.remove();
+}};
 </script>"""
 
     # --- صفحة الصحون والآيبيهات مستقلة وحدها ---
     if v == 'dishes':
         all_towers = qall("SELECT * FROM towers ORDER BY name ASC")
         all_dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
-        cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
-        un_name = esc(cfg.get('unassigned_name', 'بدون برج / Unassigned'))
-
         t_opts = "<option value='0'>---</option>"
         for t in all_towers:
             t_opts += f"<option value='{t['id']}'>{esc(t['name'])}</option>"
