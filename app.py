@@ -369,7 +369,7 @@ input{{width:100%;padding:12px;margin:7px 0;background:#0f1424;border:1px solid 
 <script>
 document.getElementById('loginForm').addEventListener('submit', async e => {{
   e.preventDefault(); let b = document.getElementById('loginBtn'), m = document.getElementById('msg'); b.textContent = '...'; b.disabled = true;
-  try {{ let fd = new FormData(e.target); let res = await fetch('/api/login_public', {method: 'POST', body: fd}); let j = await res.json();
+  try {{ let fd = new FormData(e.target); let res = await fetch('/api/login_public', {{method: 'POST', body: fd}}); let j = await res.json();
   if(j.ok) {{ location.replace('/dash?v=home'); }} else {{ m.textContent = j.msg; b.textContent = 'دخول ⚡'; b.disabled = false; }}
   }} catch {{ m.textContent = 'خطأ شبكة'; b.textContent = 'دخول ⚡'; b.disabled = false; }}
 }});
@@ -625,13 +625,13 @@ window.saveDish = async function() {{
     let name = document.getElementById('mName').value.trim(); let ip = document.getElementById('mIp').value.trim(); let loc = document.getElementById('mLoc').value.trim(); let tid = document.getElementById('mTid').value;
     let cacheKey = 'dish_add_' + ip;
     if(localStorage.getItem(cacheKey)) {{ alert('تم تخزين هذا الصحن مسبقاً (كاش)'); return; }}
-    if(!ip) return; let r = await fetch('/api/add_dish_to_tower', {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ip: ip, dish_name: name || 'صحن', location: loc, tower_id: tid})}); let j = await r.json();
+    if(!ip) return; let r = await fetch('/api/add_dish_to_tower', {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({ip: ip, dish_name: name || 'صحن', location: loc, tower_id: tid})}}); let j = await r.json();
     if(j.ok) {{ localStorage.setItem(cacheKey, '1'); closeAddDishModal(); document.getElementById('tower-acc-' + tid).dataset.loaded = '0'; toggleAccordionLazy(parseInt(tid)); }}
 }};
 window.openEditDish = async function(id) {{ try {{ let r = await fetch('/api/dish_detail/' + id); let j = await r.json(); if(!j.ok) return; let d = j.dish; let b = document.getElementById("editBody"); b.innerHTML = '<input id=ed_n value="' + d.dish_name + '"><input id=ed_i value="' + d.ip + '"><input id=ed_l value="' + (d.location || '') + '"><button class=btn-gold onclick="saveEditDish(' + id + ')" style="width:100%;margin-top:8px">حفظ</button>'; document.getElementById("editModalTitle").textContent = "تعديل صحن"; document.getElementById("editModal").classList.add("show"); }} catch(e) {{ alert(e); }} }};
-window.saveEditDish = async function(id) {{ let d = {dish_name: document.getElementById("ed_n").value, ip: document.getElementById("ed_i").value, location: document.getElementById("ed_l").value}; let r = await fetch("/edit_dish/" + id, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d)}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
+window.saveEditDish = async function(id) {{ let d = {{dish_name: document.getElementById("ed_n").value, ip: document.getElementById("ed_i").value, location: document.getElementById("ed_l").value}}; let r = await fetch("/edit_dish/" + id, {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d)}}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
 window.openNewTowerAcc = function() {{ let b = document.getElementById("editBody"); b.innerHTML = '<input id=nt_name placeholder="اسم البرج"><input id=nt_area placeholder="المنطقة"><div class=row><input id=nt_lat value="35.1318"><input id=nt_lng value="36.7578"></div><button class=btn-gold onclick="saveNewTowerAcc()" style="width:100%">حفظ</button>'; document.getElementById("editModalTitle").textContent = "إضافة برج"; document.getElementById("editModal").classList.add("show"); }};
-window.saveNewTowerAcc = async function() {{ let d = {name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value}; if(!d.name) return; let r = await fetch("/add_tower", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d)}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
+window.saveNewTowerAcc = async function() {{ let d = {{name: document.getElementById("nt_name").value, area: document.getElementById("nt_area").value, lat: document.getElementById("nt_lat").value, lng: document.getElementById("nt_lng").value}}; if(!d.name) return; let r = await fetch("/add_tower", {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(d)}}); let j = await r.json(); if(j.ok) {{ closeEditModal(); loadPage('dishes', true); }} }};
 </script>"""
     if v == 'map':
         return """<div class=card><div class=row><input id=mapSearch placeholder="بحث..."><button class=btn-gold onclick="loadTowersForMap()">تحديث</button></div><div id=map style="height:70vh;border-radius:10px;margin-top:10px"></div></div>
