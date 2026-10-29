@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+\# -*- coding: utf-8 -*-
 from flask import Flask, request, redirect, session, jsonify, Response
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -618,26 +618,26 @@ setTimeout(() => {
     if v == 'logs':
         rs = qall("SELECT * FROM logs ORDER BY id DESC LIMIT 500")
         rows = "".join([f"<tr><td>{esc(r.get('time',''))}</td><td><b style='color:var(--accent)'>{esc(r.get('username') or r.get('user_phone',''))}</b></td><td><span class=badge>{esc(r.get('action',''))}</span></td><td>{esc(r.get('target',''))}</td><td><small>{esc(r.get('detail',''))}</small></td></tr>" for r in rs]) or "<tr><td colspan=5>لا يوجد سجل</td></tr>"
-        return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل</b><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>المستخدم</th><th>عمل</th><th>الهدف</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs = async () => { if(!confirm("مسح؟")) return; await fetch("/api/clear_logs", {method: "POST"}); loadPage("logs", true); };</script>"""
+        return f"""<div class=card><div class=row style="justify-content:space-between"><b>📜 السجل</b><button class=btn-gold onclick="clearLogs()" style="background:#ef4444">مسح</button></div><table style="width:100%;margin-top:8px"><thead><tr><th>وقت</th><th>المستخدم</th><th>عمل</th><th>الهدف</th><th>تفصيل</th></tr></thead><tbody>{rows}</tbody></table></div><script>window.clearLogs = async () => {{ if(!confirm("مسح؟")) return; await fetch("/api/clear_logs", {{method: "POST"}}); loadPage("logs", true); }};</script>"""
     if v == 'subs':
         rs = qall("SELECT * FROM subs ORDER BY name ASC LIMIT 50")
         rows = "".join([f"<tr id=sub-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{esc(r.get('phone') or '')}</td><td>{esc(r.get('note') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_sub/{r.get('id')}',{r.get('id')},'مشترك')\">🗑 حذف</button></td></tr>" for r in rs])
         return f"""<div class=card><div class=row style="justify-content:space-between"><b>👥 المشتركين</b><button class=btn-gold onclick="document.getElementById('fSub').style.display='flex'">+ إضافة</button></div><form id=fSub class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=phone placeholder="رقم" style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>رقم</th><th>ملاحظة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
-<script>document.getElementById("fSub").addEventListener("submit", async e => { e.preventDefault(); let r = await fetch("/add_sub", {method: "POST", body: new FormData(e.target)}); let j = await r.json(); if(j.ok) loadPage('subs', true); });</script>"""
+<script>document.getElementById("fSub").addEventListener("submit", async e => {{ e.preventDefault(); let r = await fetch("/add_sub", {{method: "POST", body: new FormData(e.target)}}); let j = await r.json(); if(j.ok) loadPage('subs', true); }});</script>"""
     if v == 'ledger':
         rs = qall("SELECT * FROM ledger ORDER BY id DESC LIMIT 50")
         rows = "".join([f"<tr id=led-{r.get('id')}><td>{esc(r.get('name') or '')}</td><td>{r.get('amount')}</td><td>{esc(r.get('note') or '')}</td><td>{esc(r.get('currency') or '')}</td><td><button class=\"btn-circle del\" onclick=\"openDeleteModal('/del_ledger/{r.get('id')}',{r.get('id')},'حساب')\">🗑 حذف</button></td></tr>" for r in rs])
         return f"""<div class=card><div class=row style="justify-content:space-between"><b>📒 الحسابات</b><button class=btn-gold onclick="document.getElementById('fLed').style.display='flex'">+ إضافة</button></div><form id=fLed class=row style="display:none;margin-top:8px"><input name=name placeholder="اسم" required style="flex:1"><input name=amount type=number step=0.01 placeholder="مبلغ" required style="flex:1"><input name=note placeholder="ملاحظة" style="flex:1"><select name=currency><option>USD</option><option>SYP</option></select><button class=btn-gold>+</button></form><table style="width:100%;margin-top:8px"><thead><tr><th>اسم</th><th>مبلغ</th><th>ملاحظة</th><th>عملة</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
-<script>document.getElementById("fLed").addEventListener("submit", async e => { e.preventDefault(); let r = await fetch("/add_ledger", {method: "POST", body: new FormData(e.target)}); let j = await r.json(); if(j.ok) loadPage('ledger', true); });</script>"""
+<script>document.getElementById("fLed").addEventListener("submit", async e => {{ e.preventDefault(); let r = await fetch("/add_ledger", {{method: "POST", body: new FormData(e.target)}}); let j = await r.json(); if(j.ok) loadPage('ledger', true); }});</script>"""
     if v == 'network':
         dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC LIMIT 100")
         cards = "".join([f'''<div class="card ip-card" id="net-{d.get('id')}" data-ip="{esc(d.get('ip') or '')}"><div style="display:flex;justify-content:space-between"><b style="font-size:12px">{esc(d.get('dish_name') or '')}</b></div><div style="margin-top:6px"><span class=ip onclick="window.open('http://{esc(d.get('ip') or '')}','_blank')">{esc(d.get('ip') or '')}</span> <span class="net-out" style="font-size:10px">...</span></div></div>''' for d in dishes])
         return f"""<div class=card><div class=row style="justify-content:space-between"><b>📊 الشبكة</b><button class=btn-gold onclick="checkAll()">فحص</button></div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px">{cards}</div></div>
-<script>window.checkAll = async () => { for(let c of document.querySelectorAll("[id^=net-]")) { try { let r = await fetch("/api/ping?ip=" + c.dataset.ip); let j = await r.json(); c.querySelector(".net-out").textContent = j.out; } catch {} await new Promise(r => setTimeout(r, 50)); } };</script>"""
+<script>window.checkAll = async () => {{ for(let c of document.querySelectorAll("[id^=net-]")) {{ try {{ let r = await fetch("/api/ping?ip=" + c.dataset.ip); let j = await r.json(); c.querySelector(".net-out").textContent = j.out; }} catch {{}} await new Promise(r => setTimeout(r, 50)); }} }};</script>"""
     if v == 'settings':
         us = qall("SELECT * FROM users ORDER BY phone ASC")
         cards = "".join([f"<div class='card'><b>{esc(u.get('username') or u.get('phone') or '')}</b><br>{esc(u.get('phone') or '')} <span class=badge>{esc(u.get('role') or '')}</span></div>" for u in us])
-        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card><h4>🔑 تغيير كلمة المرور</h4><form id=formPass class=row><input name=newpass type=password placeholder="كلمة المرور الجديدة" required style="flex:1"><button class=btn-gold>حفظ</button></form></div><div class=card style="margin-top:12px"><b>👥 اليوزرات</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:8px">{cards}</div></div></div><script>document.getElementById("formPass").addEventListener("submit", async e => { e.preventDefault(); let r = await fetch("/change_pass", {method: "POST", body: new FormData(e.target)}); let j = await r.json(); if(j.ok) e.target.reset(); });</script>"""
+        return f"""<div style="max-width:1100px;margin:0 auto"><div class=card><h4>🔑 تغيير كلمة المرور</h4><form id=formPass class=row><input name=newpass type=password placeholder="كلمة المرور الجديدة" required style="flex:1"><button class=btn-gold>حفظ</button></form></div><div class=card style="margin-top:12px"><b>👥 اليوزرات</b><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:8px">{cards}</div></div></div><script>document.getElementById("formPass").addEventListener("submit", async e => {{ e.preventDefault(); let r = await fetch("/change_pass", {{method: "POST", body: new FormData(e.target)}}); let j = await r.json(); if(j.ok) e.target.reset(); }});</script>"""
     return "<div class=card>404</div>"
 
 def layout(c, v='home'):
@@ -762,7 +762,7 @@ async function loadPage(v, force = false) {{
     cur = v; toggleSb(false); document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active')); let n = document.getElementById('nav-' + v); if(n) n.classList.add('active');
     let mn = document.getElementById('mn');
     mn.innerHTML = '<div style="text-align:center;padding:40px">جاري التحميل...</div>';
-    try {{ let r = await fetch('/api/page?v=' + v, {cache: 'no-store'}); let h = await r.text(); mn.innerHTML = h; execScripts(); }}
+    try {{ let r = await fetch('/api/page?v=' + v, {{cache: 'no-store'}}); let h = await r.text(); mn.innerHTML = h; execScripts(); }}
     catch {{ mn.innerHTML = '<div class=card>خطأ بالتحميل</div>'; }}
 }}
 function execScripts() {{ document.getElementById('mn').querySelectorAll('script').forEach(o => {{ let s = document.createElement('script'); s.textContent = o.textContent; document.body.appendChild(s); o.remove(); }}); }}
@@ -779,7 +779,7 @@ window.openDeleteModal = function(url, id, name) {{
 }};
 window.toggleLangFast = async () => {{ try {{ let r = await fetch('/toggle_lang'); let j = await r.json(); location.reload(); }} catch {{}} }};
 window.toggleThemeFast = async () => {{ try {{ let r = await fetch('/toggle_theme'); let j = await r.json(); document.body.className = j.theme; }} catch {{}} }};
-window.logoutFast = async () => {{ try {{ let r = await fetch('/api/logout', {method: 'POST'}); }} catch {} location.replace('/login'); }};
+window.logoutFast = async () => {{ try {{ let r = await fetch('/api/logout', {{method: 'POST'}}); }} catch {} location.replace('/login'); }};
 loadPage(cur, true);
 </script></body></html>"""
 
