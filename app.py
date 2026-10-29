@@ -615,118 +615,30 @@ window.delMk=async function(e, id){{
 }};
 </script>"""
 
-    if v == 'towers' or v == 'dishes':
+    # --- صفحة الأبراج مستقلة وحدها ---
+    if v == 'towers':
         all_towers = qall("SELECT * FROM towers ORDER BY name ASC")
-        all_dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
-        
-        cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
-        un_name = esc(cfg.get('unassigned_name', 'بدون برج / Unassigned'))
-
-        dishes_by_tower = defaultdict(list)
-        for d in all_dishes:
-            dishes_by_tower[d.get('tower_id') or 0].append(d)
-
-        towers_grid_html = ""
-        t_opts = "<option value='0'>---</option>"
-
-        for idx, t in enumerate(all_towers):
-            tid = t['id']
-            tname = esc(t['name'])
-            tare = esc(t.get('area') or '')
-            t_opts += f"<option value='{tid}'>{tname}</option>"
-            
-            t_dishes = dishes_by_tower[tid]
-            cnt = len(t_dishes)
-            
-            dishes_list_html = "".join([f"""
-            <div class="dish-item" style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:10px 12px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(255,255,255,0.03)">
-                <div>
-                    <b style="font-size:13px;color:#fff">{esc(d.get('dish_name') or '--')}</b>
-                    <div style="margin-top:4px"><span class="ip" style="cursor:pointer;font-size:11px;padding:3px 8px;" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:11px">{esc(d.get('location') or '')}</small></div>
-                </div>
-                <div style="display:flex;gap:4px">
-                    <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {tid}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
-                    <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
-                </div>
-            </div>""" for d in t_dishes]) or f'<div style="color:#666;font-size:12px;text-align:center;padding:15px">{tr["empty"]}</div>'
-
-            is_fixed_tower = (idx == 0)
-            edit_tower_btns = ""
-            if not is_fixed_tower:
-                edit_tower_btns = f"""
-                <button class="btn-glass btn-edit" style="flex:1" onclick="openEditTower({tid}, '{tname}', '{tare}')">{BTN_EDIT} {tr['edit']}</button>
-                <button class="btn-glass btn-del" style="flex:1" onclick="delTower(event, {tid})">{BTN_DEL} {tr['delete']}</button>
-                """
-
-            towers_grid_html += f"""
-            <div class="card tower-card" style="display:flex;flex-direction:column;justify-content:space-between;padding:16px;">
-                <div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
-                        <div>
-                            <b style="font-size:15px;color:#38bdf8">🗼 {tname}</b>
-                            <div style="font-size:11px;color:#94a3b8;margin-top:2px">📍 {tare or 'حلب/سوريا'}</div>
-                        </div>
-                        <span class="badge" style="background:rgba(255,190,77,0.2);color:#ffbe4d;font-size:12px;padding:4px 10px">{cnt}</span>
-                    </div>
-                    <div style="max-height:220px;overflow-y:auto;margin-bottom:10px">{dishes_list_html}</div>
-                </div>
-                <div>
-                    <button class="btn-gold" onclick="openDishModal(0, {tid},'','','')" style="width:100%;margin-bottom:8px;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
-                    <div style="display:flex;gap:6px">{edit_tower_btns}</div>
-                </div>
-            </div>
-            """
-
-        u_dishes = dishes_by_tower[0]
-        u_cnt = len(u_dishes)
-        u_dishes_list = "".join([f"""
-        <div class="dish-item" style="display:flex;justify-content:space-between;align-items:center;background:rgba(0,0,0,0.2);padding:10px 12px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(255,255,255,0.03)">
+        towers_cards = "".join([f"""
+        <div class="card tower-card" style="display:flex;justify-content:space-between;align-items:center;padding:16px;">
             <div>
-                <b style="font-size:13px;color:#fff">{esc(d.get('dish_name') or '--')}</b>
-                <div style="margin-top:4px"><span class="ip" style="cursor:pointer;font-size:11px;padding:3px 8px;" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:11px">{esc(d.get('location') or '')}</small></div>
+                <b style="font-size:15px;color:#38bdf8">🗼 {esc(t['name'])}</b>
+                <div style="font-size:11px;color:#94a3b8;margin-top:4px">📍 {esc(t.get('area') or 'حلب/سوريا')}</div>
             </div>
-            <div style="display:flex;gap:4px">
-                <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, 0, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
-                <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
-            </div>
-        </div>""" for d in u_dishes]) or f'<div style="color:#666;font-size:12px;text-align:center;padding:15px">{tr["empty"]}</div>'
-
-        unassigned_card = f"""
-        <div class="card tower-card" style="display:flex;flex-direction:column;justify-content:space-between;padding:16px;border:1px solid rgba(239,68,68,0.3)">
-            <div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:10px">
-                    <div>
-                        <b style="font-size:15px;color:#ef4444">{un_name}</b>
-                        <div style="font-size:11px;color:#94a3b8;margin-top:2px">غير مصنف</div>
-                    </div>
-                    <div style="display:flex;gap:6px;align-items:center">
-                        <span class="badge" style="background:#ef4444;color:#fff;font-size:12px;padding:4px 10px">{u_cnt}</span>
-                        <button class="btn-glass btn-edit icon-only" style="width:26px;height:26px" onclick="editUnassignedName()">{BTN_EDIT}</button>
-                    </div>
-                </div>
-                <div style="max-height:220px;overflow-y:auto;margin-bottom:10px">{u_dishes_list}</div>
-            </div>
-            <div>
-                <button class="btn-gold" onclick="openDishModal(0, 0,'','','')" style="width:100%;padding:8px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
+            <div style="display:flex;gap:8px">
+                <button class="btn-glass btn-edit" onclick="openEditTower({t['id']}, '{esc(t['name'])}', '{esc(t.get('area') or '')}')">{BTN_EDIT} {tr['edit']}</button>
+                <button class="btn-glass btn-del" onclick="delTower(event, {t['id']})">{BTN_DEL} {tr['delete']}</button>
             </div>
         </div>
-        """
+        """ for t in all_towers]) or f"<div class=card style='text-align:center;color:#666'>{tr['empty']}</div>"
 
         return f"""
-<div style="max-width:1300px;margin:0 auto">
+<div style="max-width:1100px;margin:0 auto">
   <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;">
-    <b>{tr['towers']} & {tr['dishes']}</b>
-    <div style="display:flex;gap:10px">
-        <button class=btn-gold onclick="openNewTower()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_tower']}</button>
-        <button class=btn-gold onclick="openDishModal(0,0,'','','')" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
-    </div>
+    <b>{tr['towers']}</b>
+    <button class=btn-gold onclick="openNewTower()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_tower']}</button>
   </div>
   <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
-  
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin-top:12px">
-    {towers_grid_html}
-    {unassigned_card}
-  </div>
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{towers_cards}</div>
 </div>
 <script>
 window.openNewTower=function(){{
@@ -748,12 +660,42 @@ window.delTower=async function(e, id){{
   let card = e.currentTarget.closest('.card');
   if(await window.apiPost('/del_tower/'+id, {{}})) card.remove();
 }};
-window.editUnassignedName = async function() {{
-    let newName = prompt("{tr['unassigned_edit']}");
-    if(newName) {{
-        if(await window.apiPost('/api/set_config', {{key:'unassigned_name', value:newName}})) loadPage('towers', true);
-    }}
-}};
+</script>"""
+
+    # --- صفحة الصحون والآيبيهات مستقلة وحدها ---
+    if v == 'dishes':
+        all_towers = qall("SELECT * FROM towers ORDER BY name ASC")
+        all_dishes = qall("SELECT * FROM dish_ips ORDER BY dish_name ASC")
+        cfg = {r['key']: r['value'] for r in qall("SELECT * FROM system_config")}
+        un_name = esc(cfg.get('unassigned_name', 'بدون برج / Unassigned'))
+
+        t_opts = "<option value='0'>---</option>"
+        for t in all_towers:
+            t_opts += f"<option value='{t['id']}'>{esc(t['name'])}</option>"
+
+        dishes_cards = "".join([f"""
+        <div class="card dish-card" style="display:flex;justify-content:space-between;align-items:center;padding:14px;">
+            <div>
+                <b style="font-size:14px;color:#fff">{esc(d.get('dish_name') or '--')}</b>
+                <div style="margin-top:4px"><span class="ip" style="cursor:pointer;font-size:11px;padding:3px 8px;" onclick="openLink('{esc(d.get('ip'))}')">{esc(d.get('ip'))}</span> <small style="color:#94a3b8;font-size:11px">{esc(d.get('location') or '')}</small></div>
+            </div>
+            <div style="display:flex;gap:6px">
+                <button class="btn-glass btn-edit icon-only" onclick="openDishModal({d['id']}, {d.get('tower_id') or 0}, '{esc(d.get('dish_name') or '')}', '{esc(d.get('ip') or '')}', '{esc(d.get('location') or '')}')">{BTN_EDIT}</button>
+                <button class="btn-glass btn-del icon-only" onclick="delDish(event, {d['id']})">{BTN_DEL}</button>
+            </div>
+        </div>
+        """ for d in all_dishes]) or f"<div class=card style='text-align:center;color:#666'>{tr['empty']}</div>"
+
+        return f"""
+<div style="max-width:1100px;margin:0 auto">
+  <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;">
+    <b>{tr['dishes']}</b>
+    <button class=btn-gold onclick="openDishModal(0,0,'','','')" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
+  </div>
+  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.dish-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{dishes_cards}</div>
+</div>
+<script>
 window.openDishModal=function(id, tid, name, ip, loc){{
   document.getElementById("editBody").innerHTML=`
     <input id="dish_name" placeholder="{tr['name']}" value="${{name}}">
@@ -770,11 +712,11 @@ window.saveDish=async function(id){{
   let d={{dish_name:document.getElementById("dish_name").value, ip:document.getElementById("dish_ip").value, location:document.getElementById("dish_loc").value, tower_id:document.getElementById("dish_tid").value}};
   if(!d.ip) return alert('يرجى كتابة الآي بي أو الدومين');
   let url = id === 0 ? '/api/add_dish_to_tower' : '/api/edit_dish/'+id;
-  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage(cur, true); }}
+  if(await window.apiPost(url, d)) {{ closeEditModal(); loadPage('dishes', true); }}
 }};
 window.delDish=async function(e, id){{
   if(!confirm(MSG_SURE)) return;
-  let row = e.currentTarget.closest('.dish-item');
+  let row = e.currentTarget.closest('.card');
   if(await window.apiPost('/del_dish/'+id, {{}})) row.remove();
 }};
 </script>"""
