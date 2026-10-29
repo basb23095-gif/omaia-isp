@@ -510,9 +510,9 @@ input:focus{{border-color:#ffbe4d}}
 </style></head><body>
 <div class=card>
 <div style='text-align:center;font-weight:900;font-size:26px;margin-bottom:16px'>OMAIA <span style='color:#ffbe4d'>ISP</span></div>
-<form id=loginForm>
-<input name=userin placeholder='{tr.get('phone', 'اسم الدخول/الهاتف')}' required autofocus>
-<input name=password type=password placeholder='***' required>
+<form id=loginForm autocomplete="off">
+<input name=userin placeholder='{tr.get('phone', 'اسم الدخول/الهاتف')}' required autofocus autocomplete="username">
+<input name=password type=password placeholder='***' required autocomplete="current-password">
 <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:10px;cursor:pointer">
   <input type="checkbox" name="remember" id="rememberBox" style="width:auto;margin:0"> حفظ الدخول
 </label>
@@ -625,11 +625,11 @@ def page_content(v):
 </div>
 <script>
 window.openAddMikrotikModal=function(){{
-  document.getElementById("editBody").innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><input id="mk_name" placeholder="Name"><input id="mk_host" placeholder="IP / Domain"><input id="mk_user" placeholder="User"><input id="mk_pwd" type="password" placeholder="Pass"><input id="mk_port" type="number" value="8728"><button class="btn-gold" onclick="saveMikrotik(0)" style="width:100%;margin-top:4px;border-radius:9999px">{tr['save']}</button></div>`;
+  document.getElementById("editBody").innerHTML=`<div style="display:flex;flex-direction:column;gap:6px" autocomplete="off"><input id="mk_name" placeholder="Name" autocomplete="off"><input id="mk_host" placeholder="IP / Domain" autocomplete="off"><input id="mk_user" placeholder="User" autocomplete="off"><input id="mk_pwd" type="password" placeholder="Pass" autocomplete="new-password"><input id="mk_port" type="number" value="8728"><button class="btn-gold" onclick="saveMikrotik(0)" style="width:100%;margin-top:4px;border-radius:9999px">{tr['save']}</button></div>`;
   document.getElementById("editModalTitle").textContent="{tr['add']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.openEditMikrotikModal=function(id, name, host, user, port){{
-  document.getElementById("editBody").innerHTML=`<div style="display:flex;flex-direction:column;gap:6px"><input id="mk_name" value="${{name}}" placeholder="Name"><input id="mk_host" value="${{host}}" placeholder="IP / Domain"><input id="mk_user" value="${{user}}" placeholder="User"><input id="mk_pwd" type="password" placeholder="New Pass (Optional)"><input id="mk_port" type="number" value="${{port}}"><button class="btn-gold" onclick="saveMikrotik(${{id}})" style="width:100%;margin-top:4px;border-radius:9999px">{tr['save']}</button></div>`;
+  document.getElementById("editBody").innerHTML=`<div style="display:flex;flex-direction:column;gap:6px" autocomplete="off"><input id="mk_name" value="${{name}}" placeholder="Name" autocomplete="off"><input id="mk_host" value="${{host}}" placeholder="IP / Domain" autocomplete="off"><input id="mk_user" value="${{user}}" placeholder="User" autocomplete="off"><input id="mk_pwd" type="password" placeholder="New Pass (Optional)" autocomplete="new-password"><input id="mk_port" type="number" value="${{port}}"><button class="btn-gold" onclick="saveMikrotik(${{id}})" style="width:100%;margin-top:4px;border-radius:9999px">{tr['save']}</button></div>`;
   document.getElementById("editModalTitle").textContent="{tr['edit']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.saveMikrotik=async function(id){{
@@ -728,7 +728,7 @@ window.delMk=async function(e, id){{
     <b>{tr['towers']}</b>
     <button class=btn-gold onclick="openNewTower()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_tower']}</button>
   </div>
-  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-item')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <input id="searchTowers" onkeyup="filterCards('searchTowers', '.tower-item')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
   <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">{towers_html}</div>
 </div>
 <script>
@@ -737,11 +737,11 @@ window.toggleTower = function(id) {{
   if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }};
 window.openNewTower=function(){{
-  document.getElementById("editBody").innerHTML=`<input id=nt_name placeholder="Name"><input id=nt_area placeholder="Area"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
+  document.getElementById("editBody").innerHTML=`<div autocomplete="off"><input id=nt_name placeholder="Name" autocomplete="off"><input id=nt_area placeholder="Area" autocomplete="off"><button class=btn-gold onclick="saveTower(0)" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button></div>`;
   document.getElementById("editModalTitle").textContent="{tr['add_tower']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.openEditTower=function(id, name, area){{
-  document.getElementById("editBody").innerHTML=`<input id=nt_name value="${{name}}"><input id=nt_area value="${{area}}"><button class=btn-gold onclick="saveTower(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>`;
+  document.getElementById("editBody").innerHTML=`<div autocomplete="off"><input id=nt_name value="${{name}}" autocomplete="off"><input id=nt_area value="${{area}}" autocomplete="off"><button class=btn-gold onclick="saveTower(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button></div>`;
   document.getElementById("editModalTitle").textContent="{tr['edit']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.saveTower=async function(id){{
@@ -757,12 +757,14 @@ window.delTower=async function(e, id){{
 }};
 window.openDishModal=function(id, tid, name, ip, loc, pwd){{
   document.getElementById("editBody").innerHTML=`
-    <input id="dish_name" placeholder="{tr['name']}" value="${{name}}">
-    <input id="dish_ip" placeholder="IP / Domain" value="${{ip}}">
-    <input id="dish_loc" placeholder="Location/Note" value="${{loc}}">
-    <input id="dish_pwd" type="password" placeholder="Password (Optional)" value="${{pwd}}">
-    <select id="dish_tid" style="font-weight:bold">{t_opts}</select>
-    <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    <div autocomplete="off">
+      <input id="dish_name" placeholder="{tr['name']}" value="${{name}}" autocomplete="off">
+      <input id="dish_ip" placeholder="IP / Domain" value="${{ip}}" autocomplete="off">
+      <input id="dish_loc" placeholder="Location/Note" value="${{loc}}" autocomplete="off">
+      <input id="dish_pwd" type="password" placeholder="Password (Optional)" value="${{pwd}}" autocomplete="new-password">
+      <select id="dish_tid" style="font-weight:bold" autocomplete="off">{t_opts}</select>
+      <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    </div>
   `;
   document.getElementById("dish_tid").value = tid;
   document.getElementById("editModalTitle").textContent = id===0 ? "{tr['add']}" : "{tr['edit']}";
@@ -807,18 +809,20 @@ window.delDish=async function(e, id){{
     <b>{tr['dishes']}</b>
     <button class=btn-gold onclick="openDishModal(0,0,'','','','')" style="padding:8px 16px;font-size:12px;border-radius:9999px;">{tr['add_dish']}</button>
   </div>
-  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.dish-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <input id="searchDishes" onkeyup="filterCards('searchDishes', '.dish-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-top:12px">{dishes_cards}</div>
 </div>
 <script>
 window.openDishModal=function(id, tid, name, ip, loc, pwd){{
   document.getElementById("editBody").innerHTML=`
-    <input id="dish_name" placeholder="{tr['name']}" value="${{name}}">
-    <input id="dish_ip" placeholder="IP / Domain" value="${{ip}}">
-    <input id="dish_loc" placeholder="Location/Note" value="${{loc}}">
-    <input id="dish_pwd" type="password" placeholder="Password (Optional)" value="${{pwd}}">
-    <select id="dish_tid" style="font-weight:bold">{t_opts}</select>
-    <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    <div autocomplete="off">
+      <input id="dish_name" placeholder="{tr['name']}" value="${{name}}" autocomplete="off">
+      <input id="dish_ip" placeholder="IP / Domain" value="${{ip}}" autocomplete="off">
+      <input id="dish_loc" placeholder="Location/Note" value="${{loc}}" autocomplete="off">
+      <input id="dish_pwd" type="password" placeholder="Password (Optional)" value="${{pwd}}" autocomplete="new-password">
+      <select id="dish_tid" style="font-weight:bold" autocomplete="off">{t_opts}</select>
+      <button class="btn-gold" onclick="saveDish(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    </div>
   `;
   document.getElementById("dish_tid").value = tid;
   document.getElementById("editModalTitle").textContent = id===0 ? "{tr['add']}" : "{tr['edit']}";
@@ -839,7 +843,7 @@ window.delDish=async function(e, id){{
 
     if v == 'ping':
         return f"""
-<div class=card><b>{tr['ping']}</b><div style="display:flex;gap:10px;margin-top:14px"><input id="pingIp" placeholder="IP / Domain" style="flex:1;margin:0"><button class="btn-gold" style="margin:0;border-radius:9999px;padding:0 20px" onclick="runPing()">Ping</button></div><div id="pingRes" style="margin-top:14px;padding:16px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.05);border-radius:12px;font-family:monospace;min-height:50px;color:#34d399;font-size:14px;text-align:center">Ready</div></div>
+<div class=card><b>{tr['ping']}</b><div style="display:flex;gap:10px;margin-top:14px"><input id="pingIp" placeholder="IP / Domain" style="flex:1;margin:0" autocomplete="off"><button class="btn-gold" style="margin:0;border-radius:9999px;padding:0 20px" onclick="runPing()">Ping</button></div><div id="pingRes" style="margin-top:14px;padding:16px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.05);border-radius:12px;font-family:monospace;min-height:50px;color:#34d399;font-size:14px;text-align:center">Ready</div></div>
 <script>
 window.runPing=async function(){{
   let ip=document.getElementById('pingIp').value.trim(); if(!ip)return;
@@ -853,7 +857,7 @@ window.runPing=async function(){{
         cards = "".join([f"""<div class="card net-card" id="net-card-{d['id']}" style="padding:12px;"><div style="display:flex;justify-content:space-between"><b style="font-size:13px">{esc(d.get('dish_name') or '--')}</b></div><div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center"><span class="ip" style="cursor:pointer;font-size:11px;padding:4px 8px" onclick="openLink('{esc(d.get('ip') or '')}')">{esc(d.get('ip') or '')}</span><span class="net-status badge" id="net-status-{d['id']}" style="background:rgba(255,255,255,0.1);color:#fff;font-size:10px;padding:4px 8px;">-</span></div></div>""" for d in dishes])
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['network']}</b><button class=btn-gold onclick="pingAllNetwork()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">Ping All</button></div>
-<input id="searchNetwork" onkeyup="filterCards('searchNetwork', '.net-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+<input id="searchNetwork" onkeyup="filterCards('searchNetwork', '.net-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--cs, 110px),1fr));gap:10px;margin-top:12px">{cards or f"<div class=card style='text-align:center;color:#666'>{tr['empty']}</div>"}</div>
 <script>
 window.pingAllNetwork=async function(){{
@@ -894,16 +898,18 @@ window.pingAllNetwork=async function(){{
     <b>{tr['subs']}</b>
     <button class=btn-gold onclick="openAddSubModal()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">+ {tr['add']}</button>
   </div>
-  <input id="searchSubs" onkeyup="filterCards('searchSubs', '.sub-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <input id="searchSubs" onkeyup="filterCards('searchSubs', '.sub-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-top:12px">{subs_cards}</div>
 </div>
 <script>
 window.openAddSubModal = function() {{
   document.getElementById("editBody").innerHTML=`
-    <input id="sub_name" placeholder="{tr['name']}">
-    <input id="sub_phone" placeholder="{tr['phone']}">
-    <input id="sub_note" placeholder="Note">
-    <button class="btn-gold" onclick="saveNewSub()" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    <div autocomplete="off">
+      <input id="sub_name" placeholder="{tr['name']}" autocomplete="off">
+      <input id="sub_phone" placeholder="{tr['phone']}" autocomplete="off">
+      <input id="sub_note" placeholder="Note" autocomplete="off">
+      <button class="btn-gold" onclick="saveNewSub()" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    </div>
   `;
   document.getElementById("editModalTitle").textContent = "{tr['add']} {tr['subs']}";
   document.getElementById("editModal").classList.add("show");
@@ -914,10 +920,12 @@ window.saveNewSub = async function() {{
 }};
 window.openEditSub = function(id, name, phone, note) {{
   document.getElementById("editBody").innerHTML=`
-    <input id="sub_name" value="${{name}}" placeholder="{tr['name']}">
-    <input id="sub_phone" value="${{phone}}" placeholder="{tr['phone']}">
-    <input id="sub_note" value="${{note}}" placeholder="Note">
-    <button class="btn-gold" onclick="saveSub(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    <div autocomplete="off">
+      <input id="sub_name" value="${{name}}" placeholder="{tr['name']}" autocomplete="off">
+      <input id="sub_phone" value="${{phone}}" placeholder="{tr['phone']}" autocomplete="off">
+      <input id="sub_note" value="${{note}}" placeholder="Note" autocomplete="off">
+      <button class="btn-gold" onclick="saveSub(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    </div>
   `;
   document.getElementById("editModalTitle").textContent = "{tr['edit']} {tr['subs']}";
   document.getElementById("editModal").classList.add("show");
@@ -954,17 +962,19 @@ window.delSub=async function(e, id){{
     <b>{tr['ledger']}</b>
     <button class=btn-gold onclick="openAddLedgerModal()" style="padding:8px 16px;font-size:12px;border-radius:9999px;">+ {tr['add']}</button>
   </div>
-  <input id="searchLedger" onkeyup="filterCards('searchLedger', '.ledger-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+  <input id="searchLedger" onkeyup="filterCards('searchLedger', '.ledger-card')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-top:12px">{ledger_cards}</div>
 </div>
 <script>
 window.openAddLedgerModal = function() {{
   document.getElementById("editBody").innerHTML=`
-    <input id="led_name" placeholder="Details">
-    <input id="led_amount" type="number" step="0.01" placeholder="Amount">
-    <input id="led_note" placeholder="Note">
-    <select id="led_curr"><option>USD</option><option>SYP</option></select>
-    <button class="btn-gold" onclick="saveNewLedger()" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    <div autocomplete="off">
+      <input id="led_name" placeholder="Details" autocomplete="off">
+      <input id="led_amount" type="number" step="0.01" placeholder="Amount" autocomplete="off">
+      <input id="led_note" placeholder="Note" autocomplete="off">
+      <select id="led_curr" autocomplete="off"><option>USD</option><option>SYP</option></select>
+      <button class="btn-gold" onclick="saveNewLedger()" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    </div>
   `;
   document.getElementById("editModalTitle").textContent = "{tr['add']} {tr['ledger']}";
   document.getElementById("editModal").classList.add("show");
@@ -975,11 +985,13 @@ window.saveNewLedger = async function() {{
 }};
 window.openEditLedger = function(id, name, amount, note, currency) {{
   document.getElementById("editBody").innerHTML=`
-    <input id="led_name" value="${{name}}" placeholder="Details">
-    <input id="led_amount" type="number" step="0.01" value="${{amount}}" placeholder="Amount">
-    <input id="led_note" value="${{note}}" placeholder="Note">
-    <select id="led_curr"><option ${{currency==='USD'?'selected':''}}>USD</option><option ${{currency==='SYP'?'selected':''}}>SYP</option></select>
-    <button class="btn-gold" onclick="saveLedger(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    <div autocomplete="off">
+      <input id="led_name" value="${{name}}" placeholder="Details" autocomplete="off">
+      <input id="led_amount" type="number" step="0.01" value="${{amount}}" placeholder="Amount" autocomplete="off">
+      <input id="led_note" value="${{note}}" placeholder="Note" autocomplete="off">
+      <select id="led_curr" autocomplete="off"><option ${{currency==='USD'?'selected':''}}>USD</option><option ${{currency==='SYP'?'selected':''}}>SYP</option></select>
+      <button class="btn-gold" onclick="saveLedger(${{id}})" style="width:100%;margin-top:8px;border-radius:9999px;">{tr['save']}</button>
+    </div>
   `;
   document.getElementById("editModalTitle").textContent = "{tr['edit']} {tr['ledger']}";
   document.getElementById("editModal").classList.add("show");
@@ -1001,7 +1013,7 @@ window.delLedger=async function(e, id){{
         clear_btn = f"""<button class="btn-glass btn-del" onclick="clearAllLogs()">{BTN_DEL} مسح السجل</button>""" if is_manager() else ""
         return f"""
 <div class=card style="display:flex;justify-content:space-between;align-items:center;padding:14px;"><b>{tr['logs']}</b>{clear_btn}</div>
-<input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;">
+<input id="searchLogs" onkeyup="filterTable('searchLogs', 'logsTable')" placeholder="{tr['search']}" style="margin-top:8px;width:100%;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
 <div style="overflow-x:auto; margin-top:12px"><table id="logsTable" style="width:100%;min-width:600px"><thead><tr><th>التاريخ</th><th>{tr['users']}</th><th>{tr['action']}</th><th>{tr['target']}</th><th>{tr['detail']}</th></tr></thead><tbody>{rows or '<tr><td colspan=5 style="text-align:center;color:#666">Empty</td></tr>'}</tbody></table></div>
 <script>
 window.clearAllLogs=async function(){{
@@ -1029,21 +1041,21 @@ window.clearAllLogs=async function(){{
   <div class=card style="margin-top:12px;padding:16px;">
     <b style="font-size:14px">⚙️ تعديل اسم Unassigned</b>
     <div style="display:flex;gap:10px;margin-top:12px">
-      <input id="unNameInput" type="text" value="{esc(cfg.get('unassigned_name', 'Unassigned'))}" style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;">
+      <input id="unNameInput" type="text" value="{esc(cfg.get('unassigned_name', 'Unassigned'))}" style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
       <button class=btn-gold onclick="saveUnassignedName()" style="margin:0;padding:0 20px;font-size:12px;border-radius:9999px;">{tr['save']}</button>
     </div>
   </div>
   <div class=card style="margin-top:12px;padding:16px;">
     <b style="font-size:14px">🔒 Change Password</b>
-    <form id=formPass style="display:flex;gap:10px;margin-top:12px">
-      <input name=newpass type=password placeholder="New Password" required style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;">
+    <form id=formPass style="display:flex;gap:10px;margin-top:12px" autocomplete="off">
+      <input name=newpass type=password placeholder="New Password" required style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;" autocomplete="new-password">
       <button class=btn-gold style="margin:0;padding:0 20px;font-size:12px;border-radius:9999px;">{tr['save']}</button>
     </form>
   </div>
   <div class=card style="margin-top:12px;padding:16px;">
     <b style="font-size:14px">🖥 UI Settings</b>
     <div style="display:flex;gap:10px;margin-top:12px">
-      <input id="cSize" type="number" placeholder="e.g. 120" value="{cfg.get('card_size','110')}" style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;">
+      <input id="cSize" type="number" placeholder="e.g. 120" value="{cfg.get('card_size','110')}" style="flex:1;margin:0;padding:12px;font-size:13px;border-radius:12px;" autocomplete="off">
       <button class=btn-gold onclick="saveCardSize()" style="margin:0;padding:0 20px;font-size:12px;border-radius:9999px;">{tr['save']}</button>
     </div>
     <small style="color:#94a3b8;display:block;margin-top:8px;font-size:11px;">Grid Card Size in px (Network & Towers pages).</small>
@@ -1062,20 +1074,24 @@ window.saveUnassignedName = async function(){{
 
 window.openAddUser=function(){{
   document.getElementById("editBody").innerHTML=`
-    <input id=u_name placeholder="Full Name">
-    <input id=u_phone placeholder="Login Username / Phone">
-    <input id=u_pass type=password placeholder="Password">
-    <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
-    <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:12px;border-radius:9999px;padding:12px">{tr['save']}</button>`;
+    <div autocomplete="off">
+      <input id=u_name placeholder="Full Name" autocomplete="off">
+      <input id=u_phone placeholder="Login Username / Phone" autocomplete="off">
+      <input id=u_pass type=password placeholder="Password" autocomplete="new-password">
+      <select id=u_role autocomplete="off"><option value="tech">Tech</option><option value="manager">Manager</option></select>
+      <button class=btn-gold onclick="saveUser(true)" style="width:100%;margin-top:12px;border-radius:9999px;padding:12px">{tr['save']}</button>
+    </div>`;
   document.getElementById("editModalTitle").textContent="{tr['add']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
 }};
 window.openEditUser=function(phone, name, role){{
   document.getElementById("editBody").innerHTML=`
-    <input id=u_name value="${{name}}" placeholder="Full Name">
-    <input id=u_phone value="${{phone}}" disabled style="opacity:0.5;cursor:not-allowed">
-    <input id=u_pass type=password placeholder="New Password (Optional)">
-    <select id=u_role><option value="tech">Tech</option><option value="manager">Manager</option></select>
-    <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:12px;border-radius:9999px;padding:12px">{tr['save']}</button>`;
+    <div autocomplete="off">
+      <input id=u_name value="${{name}}" placeholder="Full Name" autocomplete="off">
+      <input id=u_phone value="${{phone}}" disabled style="opacity:0.5;cursor:not-allowed">
+      <input id=u_pass type=password placeholder="New Password (Optional)" autocomplete="new-password">
+      <select id=u_role autocomplete="off"><option value="tech">Tech</option><option value="manager">Manager</option></select>
+      <button class=btn-gold onclick="saveUser(false)" style="width:100%;margin-top:12px;border-radius:9999px;padding:12px">{tr['save']}</button>
+    </div>`;
   document.getElementById("u_role").value = role;
   document.getElementById("editModalTitle").textContent="{tr['edit']} {tr['users']}"; document.getElementById("editModal").classList.add("show");
 }};
@@ -1195,7 +1211,7 @@ input:focus,select:focus{{border-color:#ffbe4d; background:rgba(0,0,0,0.4)}}
 </div>
 <div style="display:flex;align-items:center;gap:8px;">
   <a href="/api/set_lang/{tr['toggle_code']}" class="sq-btn view" style="text-decoration:none;">🌐 {tr['toggle_code'].upper()}</a>
-  <button onclick="toggleTheme()" class="sq-btn edit">{'🌙' if theme=='dark' else '☀️'}</button>
+  <button onclick="toggleTheme()" class="sq-btn edit" id="themeBtn">{'🌙' if theme=='dark' else '☀️'}</button>
 </div>
 </div>
 
@@ -1252,10 +1268,18 @@ window.toggleTheme = async function() {{
   let r = await fetch('/api/toggle_theme', {{method:'POST'}});
   let j = await r.json();
   if(j.ok) {{
-      let htmlTag = document.documentElement;
-      let bodyTag = document.body;
-      // تحديث فوري للثيم بدون ريلود
-      location.reload();
+      let newTheme = j.theme;
+      let btn = document.getElementById('themeBtn');
+      if(btn) btn.textContent = newTheme === 'dark' ? '🌙' : '☀️';
+      // تحديث الألوان الفوري بدون إعادة تحميل الصفحة
+      if(newTheme === 'dark') {{
+          document.body.style.background = 'radial-gradient(circle at 50% -20%, #1e293b 0%, #0f172a 40%, #020617 100%)';
+          document.body.style.color = '#f8fafc';
+      }} else {{
+          document.body.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%)';
+          document.body.style.color = '#0f172a';
+      }}
+      loadPage(cur, true);
   }}
 }};
 
